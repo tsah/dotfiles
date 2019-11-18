@@ -111,6 +111,7 @@ alias tailf="tail -f"
 alias gjava="ps -ef | grep java"
 alias kjava="pkill -9 java"
 alias update_zsh="~/dev/git/tsah-config/install-macos.bash && reload_zsh"
+alias glg='git log --graph --oneline --decorate --all'
 
 # Java, Scala, Maven, SBT configuration
 export BIN_HOME=/Users/$USER/dev/bin
