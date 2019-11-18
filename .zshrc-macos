@@ -148,7 +148,13 @@ export LESS='-R'
 export INTELLIJ_HOME=/Applications/IntelliJ\ IDEA\ CE.app/Contents/MacOS
 export PATH=$PATH:$INTELLIJ_HOME
 
-# plugin
-source ~/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+# plugins
+source <(antibody init)
+antibody bundle zdharma/fast-syntax-highlighting > ~/.zshrc.log
+antibody bundle zsh-users/zsh-autosuggestions > ~/.zshrc.log
+antibody bundle zsh-users/zsh-completions > ~/.zshrc.log
+antibody bundle robbyrussell/oh-my-zsh path:plugins/web-search > ~/.zshrc.log
+antibody bundle robbyrussell/oh-my-zsh path:plugins/sudo > ~/.zshrc.log
+
 # sdkman
 source "$HOME/.sdkman/bin/sdkman-init.sh"
