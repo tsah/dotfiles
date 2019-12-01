@@ -81,12 +81,12 @@ export SSH_KEY_PATH="~/.ssh/rsa_id"
 # For a full list of active aliases, run `alias`.
 #
 # Useful environment vars
-export DTC_TSAH_IP="10.235.44.71"
-export DTC_NIR_IP="10.235.44.67"
-export DTC_MICHAL_IP="10.235.44.73"
-export DTC_ILIA_IP="10.235.44.70"
-export DTC_NELLY_IP="10.235.44.65"
-export DTC_NAZARII_IP="10.235.44.79"
+export DTC_TSAH_IP="10.25.150.52"
+export DTC_NIR_IP=""
+export DTC_MICHAL_IP=""
+export DTC_ILIA_IP=""
+export DTC_NELLY_IP=""
+export DTC_NAZARII_IP=""
 
 # Useful linux/mac aliases
 alias atomzshrc="atom ~/.zshrc"
