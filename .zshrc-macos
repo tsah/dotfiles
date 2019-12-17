@@ -84,7 +84,7 @@ export SSH_KEY_PATH="~/.ssh/rsa_id"
 export DTC_TSAH_IP="10.25.150.52"
 export DTC_NIR_IP="10.25.150.49"
 export DTC_MICHAL_IP=""
-export DTC_ILIA_IP=""
+export DTC_ILIA_IP="10.25.150.55"
 export DTC_NELLY_IP=""
 export DTC_NAZARII_IP=""
 
