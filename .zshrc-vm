@@ -97,7 +97,9 @@ alias update_zsh="~/dev/git/tsah-config/install-vm.bash && reload_zsh"
 
 #Calais/DMS VM aliases
 alias calais="cd /clf/calais/v8/"
-alias calaisLogs="cd /clf/calais/v8/var/logs/coreCalais/"
+alias calaisLogs="cd /clf/calais/v8/var/logs/"
+alias calaislogscorecalais="cd /clf/calais/v8/var/logs/coreCalais"
+alias calaislogsmicroservices="cd /clf/calais/v8/var/logs/microservices"
 alias calaisBin="cd /clf/calais/v8/coreCalais/bin/"
 alias localWebsite="cd /clf/calais/v8/LocalWebsite/"
 alias calaisExt="cd /clf/calais/ext/"
