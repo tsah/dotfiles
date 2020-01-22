@@ -14,6 +14,8 @@ export DTC_ILIA_IP="10.25.150.55"
 export DTC_NELLY_IP=""
 export DTC_NAZARII_IP=""
 
+set pure_color_current_directory green
+
 function local-tsah
     ssh root@wsd1tsah
 end
