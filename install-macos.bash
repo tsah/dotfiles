@@ -13,8 +13,4 @@ DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 cd $DIR
 git pull
 cp zshrc-macos ~/.zshrc
-cp tsah.zsh-theme ~/.oh-my-zsh/themes/
-cd -
-cd ~
-source .zshrc
 cd -
