@@ -125,7 +125,7 @@ alias gc="git commit -m"
 alias ga="git add"
 alias gp="git push"
 alias ve="source venv/bin/activate"
-alias mux="tmuxinator"
+alias mux=". /Users/tsah/dev/tsah-config/ts.sh"
 
 eval $(thefuck --alias)
 
