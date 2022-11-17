@@ -126,6 +126,11 @@ alias ga="git add"
 alias gp="git push"
 alias ve="source venv/bin/activate"
 alias mux=". /Users/tsah/dev/tsah-config/ts.sh"
+alias x=". /Users/tsah/dev/tsah-config/ts.sh"
+alias lg="lazygit"
+alias v="nvim"
+alias pipr="pip install -r"
+alias pipu="pip install -U"
 
 eval $(thefuck --alias)
 
