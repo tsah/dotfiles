@@ -116,6 +116,7 @@ source /usr/local/opt/powerlevel10k/powerlevel10k.zsh-theme
 source /Users/tsah/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 alias ppp="/usr/local/Cellar/python@3.8/3.8.12_1/bin/python3.8"
+alias ve="source venv/bin/activate"
 alias ipy="ve && if python -m IPython; then echo bye; else pip install IPython && python -m IPython; fi"
 alias ll="exa -l --icons --no-user --group-directories-first --time-style long-iso"
 alias us="export AWS_DEFAULT_REGION=us-east-1"
@@ -124,9 +125,7 @@ alias ca="/Users/tsah/dev/ca.sh"
 alias gc="git commit -m"
 alias ga="git add"
 alias gp="git push"
-alias ve="source venv/bin/activate"
-alias mux=". /Users/tsah/dev/tsah-config/ts.sh"
-alias x=". /Users/tsah/dev/tsah-config/ts.sh"
+alias x=". ~/dotfiles/ts.sh"
 alias lg="lazygit"
 alias v="nvim"
 alias pipr="pip install -r"
