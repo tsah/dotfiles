@@ -134,10 +134,6 @@ alias pipu="pip install -U"
 
 eval $(thefuck --alias)
 
-#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
-export SDKMAN_DIR="$HOME/.sdkman"
-[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
-
 # Created by `pipx` on 2022-04-05 08:15:27
 export PATH="$PATH:/Users/tsah/.local/bin:/Users/tsah/dev/nvim-macos/bin"
 export EDITOR=nvim
@@ -145,19 +141,3 @@ export EDITOR=nvim
 autoload -U bashcompinit
 bashcompinit
 eval "$(register-python-argcomplete pipx)"
-
-# >>> conda initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="$('/Users/tsah/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "/Users/tsah/miniconda3/etc/profile.d/conda.sh" ]; then
-        . "/Users/tsah/miniconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="/Users/tsah/miniconda3/bin:$PATH"
-    fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
-

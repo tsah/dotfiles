@@ -1,4 +1,5 @@
 #!/bin/sh
+# Join or create tmux session
 
 # Set Session Name
 SESSION=$1
