@@ -40,12 +40,6 @@ nvim_tree.setup {
   },
   disable_netrw = true,
   hijack_netrw = true,
-  open_on_setup = false,
-  ignore_ft_on_setup = {
-    "startify",
-    "dashboard",
-    "alpha",
-  },
   open_on_tab = false,
   hijack_cursor = false,
   update_cwd = true,
@@ -77,8 +71,7 @@ nvim_tree.setup {
     timeout = 500,
   },
   view = {
-    width = 30,
-    height = 30,
+    width = 60,
     hide_root_folder = false,
     side = "left",
     adaptive_size = true,
@@ -99,7 +92,7 @@ nvim_tree.setup {
   },
   actions = {
     open_file = {
-      quit_on_open = false,
+      quit_on_open = true,
     }
   },
 }
