@@ -7,7 +7,9 @@ ln -sf ~/dotfiles/.yabairc ~/.yabairc
 ln -sf ~/dotfiles/.skhdrc ~/.skhdrc
 
 pushd ~
-git clone https://github.com/gpakosz/.tmux.git
-ln -s -f .tmux/.tmux.conf
-cp .tmux/.tmux.conf.local .
+if [ ! -d .tmux ]; then
+  git clone https://github.com/gpakosz/.tmux.git
+  ln -s -f .tmux/.tmux.conf
+fi
+cp ~/dotfiles/.tmux.conf.local .
 popd
