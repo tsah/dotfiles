@@ -13,8 +13,8 @@ then
     tmux new-session -d -s $SESSION
 
     # Name first window and start zsh
-    tmux rename-window -t 0 'Main'
+    tmux rename-window -t 1 'Main'
 fi
 
 # Attach Session, on the Main window
-tmux attach-session -t $SESSION:0
+tmux attach-session -t $SESSION:1
