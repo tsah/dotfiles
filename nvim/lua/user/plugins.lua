@@ -67,7 +67,7 @@ return packer.startup(function(use)
 
   -- Colorschemes
   -- use "lunarvim/darkplus.nvim"
-  use { "catppuccin/nvim", as = "catppuccin" }
+  use { "catppuccin/nvim", as = "mocha" }
 
   -- LSP
   use "tamago324/nlsp-settings.nvim" -- language server settings defined use {
@@ -127,6 +127,7 @@ return packer.startup(function(use)
   use "lewis6991/gitsigns.nvim"
 
   -- DAP
+  use { "rcarriga/nvim-dap-ui", requires = {"mfussenegger/nvim-dap"} }
   use {
     'mfussenegger/nvim-dap-python',
     config = function ()
@@ -134,6 +135,8 @@ return packer.startup(function(use)
       require('dap-python').test_runner = 'pytest'
     end
   }
+  -- tmux
+  use 'christoomey/vim-tmux-navigator'
   -- Automatically set up your configuration after cloning packer.nvim
   -- Put this at the end after all plugins
   if PACKER_BOOTSTRAP then
