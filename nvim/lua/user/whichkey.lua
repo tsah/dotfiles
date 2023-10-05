@@ -29,7 +29,7 @@ local setup = {
   key_labels = {
     -- override the label used to display some keys. It doesn't effect WK in any other way.
     -- For example:
-    -- ["<space>"] = "SPC",
+    -- ["<space>"] = "SPC",which
     -- ["<cr>"] = "RET",
     -- ["<tab>"] = "TAB",
   },
@@ -115,12 +115,9 @@ local normal_mappings = {
     }
   },
   p = {
-    name = "Packer",
-    c = { "<cmd>PackerCompile<cr>", "Compile" },
-    i = { "<cmd>PackerInstall<cr>", "Install" },
-    s = { "<cmd>PackerSync<cr>", "Sync" },
-    S = { "<cmd>PackerStatus<cr>", "Status" },
-    u = { "<cmd>PackerUpdate<cr>", "Update" },
+    name = "harpoon",
+    a = { "<cmd>lua require('harpoon.mark').add_file()<cr>", "add mark" },
+    m = { "<cmd>lua require('harpoon.ui').toggle_quick_menu()<cr>", "menu" },
   },
 
   g = {
