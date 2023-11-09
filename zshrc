@@ -130,6 +130,7 @@ alias lg="lazygit"
 alias v="nvim"
 alias pipr="pip install -r"
 alias pipu="pip install -U"
+alias alikebot="git co alikebot-update-packages && git fetch origin && git reset --hard origin/alikebot-update-packages"
 
 eval $(thefuck --alias)
 
