@@ -56,7 +56,7 @@ plugins = {
   -- Colorschemes
   -- "lunarvim/darkplus.nvim"
   { "catppuccin/nvim", as = "mocha" },
-  'overcache/NeoSolarized',
+  -- 'overcache/NeoSolarized',
 
   -- LSP
   "tamago324/nlsp-settings.nvim", -- language server settings defined {
