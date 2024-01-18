@@ -17,6 +17,7 @@ local config = {
 
 	font_size = 20,
 	font = wezterm.font "Hack Nerd Font",
+  front_end = 'WebGpu',
 
 
 	window_padding = {
