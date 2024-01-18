@@ -24,6 +24,7 @@ plugins = {
   "lukas-reineke/indent-blankline.nvim",
   "antoinemadec/FixCursorHold.nvim", -- This is needed to fix lsp doc highlight
   "folke/which-key.nvim",
+  "gcmt/wildfire.vim",
   { 'echasnovski/mini.nvim', branch = 'stable' },
   {
     "folke/flash.nvim",
@@ -55,6 +56,7 @@ plugins = {
   -- Colorschemes
   -- "lunarvim/darkplus.nvim"
   { "catppuccin/nvim", as = "mocha" },
+  'overcache/NeoSolarized',
 
   -- LSP
   "tamago324/nlsp-settings.nvim", -- language server settings defined {
