@@ -131,6 +131,9 @@ alias v="nvim"
 alias pipr="pip install -r"
 alias pipu="pip install -U"
 alias alikebot="git co alikebot-update-packages && git fetch origin && git reset --hard origin/alikebot-update-packages"
+alias mastermaster="git co master && git fetch origin && git reset --hard origin/master"
+alias proj="ve && pipr requirements.txt && v"
+alias vev="ve && v"
 
 eval $(thefuck --alias)
 
