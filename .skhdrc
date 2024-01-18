@@ -11,16 +11,51 @@ shift + alt - k : yabai -m window --warp north
 shift + alt - l : yabai -m window --warp east
 
 # Move focus container to workspace
-shift + alt - m : yabai -m window --space last; yabai -m space --focus last
-shift + alt - p : yabai -m window --space prev; yabai -m space --focus prev
-shift + alt - n : yabai -m window --space next; yabai -m space --focus next
+# shift + alt - p : yabai -m window --space prev; yabai -m space --focus prev
+# shift + alt - n : yabai -m window --space next; yabai -m space --focus next
 shift + alt - 1 : yabai -m window --space 1; yabai -m space --focus 1
 shift + alt - 2 : yabai -m window --space 2; yabai -m space --focus 2
 shift + alt - 3 : yabai -m window --space 3; yabai -m space --focus 3
 shift + alt - 4 : yabai -m window --space 4; yabai -m space --focus 4
 shift + alt - 5 : yabai -m window --space 5; yabai -m space --focus 5
 shift + alt - 6 : yabai -m window --space 6; yabai -m space --focus 6
+ctrl + alt - x  : yabai -m display --focus recent
+ctrl + alt - z  : yabai -m display --focus prev
+ctrl + alt - c  : yabai -m display --focus next
+cmd - 0 : open -na 'google chrome'
 
+alt - tab : yabai -m space --focus next
+alt - escape : yabai -m space --focus prev
+
+alt - e : yabai -m space --toggle show-desktop
+
+# Create space and focus on it
+alt - n : yabai -m space --create && \
+	index="$(yabai -m query --spaces --display | jq 'map(select(."is-native-fullscreen" == false))[-1].index')" && \
+	yabai -m space --focus "${index}"
+
+# create space and send current window to it, follow focus
+ctrl + alt - n : yabai -m space --create && \
+	index="$(yabai -m query --spaces --display | jq 'map(select(."is-native-fullscreen" == false))[-1].index')" && \
+	yabai -m window --space "${index}" && \
+	yabai -m space --focus "${index}"
+
+# Delete current space
+ctrl + alt - backspace :
+	index="$(yabai -m query --spaces --display | jq 'map(select(."has-focus" == true))[0].index')" && \
+	yabai -m space --destroy && \
+	yabai -m space --focus "${index}" || yabai -m space --focus "$(($index - 1))" \
+	&& yabai -m query --spaces --display | \
+	jq -re 'map(select(."is-native-fullscreen" == false)) | length > 1' \
+	&& yabai -m query --spaces | \
+	jq -re 'map(select(."windows" == []).index) | reverse | .[] ' | \
+	xargs -I % sh -c 'yabai -m space % --destroy'
+
+cmd - g : yabai -m window --toggle zoom-fullscreen
+
+cmd - s [
+	"google chrome" : skhd --key "cmd + shift - h"
+]
 # Resize windows
 ctrl + alt - h : yabai -m window --resize left:-50:0; \
                   yabai -m window --resize right:-50:0
@@ -65,10 +100,6 @@ shift + ctrl + alt - r : \
 # Make window native fullscreen
 alt - f         : yabai -m window --toggle zoom-fullscreen
 shift + alt - f : yabai -m window --toggle native-fullscreen
-
-# send window to monitor and follow focus
-ctrl + alt - n : yabai -m window --display next; yabai -m display --focus next 
-ctrl + alt - p : yabai -m window --display prev; yabai -m display --focus prev 
 
 # fast focus desktop
 alt - tab : yabai -m space --focus recent
