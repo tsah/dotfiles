@@ -2,7 +2,7 @@ local opts = { noremap = true, silent = true }
 
 local term_opts = { silent = true }
 
--- Shorten function name
+-- Sporten function name
 local keymap = vim.api.nvim_set_keymap
 
 --Remap space as leader key
@@ -47,9 +47,9 @@ keymap("n", "<S-Right>", ":vertical resize +2<CR>", opts)
 keymap("n", "<S-l>", ":bnext<CR>", opts)
 keymap("n", "<S-h>", ":bprevious<CR>", opts)
 
--- Move text up and down
-keymap("n", "<A-j>", "<Esc>:m .+1<CR>==gi", opts)
-keymap("n", "<A-k>", "<Esc>:m .-2<CR>==gi", opts)
+-- Navigate quickfix list
+keymap("n", "<A-j>", "<cmd>cnext<CR>zz", opts)
+keymap("n", "<A-k>", "<cmd>cprev<CR>zz", opts)
 
 -- Insert --
 -- Press jk fast to enter
