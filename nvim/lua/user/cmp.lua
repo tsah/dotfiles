@@ -42,6 +42,7 @@ local kind_icons = {
   Event = "?",
   Operator = "?",
   TypeParameter = "?",
+  Copilot = "?"
 }
 -- find more here: https://www.nerdfonts.com/cheat-sheet
 
@@ -77,12 +78,14 @@ cmp.setup {
         luasnip = "[Snippet]",
         buffer = "[Buffer]",
         path = "[Path]",
+        copilot = "[Copilot]"
       })[entry.source.name]
       return vim_item
     end,
   },
   sources = cmp.config.sources({
     { name = "nvim_lsp" },
+    { name = "copilot"},
     { name = "luasnip" },
     { name = "buffer" },
     { name = "path" },

@@ -94,4 +94,7 @@ M.on_attach = function(client, bufnr)
   lsp_highlight_document(client)
 end
 
+require("typescript-tools").setup({
+  on_attach = M.on_attach
+})
 return M

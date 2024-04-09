@@ -18,7 +18,12 @@ plugins = {
   "nvim-lua/popup.nvim", -- An implementation of the Popup API from vim in Neovim
   "nvim-lua/plenary.nvim", -- Useful lua functions used ny lots of plugins
   "kyazdani42/nvim-web-devicons",
-  "kyazdani42/nvim-tree.lua",
+  "kyazdani42/nvim-tree.lua",{
+  'stevearc/oil.nvim',
+    opts = {},
+    -- Optional dependencies
+    dependencies = { "nvim-tree/nvim-web-devicons" },
+  },
   "akinsho/toggleterm.nvim",
   "lewis6991/impatient.nvim",
   "lukas-reineke/indent-blankline.nvim",
@@ -34,6 +39,9 @@ plugins = {
         modes = {
           char = {
             enabled = false
+          },
+          search = {
+            enabled = false
           }
         }
       },
@@ -43,6 +51,14 @@ plugins = {
       { "S", mode = { "n", "o", "x" }, function() require("flash").treesitter() end, desc = "Flash Treesitter" },
       { "<c-s>", mode = { "c" }, function() require("flash").toggle() end, desc = "Toggle Flash Search" },
     },
+  },
+  {
+    "folke/noice.nvim",
+    event = "VeryLazy",
+    dependencies = {
+      "MunifTanjim/nui.nvim",
+      "rcarriga/nvim-notify",
+    }
   },
   { 'FooSoft/vim-argwrap'},
   {"ThePrimeagen/harpoon"},
@@ -76,6 +92,11 @@ plugins = {
     },
   },
   'simrat39/rust-tools.nvim',
+  {
+    "pmizio/typescript-tools.nvim",
+    dependencies = { "nvim-lua/plenary.nvim", "neovim/nvim-lspconfig" },
+    opts = {},
+  },
 
   -- Autocompletion
   {'hrsh7th/nvim-cmp'},
@@ -84,7 +105,17 @@ plugins = {
   {'saadparwaiz1/cmp_luasnip'},
   {'hrsh7th/cmp-nvim-lsp'},
   {'hrsh7th/cmp-nvim-lua'},
-
+  {
+      "zbirenbaum/copilot.lua",
+      cmd = "Copilot",
+      event = "InsertEnter",
+  }, 
+  {
+      "zbirenbaum/copilot-cmp",
+      config = function()
+          require("copilot_cmp").setup()
+      end,
+  },
   -- Snippets
   {'L3MON4D3/LuaSnip'},
   {'rafamadriz/friendly-snippets'},

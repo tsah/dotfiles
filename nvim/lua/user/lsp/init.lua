@@ -9,6 +9,7 @@ require "user.lsp.null-ls"
 require "user.lsp.metals"
 
 require('rust-tools').setup({})
+require("typescript-tools").setup({})
 require "lsp_signature".setup({
     bind = true, -- This is mandatory, otherwise border config won't get registered.
     handler_opts = {
