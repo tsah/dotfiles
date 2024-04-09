@@ -50,6 +50,7 @@ keymap("n", "<S-h>", ":bprevious<CR>", opts)
 -- Navigate quickfix list
 keymap("n", "<A-j>", "<cmd>cnext<CR>zz", opts)
 keymap("n", "<A-k>", "<cmd>cprev<CR>zz", opts)
+keymap("n", "gl", '<cmd>lua vim.diagnostic.open_float({ border = "rounded" })<CR>', opts)
 
 -- Insert --
 -- Press jk fast to enter

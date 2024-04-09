@@ -134,6 +134,7 @@ alias alikebot="git co alikebot-update-packages && git fetch origin && git reset
 alias mastermaster="git co master && git fetch origin && git reset --hard origin/master"
 alias proj="ve && pipr requirements.txt && v"
 alias vev="ve && v"
+alias reset_py="rm -rf venv && virtualenv --python /Users/tsah/.pyenv/versions/3.11.6/bin/python venv && ve"
 
 eval $(thefuck --alias)
 
