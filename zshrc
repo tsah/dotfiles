@@ -144,11 +144,8 @@ export EDITOR=nvim
 
 autoload -U bashcompinit
 bashcompinit
-eval "$(register-python-argcomplete pipx)"
+eval "$(pyenv init --path)"
 eval "$(zoxide init zsh)"
 
 (ca > /dev/null) &
 disown %1
-
-# Added by Amplify CLI binary installer
-export PATH="$HOME/.amplify/bin:$PATH"
