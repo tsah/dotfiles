@@ -101,6 +101,16 @@ local config = {
 				act.SendKey({ key = "p" }),
 			}),
 		},
+    {
+      mods = "OPT",
+      key = "LeftArrow",
+      action = wezterm.action({SendString="\x1bb"}),
+    },
+    {
+      mods = "OPT",
+      key = "RightArrow",
+      action = wezterm.action{SendString="\x1bf"},
+    }
 	},
 }
 
