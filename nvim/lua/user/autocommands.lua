@@ -15,7 +15,15 @@ vim.cmd [[
   augroup _python
     autocmd!
     autocmd FileType python setlocal colorcolumn=99
+    autocmd FileType python setlocal shiftwidth=4
+    autocmd FileType python setlocal tabstop=4
+    autocmd FileType python setlocal expandtab
   augroup end
+
+  augroup CIndentation
+      autocmd!
+      autocmd FileType c setlocal shiftwidth=2 tabstop=2 expandtab
+  augroup END
 
   augroup _git
     autocmd!
