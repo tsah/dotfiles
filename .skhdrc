@@ -64,7 +64,7 @@ ctrl + alt - backspace :
 	jq -re 'map(select(."windows" == []).index) | reverse | .[] ' | \
 	xargs -I % sh -c 'yabai -m space % --destroy'
 
-cmd - z : yabai -m window --toggle zoom-fullscreen
+alt - z : yabai -m window --toggle zoom-fullscreen
 
 # Resize windows
 ctrl + alt - h : yabai -m window --resize left:-50:0; \
