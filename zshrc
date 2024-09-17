@@ -149,3 +149,5 @@ eval "$(zoxide init zsh)"
 
 (ca > /dev/null) &
 disown %1
+
+. "$HOME/.cargo/env"
