@@ -28,7 +28,7 @@ plugins = {
   "lewis6991/impatient.nvim",
   "lukas-reineke/indent-blankline.nvim",
   "antoinemadec/FixCursorHold.nvim", -- This is needed to fix lsp doc highlight
-  "folke/which-key.nvim",
+  {"folke/which-key.nvim"},
   "gcmt/wildfire.vim",
   { 'echasnovski/mini.nvim', branch = 'stable' },
   {
@@ -105,15 +105,32 @@ plugins = {
   -- {'saadparwaiz1/cmp_luasnip'},
   {'hrsh7th/cmp-nvim-lsp'},
   {'hrsh7th/cmp-nvim-lua'},
-  -- {
-  --     "zbirenbaum/copilot.lua",
-  --     cmd = "Copilot",
-  --     event = "InsertEnter",
-  -- }, 
-  -- Snippets
-  -- {'L3MON4D3/LuaSnip'},
   {'rafamadriz/friendly-snippets'},
-
+  -- AI assistant
+  -- {
+  --   "jackMort/ChatGPT.nvim",
+  --     event = "VeryLazy",
+  --     dependencies = {
+  --       "MunifTanjim/nui.nvim",
+  --       "nvim-lua/plenary.nvim",
+  --       "folke/trouble.nvim",
+  --       "nvim-telescope/telescope.nvim"
+  --     }
+   -- },
+ {
+    "robitx/gp.nvim",
+    config = function()
+        require("gp").setup({
+          openai_api_key = {"cat", "/Users/tsah/openai_key"},
+          providers = {
+            anthropic = {
+              endpoint = "https://api.anthropic.com/v1/messages",
+              secret = {"cat", "/Users/tsah/anthropic_key"},
+            },
+          }
+        })
+    end,
+},
   -- Telescope
   "nvim-telescope/telescope.nvim",
   {
@@ -151,8 +168,20 @@ plugins = {
     end
   },
   -- tmux
-  'christoomey/vim-tmux-navigator'
-
+  {
+    'mrjones2014/smart-splits.nvim',
+    config = function()
+      require('smart-splits').setup()
+    end,
+  },
+  -- markdown
+  {
+    'MeanderingProgrammer/render-markdown.nvim',
+    opts = {},
+    dependencies = { 'nvim-treesitter/nvim-treesitter', 'echasnovski/mini.nvim' }, -- if you use the mini.nvim suite
+    -- dependencies = { 'nvim-treesitter/nvim-treesitter', 'echasnovski/mini.icons' }, -- if you use standalone mini plugins
+    dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' }, -- if you prefer nvim-web-devicons
+  }
 }
 require("lazy").setup(plugins)
 
