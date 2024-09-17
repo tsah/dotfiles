@@ -9,7 +9,7 @@
 -- https://wezfurlong.org/wezterm/
 
 local k = require("utils/keys")
-local p = require('projects')
+
 local wezterm = require("wezterm")
 local ss = require("smart_splits")
 local act = wezterm.action
@@ -28,71 +28,164 @@ local config = {
 		bottom = 10,
 	},
 
+
 	-- general options
 	adjust_window_size_when_changing_font_size = false,
 	debug_key_events = false,
-	enable_tab_bar = true,
+	enable_tab_bar = false,
 	native_macos_fullscreen_mode = false,
 	window_close_confirmation = "NeverPrompt",
 	window_decorations = "RESIZE",
 
-  -- tab bar
-  use_fancy_tab_bar = true,
-  window_frame = {
-    font = wezterm.font { family = "Hack Nerd Font", weight = 'Bold'},
-    font_size = 18.0,
-  },
-
 	-- keys
-  leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 5000 },
 	keys = {
+		k.cmd_key(".", k.multiple_actions(":ZenMode")),
+		k.cmd_key("[", act.SendKey({ mods = "CTRL", key = "o" })),
+		k.cmd_key("]", act.SendKey({ mods = "CTRL", key = "i" })),
+		k.cmd_key("q", k.multiple_actions(":qa!")),
+		k.cmd_to_tmux_prefix("1", "1"),
+		k.cmd_to_tmux_prefix("2", "2"),
+		k.cmd_to_tmux_prefix("3", "3"),
+		k.cmd_to_tmux_prefix("4", "4"),
+		k.cmd_to_tmux_prefix("5", "5"),
+		k.cmd_to_tmux_prefix("6", "6"),
+		k.cmd_to_tmux_prefix("7", "7"),
+		k.cmd_to_tmux_prefix("8", "8"),
+		k.cmd_to_tmux_prefix("9", "9"),
+		k.cmd_to_tmux_prefix("`", "n"),
+		k.cmd_to_tmux_prefix("b", "B"),
+		k.cmd_to_tmux_prefix("C", "C"),
+		k.cmd_to_tmux_prefix("d", "D"),
+		k.cmd_to_tmux_prefix("G", "G"),
+		k.cmd_to_tmux_prefix("g", "g"),
+		k.cmd_to_tmux_prefix("j", "T"),
+		k.cmd_to_tmux_prefix("l", "L"),
+		k.cmd_to_tmux_prefix("n", '"'),
+		k.cmd_to_tmux_prefix("N", "%"),
+		k.cmd_to_tmux_prefix("o", "u"),
+		k.cmd_to_tmux_prefix("T", "!"),
+		k.cmd_to_tmux_prefix("t", "c"),
+		k.cmd_to_tmux_prefix("w", "x"),
+		k.cmd_to_tmux_prefix("z", "z"),
+
+		k.cmd_key(
+			"s",
+			act.Multiple({
+				act.SendKey({ key = "\x1b" }), -- escape
+				k.multiple_actions(":w"),
+			})
+		),
+
+		{
+			mods = "CTRL",
+			key = "Tab",
+			action = act.Multiple({
+				act.SendKey({ mods = "CTRL", key = "b" }),
+				act.SendKey({ key = "n" }),
+			}),
+		},
+
+		{
+			mods = "CTRL|SHIFT",
+			key = "Tab",
+			action = act.Multiple({
+				act.SendKey({ mods = "CTRL", key = "b" }),
+				act.SendKey({ key = "n" }),
+			}),
+		},
+
+		{
+			mods = "CMD",
+			key = "~",
+			action = act.Multiple({
+				act.SendKey({ mods = "CTRL", key = "b" }),
+				act.SendKey({ key = "p" }),
+			}),
+		},
     {
-      key = 'p',
-      mods = 'CMD',
-      action = p.choose_project(),
+      mods = "OPT",
+      key = "LeftArrow",
+      action = wezterm.action({SendString="\x1bb"}),
     },
     {
-      key = 'v',
-      mods = 'LEADER',
-      action = wezterm.action.SplitHorizontal { domain = 'CurrentPaneDomain' },
-    },
-    {
-      key = 'h',
-      mods = 'LEADER',
-      action = wezterm.action.SplitVertical { domain = 'CurrentPaneDomain' },
-    },
-    {
-      key = 'z',
-      mods = 'CTRL',
-      action = wezterm.action.TogglePaneZoomState
-    },
-    { key = 'LeftArrow', mods = 'SHIFT', action = act.ActivateTabRelative(-1) },
-    { key = 'RightArrow', mods = 'SHIFT', action = act.ActivateTabRelative(1) },
+      mods = "OPT",
+      key = "RightArrow",
+      action = wezterm.action{SendString="\x1bf"},
+    }
 	},
 }
 
-wezterm.on('update-status', function(window)
-  -- Grab the utf8 character for the "powerline" left facing
-  -- solid arrow.
-  local SOLID_LEFT_ARROW = utf8.char(0xe0b2)
+wezterm.on("user-var-changed", function(window, pane, name, value)
+	-- local appearance = window:get_appearance()
+	-- local is_dark = appearance:find("Dark")
+	local overrides = window:get_config_overrides() or {}
+	wezterm.log_info("name", name)
+	wezterm.log_info("value", value)
 
-  -- Grab the current window's configuration, and from it the
-  -- palette (this is the combination of your chosen colour scheme
-  -- including any overrides).
-  local color_scheme = window:effective_config().resolved_palette
-  local bg = color_scheme.background
-  local fg = color_scheme.foreground
+	if name == "T_SESSION" then
+		local session = value
+		wezterm.log_info("is session", session)
+		overrides.background = {
+			w.set_tmux_session_wallpaper(value),
+			{
+				source = {
+					Gradient = {
+						colors = { "#000000" },
+					},
+				},
+				width = "100%",
+				height = "100%",
+				opacity = 0.95,
+			},
+		}
+	end
 
-  window:set_right_status(wezterm.format({
-    -- First, we draw the arrow...
-    { Background = { Color = 'none' } },
-    { Foreground = { Color = bg } },
-    { Text = SOLID_LEFT_ARROW },
-    -- Then we draw our text
-    { Background = { Color = bg } },
-    { Foreground = { Color = fg } },
-    { Text = ' ' .. wezterm.hostname() .. ' ' },
-  }))
+	if name == "ZEN_MODE" then
+		local incremental = value:find("+")
+		local number_value = tonumber(value)
+		if incremental ~= nil then
+			while number_value > 0 do
+				window:perform_action(wezterm.action.IncreaseFontSize, pane)
+				number_value = number_value - 1
+			end
+		elseif number_value < 0 then
+			window:perform_action(wezterm.action.ResetFontSize, pane)
+			overrides.font_size = nil
+		else
+			overrides.font_size = number_value
+		end
+	end
+	if name == "DIFF_VIEW" then
+		local incremental = value:find("+")
+		local number_value = tonumber(value)
+		if incremental ~= nil then
+			while number_value > 0 do
+				window:perform_action(wezterm.action.DecreaseFontSize, pane)
+				number_value = number_value - 1
+			end
+			-- overrides.background = {
+			-- 	w.set_nvim_wallpaper("Diffview.jpeg"),
+			--
+			-- 	{
+			-- 		source = {
+			-- 			Gradient = {
+			-- 				colors = { "#000000" },
+			-- 			},
+			-- 		},
+			-- 		width = "100%",
+			-- 		height = "100%",
+			-- 		opacity = 0.95,
+			-- 	},
+			-- }
+		elseif number_value < 0 then
+			window:perform_action(wezterm.action.ResetFontSize, pane)
+			overrides.background = nil
+			overrides.font_size = nil
+		else
+			overrides.font_size = number_value
+		end
+	end
+	window:set_config_overrides(overrides)
 end)
 
 ss.apply_mappings(config.keys)
