@@ -6,7 +6,7 @@ local project_roots = { "/Users/tsah/dev/git/", "/Users/tsah/dev/git/personal" }
 local function project_dirs()
   -- Start with your home directory as a project, 'cause you might want
   -- to jump straight to it sometimes.
-  local projects = { wezterm.home_dir , "/Users/tsah/dotfiles"}
+  local projects = { wezterm.home_dir , "/Users/tsah/dotfiles", "/Users/tsah/Dropbox/tsahs-vault/"}
 
   -- WezTerm comes with a glob function! Let's use it to get a lua table
   -- containing all subdirectories of your project folder.

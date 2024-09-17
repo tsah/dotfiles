@@ -11,6 +11,7 @@
 local k = require("utils/keys")
 local p = require('projects')
 local wezterm = require("wezterm")
+local ss = require("smart_splits")
 local act = wezterm.action
 
 local config = {
@@ -52,12 +53,12 @@ local config = {
     },
     {
       key = 'v',
-      mods = 'CTRL',
+      mods = 'LEADER',
       action = wezterm.action.SplitHorizontal { domain = 'CurrentPaneDomain' },
     },
     {
       key = 'h',
-      mods = 'CTRL',
+      mods = 'LEADER',
       action = wezterm.action.SplitVertical { domain = 'CurrentPaneDomain' },
     },
     {
@@ -93,5 +94,7 @@ wezterm.on('update-status', function(window)
     { Text = ' ' .. wezterm.hostname() .. ' ' },
   }))
 end)
+
+ss.apply_mappings(config.keys)
 
 return config
