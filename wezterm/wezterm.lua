@@ -11,7 +11,7 @@
 local k = require("utils/keys")
 
 local wezterm = require("wezterm")
-local ss = require("smart_splits")
+-- local ss = require("smart_splits")
 local act = wezterm.action
 
 local config = {
@@ -188,6 +188,6 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
 	window:set_config_overrides(overrides)
 end)
 
-ss.apply_mappings(config.keys)
+-- ss.apply_mappings(config.keys)
 
 return config

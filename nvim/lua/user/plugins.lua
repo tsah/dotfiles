@@ -28,7 +28,20 @@ plugins = {
   "lewis6991/impatient.nvim",
   "lukas-reineke/indent-blankline.nvim",
   "antoinemadec/FixCursorHold.nvim", -- This is needed to fix lsp doc highlight
-  {"folke/which-key.nvim"},
+  {
+    "folke/which-key.nvim",
+    event = "VeryLazy",
+    opts = {},
+    keys = {
+      {
+        "<leader>?",
+        function()
+          require("which-key").show({ global = false })
+        end,
+        desc = "Buffer Local Keymaps (which-key)",
+      },
+    },
+  },
   "gcmt/wildfire.vim",
   { 'echasnovski/mini.nvim', branch = 'stable' },
   {
