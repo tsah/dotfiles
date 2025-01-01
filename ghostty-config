@@ -1,0 +1,5 @@
+font-size = 20
+font-family = Hack
+
+keybind = cmd+t=text:\x02c
+keybind = cmd+x=text:\x02x
