@@ -119,31 +119,66 @@ plugins = {
   {'hrsh7th/cmp-nvim-lsp'},
   {'hrsh7th/cmp-nvim-lua'},
   {'rafamadriz/friendly-snippets'},
-  -- AI assistant
-  -- {
-  --   "jackMort/ChatGPT.nvim",
-  --     event = "VeryLazy",
-  --     dependencies = {
-  --       "MunifTanjim/nui.nvim",
-  --       "nvim-lua/plenary.nvim",
-  --       "folke/trouble.nvim",
-  --       "nvim-telescope/telescope.nvim"
-  --     }
-   -- },
- {
-    "robitx/gp.nvim",
+  -- AI autocompletion
+  {
+    "supermaven-inc/supermaven-nvim",
     config = function()
-        require("gp").setup({
-          openai_api_key = {"cat", "/Users/tsah/openai_key"},
-          providers = {
-            anthropic = {
-              endpoint = "https://api.anthropic.com/v1/messages",
-              secret = {"cat", "/Users/tsah/anthropic_key"},
-            },
-          }
-        })
+      require("supermaven-nvim").setup({})
     end,
-},
+  },
+  -- AI assistants
+  {
+    "yetone/avante.nvim",
+    event = "VeryLazy",
+    lazy = false,
+    version = false, -- set this if you want to always pull the latest change
+    opts = {
+      -- add any opts here
+    },
+    build = "make",
+    dependencies = {
+      "stevearc/dressing.nvim",
+      "nvim-lua/plenary.nvim",
+      "MunifTanjim/nui.nvim",
+      "hrsh7th/nvim-cmp", -- autocompletion for avante commands and mentions
+      "nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
+      "zbirenbaum/copilot.lua", -- for providers='copilot'
+      {
+        "HakonHarnes/img-clip.nvim",
+        event = "VeryLazy",
+        opts = {
+          default = {
+            embed_image_as_base64 = false,
+            prompt_for_file_name = false,
+            drag_and_drop = {
+              insert_mode = true,
+            },
+          },
+        },
+      },
+      {
+        'MeanderingProgrammer/render-markdown.nvim',
+        opts = {
+          file_types = { "markdown", "Avante" },
+        },
+        ft = { "markdown", "Avante" },
+      },
+    },
+  },
+--  {
+--     "robitx/gp.nvim",
+--     config = function()
+--         require("gp").setup({
+--           openai_api_key = {"cat", "/Users/tsah/openai_key"},
+--           providers = {
+--             anthropic = {
+--               endpoint = "https://api.anthropic.com/v1/messages",
+--               secret = {"cat", "/Users/tsah/anthropic_key"},
+--             },
+--           }
+--         })
+--     end,
+-- },
   -- Telescope
   "nvim-telescope/telescope.nvim",
   {
