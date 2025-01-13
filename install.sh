@@ -1,6 +1,7 @@
 #!/bin/sh
 
-ln -sf ~/dotfiles/nvim ~/.config/nvim
+# ln -sf ~/dotfiles/nvim ~/.config/nvim
+git clone git@github.com:tsah/kickstart-modular.nvim.git ~/.config/nvim
 ln -sf ~/dotfiles/zshrc ~/.zshrc
 ln -sf ~/dotfiles/.zprofile ~/.zprofile
 ln -sf ~/dotfiles/.tmux.conf ~/.tmux.conf
