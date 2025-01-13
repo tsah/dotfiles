@@ -9,4 +9,12 @@ autoload -Uz compinit
 compinit
 
 alias v=nvim
+alias ve=source .venv/bin/activate
+alias l=ls -ln
+alias lg=lazygit
+
+export ANTHROPIC_API_KEY=YOUR_API_KEY_HERE # Redacted
+
+eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
+export PATH="/usr/local/opt/postgresql@15/bin:$PATH"
