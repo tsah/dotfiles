@@ -8,13 +8,20 @@ plug "zsh-users/zsh-syntax-highlighting"
 autoload -Uz compinit
 compinit
 
+# Enable history search
+autoload -U up-line-or-beginning-search
+autoload -U down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey "^[[A" up-line-or-beginning-search    # Up arrow
+bindkey "^[[B" down-line-or-beginning-search  # Down arrow
+
 alias v=nvim
-alias ve=source .venv/bin/activate
-alias l=ls -ln
+alias ve="source .venv/bin/activate"
+alias l="ls -ls"
 alias lg=lazygit
 
-export ANTHROPIC_API_KEY=YOUR_API_KEY_HERE # Redacted
-
+source ~/.env
 eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
 export PATH="/usr/local/opt/postgresql@15/bin:$PATH"
