@@ -1,7 +1,7 @@
 
 if vim.g.vscode then
   -- VSCode Neovim
-  require "user.vscode_keymaps"
+  require("user.vscode").setup()
 else
   require "user.options"
   require "user.plugins"
