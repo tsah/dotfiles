@@ -3,3 +3,15 @@ font-family = Hack
 
 keybind = cmd+t=text:\x02c
 keybind = cmd+x=text:\x02x
+keybind = cmd+p=text:\x02P
+
+# Map Cmd+1-9 to tmux windows 1-9
+keybind = cmd+1=text:\x021
+keybind = cmd+2=text:\x022
+keybind = cmd+3=text:\x023
+keybind = cmd+4=text:\x024
+keybind = cmd+5=text:\x025
+keybind = cmd+6=text:\x026
+keybind = cmd+7=text:\x027
+keybind = cmd+8=text:\x028
+keybind = cmd+9=text:\x029
