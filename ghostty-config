@@ -1,10 +1,14 @@
 font-size = 20
 font-family = Hack
 
+# Unbind cmd+w (default close window)
+keybind = cmd+w=unbind
+
 # New tab (tmux window)
 keybind = cmd+t=text:\x02c
 # close tab (tmux window)
 keybind = cmd+x=text:\x02x
+keybind = cmd+w=text:\x02x
 # popup terminal (tmux)
 keybind = cmd+p=text:\x02P
 # sesh list
