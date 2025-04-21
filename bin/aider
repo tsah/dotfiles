@@ -1,0 +1,6 @@
+#!/bin/zsh
+
+pushd ~
+source .venv/bin/activate
+popd
+aider "$@"
