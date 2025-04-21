@@ -1,9 +1,14 @@
 font-size = 20
 font-family = Hack
 
+# New tab (tmux window)
 keybind = cmd+t=text:\x02c
+# close tab (tmux window)
 keybind = cmd+x=text:\x02x
+# popup terminal (tmux)
 keybind = cmd+p=text:\x02P
+# sesh list
+keybind = cmd+j=text:\x02T
 
 # Map Cmd+1-9 to tmux windows 1-9
 keybind = cmd+1=text:\x021
