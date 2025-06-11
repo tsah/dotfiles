@@ -13,6 +13,14 @@ keybind = cmd+w=text:\x02x
 keybind = cmd+p=text:\x02P
 # sesh list
 keybind = cmd+j=text:\x02T
+# editor window
+keybind = cmd+e=text:\x02e
+# assistant window
+keybind = cmd+a=text:\x02a
+# git window
+keybind = cmd+g=text:\x02g
+# commands window  
+keybind = cmd+c=text:\x02C
 
 # Map Cmd+1-9 to tmux windows 1-9
 keybind = cmd+1=text:\x021

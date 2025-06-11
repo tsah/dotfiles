@@ -40,3 +40,6 @@ esac
 export PATH="$HOME/bin:$HOME/dotfiles/bin:$PATH"
 alias cmd="~/bin/cmd"
 alias cmdyolo="cmd --yolo"
+
+# opencode
+export PATH=/Users/tsah/.opencode/bin:$PATH
