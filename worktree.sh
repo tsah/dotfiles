@@ -507,8 +507,6 @@ if [ "$FIND_BRANCH_MODE" = true ]; then
     fi
 fi
 
-# Handle remove mode
-if [ "$REMOVE_MODE" = true ]; then
 handle_list_worktrees() {
     MAIN_REPO_ROOT=$(get_main_repo_root)
     WORKTREES=$(get_worktree_list "$MAIN_REPO_ROOT")
