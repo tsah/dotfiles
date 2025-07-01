@@ -176,6 +176,8 @@ BRANCH_NAME=""
 BASE_ON_CURRENT=false
 FILE_SET="$DEFAULT_FILE_SET"
 TAKE_WIP=false
+FIND_BRANCH_MODE=false
+LIST_MODE=false
 
 # Handle commands
 case "$COMMAND" in
@@ -270,10 +272,8 @@ case "$COMMAND" in
             done
         fi
         
-        BRANCH_NAME=$(handle_find_branch)
-        if [ -z "$BRANCH_NAME" ]; then
-            exit 0
-        fi
+        # Find branch will be handled later in the script
+        FIND_BRANCH_MODE=true
         ;;
     remove)
         if [ $# -gt 0 ]; then
@@ -292,8 +292,8 @@ case "$COMMAND" in
             usage
             exit 1
         fi
-        handle_list_worktrees
-        exit 0
+        # List will be handled later in the script
+        LIST_MODE=true
         ;;
     config)
         if [ $# -gt 0 ]; then
@@ -364,6 +364,148 @@ handle_remove_current() {
         exit 0
     fi
 }
+
+
+
+handle_find_branch() {
+    if ! command -v fzf >/dev/null 2>&1; then
+        echo "Error: fzf is required for fuzzy finding. Install with: brew install fzf"
+        exit 1
+    fi
+    
+    echo "Fetching latest branches..."
+    git fetch --all --quiet 2>/dev/null || true
+    
+    # Get all branches (local and remote) and format them
+    BRANCHES=$(git branch -a --format='%(refname:short)' | \
+        grep -v '^HEAD' | \
+        sed 's|^origin/||' | \
+        sort -u | \
+        grep -v '^$')
+    
+    if [ -z "$BRANCHES" ]; then
+        echo "No branches found"
+        exit 1
+    fi
+    
+    # Use fzf to select branch
+    SELECTED_BRANCH=$(echo "$BRANCHES" | fzf \
+        --height=40% \
+        --border \
+        --prompt="Select branch: " \
+        --preview="git log --oneline --max-count=10 {} 2>/dev/null || echo 'No commits found'" \
+        --preview-window=right:50%)
+    
+    if [ -z "$SELECTED_BRANCH" ]; then
+        echo "No branch selected"
+        exit 0
+    fi
+    
+    echo "Selected branch: $SELECTED_BRANCH"
+    echo "$SELECTED_BRANCH"
+}
+
+handle_list_worktrees() {
+    MAIN_REPO_ROOT=$(get_main_repo_root)
+    WORKTREES=$(get_worktree_list "$MAIN_REPO_ROOT")
+    
+    if [ -z "$WORKTREES" ]; then
+        echo "No worktrees found"
+        return
+    fi
+    
+    echo "Existing worktrees:"
+    echo "$WORKTREES" | while IFS='|' read -r path branch; do
+        worktree_name=$(basename "$path")
+        printf "  %-30s %s\n" "$worktree_name" "($branch)"
+    done
+}
+
+get_worktree_list() {
+    main_repo_root="$1"
+    git worktree list --porcelain | awk '
+        /^worktree / { path = substr($0, 10) }
+        /^branch / { 
+            branch = substr($0, 8)
+            if (path != "'"$main_repo_root"'") {
+                print path "|" branch
+            }
+        }
+        /^detached$/ {
+            if (path != "'"$main_repo_root"'") {
+                print path "|" "(detached)"
+            }
+        }
+    '
+}
+
+handle_find_branch() {
+    if ! command -v fzf >/dev/null 2>&1; then
+        echo "Error: fzf is required for fuzzy finding. Install with: brew install fzf"
+        exit 1
+    fi
+    
+    echo "Fetching latest branches..."
+    git fetch --all --quiet 2>/dev/null || true
+    
+    # Get all branches (local and remote) and format them
+    BRANCHES=$(git branch -a --format='%(refname:short)' | \
+        grep -v '^HEAD' | \
+        sed 's|^origin/||' | \
+        sort -u | \
+        grep -v '^$')
+    
+    if [ -z "$BRANCHES" ]; then
+        echo "No branches found"
+        exit 1
+    fi
+    
+    # Use fzf to select branch
+    SELECTED_BRANCH=$(echo "$BRANCHES" | fzf \
+        --height=40% \
+        --border \
+        --prompt="Select branch: " \
+        --preview="git log --oneline --max-count=10 {} 2>/dev/null || echo 'No commits found'" \
+        --preview-window=right:50%)
+    
+    if [ -z "$SELECTED_BRANCH" ]; then
+        echo "No branch selected"
+        exit 0
+    fi
+    
+    echo "Selected branch: $SELECTED_BRANCH"
+    echo "$SELECTED_BRANCH"
+}
+
+handle_list_worktrees() {
+    MAIN_REPO_ROOT=$(get_main_repo_root)
+    WORKTREES=$(get_worktree_list "$MAIN_REPO_ROOT")
+    
+    if [ -z "$WORKTREES" ]; then
+        echo "No worktrees found"
+        return
+    fi
+    
+    echo "Existing worktrees:"
+    echo "$WORKTREES" | while IFS='|' read -r path branch; do
+        worktree_name=$(basename "$path")
+        printf "  %-30s %s\n" "$worktree_name" "($branch)"
+    done
+}
+
+# Handle list mode
+if [ "$LIST_MODE" = true ]; then
+    handle_list_worktrees
+    exit 0
+fi
+
+# Handle find mode
+if [ "$FIND_BRANCH_MODE" = true ]; then
+    BRANCH_NAME=$(handle_find_branch)
+    if [ -z "$BRANCH_NAME" ]; then
+        exit 0
+    fi
+fi
 
 # Handle remove mode
 if [ "$REMOVE_MODE" = true ]; then
