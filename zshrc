@@ -22,24 +22,23 @@ alias v=nvim
 alias ve="source .venv/bin/activate"
 alias l="ls -ls"
 alias lg=lazygit
+alias oc=opencode
+alias ocu="brew install sst/tap/opencode"
 
 source ~/.env
 eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
 export PATH="/usr/local/opt/postgresql@15/bin:$PATH"
 
-# pnpm
-export PNPM_HOME="/Users/tsah/Library/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
-# pnpm end
-
-# Added by Windsurf
 export PATH="$HOME/bin:$HOME/dotfiles/bin:$PATH"
 alias cmd="~/bin/cmd"
 alias cmdyolo="cmd --yolo"
 
 # opencode
 export PATH=/Users/tsah/.opencode/bin:$PATH
+
+# Set default editor
+export EDITOR=nvim
+
+# Configure word boundaries - exclude / and . from word characters
+export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
