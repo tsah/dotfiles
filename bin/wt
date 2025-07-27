@@ -1,1 +1,237 @@
-/Users/tsah/dotfiles/worktree.sh
+#!/bin/sh
+# Worktree branch switcher with directory and tmux session renaming
+
+usage() {
+    echo "Usage: $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
+    echo ""
+    echo "Switch to a branch in the current worktree and rename tmux session."
+    echo ""
+    echo "Arguments:"
+    echo "  <branch-name>     Name of the branch to switch to or create"
+    echo ""
+    echo "Options:"
+    echo "  -m, --from-master Create new branch from master/main instead of current branch"
+    echo "  -f, --fix-session Fix current session name to [dir]_[branch] format or attach to existing"
+    echo "  -h, --help        Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0 feature-new           # Switch to feature-new (or create from current branch)"
+    echo "  $0 feature-new -m        # Switch to feature-new (or create from master/main)"
+    echo "  $0 --fix-session         # Fix current session name to match dir_branch format"
+    echo ""
+    echo "The script will:"
+    echo "  1. Switch/create the branch in the current worktree"
+    echo "  2. Rename the tmux session to [dir]_[branch] format"
+}
+
+# Parse arguments
+BRANCH_NAME=""
+FROM_MASTER=false
+FIX_SESSION=false
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        -m|--from-master)
+            FROM_MASTER=true
+            shift
+            ;;
+        -f|--fix-session)
+            FIX_SESSION=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option $1"
+            usage
+            exit 1
+            ;;
+        *)
+            if [ -z "$BRANCH_NAME" ]; then
+                BRANCH_NAME="$1"
+            else
+                echo "Error: Too many arguments"
+                usage
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$BRANCH_NAME" ] && [ "$FIX_SESSION" = false ]; then
+    echo "Error: Branch name is required"
+    usage
+    exit 1
+fi
+
+# Validate we're in a git repository
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: Not in a git repository"
+    exit 1
+fi
+
+# Get current worktree information
+CURRENT_DIR=$(pwd)
+WORKTREE_ROOT=$(git rev-parse --show-toplevel)
+CURRENT_BRANCH=$(git branch --show-current)
+
+# Check if we're in a worktree by looking at git worktree list
+WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
+if [ -z "$WORKTREE_LIST" ]; then
+    echo "Error: This script is designed for worktrees, but git worktree is not available"
+    exit 1
+fi
+
+# Find the main repository root from worktree list
+MAIN_REPO_ROOT=$(echo "$WORKTREE_LIST" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
+if [ -z "$MAIN_REPO_ROOT" ]; then
+    echo "Error: Could not determine main repository root"
+    exit 1
+fi
+
+# Extract repository name and current directory name
+REPO_NAME=$(basename "$MAIN_REPO_ROOT")
+DIR_NAME=$(basename "$WORKTREE_ROOT")
+
+# Check if we're in a worktree (not the main repo)
+if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
+    echo "Error: This script is designed for worktrees, not the main repository"
+    echo "Current directory appears to be the main repository: $MAIN_REPO_ROOT"
+    exit 1
+fi
+
+# Handle fix-session mode
+if [ "$FIX_SESSION" = true ]; then
+    if ! command -v tmux >/dev/null 2>&1 || [ -z "$TMUX" ]; then
+        echo "Error: Not in a tmux session or tmux not available"
+        exit 1
+    fi
+    
+    CURRENT_SESSION=$(tmux display-message -p '#S')
+    EXPECTED_SESSION_NAME="${DIR_NAME}@${CURRENT_BRANCH}"
+    
+    echo "Current session: $CURRENT_SESSION"
+    echo "Expected session name: $EXPECTED_SESSION_NAME"
+    
+    if [ "$CURRENT_SESSION" = "$EXPECTED_SESSION_NAME" ]; then
+        echo "Session name already matches expected format"
+        exit 0
+    fi
+    
+    # Check if expected session already exists
+    if tmux has-session -t "$EXPECTED_SESSION_NAME" 2>/dev/null; then
+        echo "Session '$EXPECTED_SESSION_NAME' already exists, switching to it..."
+        tmux switch-client -t "$EXPECTED_SESSION_NAME"
+    else
+        echo "Renaming current session to '$EXPECTED_SESSION_NAME'..."
+        if tmux rename-session "$EXPECTED_SESSION_NAME"; then
+            echo "Session renamed successfully"
+        else
+            echo "Error: Failed to rename session"
+            exit 1
+        fi
+    fi
+    
+    echo "Session fix complete!"
+    echo "Session: $(tmux display-message -p '#S')"
+    echo "Directory: $(pwd)"
+    echo "Branch: $CURRENT_BRANCH"
+    exit 0
+fi
+
+echo "Current worktree: $WORKTREE_ROOT"
+echo "Current branch: $CURRENT_BRANCH"
+echo "Target branch: $BRANCH_NAME"
+
+# Check if target branch already exists
+BRANCH_EXISTS=false
+if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" || git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+    BRANCH_EXISTS=true
+    echo "Branch '$BRANCH_NAME' exists"
+else
+    echo "Branch '$BRANCH_NAME' does not exist, will create it"
+fi
+
+# Determine base branch for new branch creation
+if [ "$BRANCH_EXISTS" = false ]; then
+    if [ "$FROM_MASTER" = true ]; then
+        # Check if master exists, fallback to main
+        if git show-ref --verify --quiet refs/heads/master; then
+            BASE_BRANCH="master"
+        elif git show-ref --verify --quiet refs/heads/main; then
+            BASE_BRANCH="main"
+        elif git show-ref --verify --quiet refs/remotes/origin/master; then
+            BASE_BRANCH="origin/master"
+        elif git show-ref --verify --quiet refs/remotes/origin/main; then
+            BASE_BRANCH="origin/main"
+        else
+            echo "Error: Could not find master or main branch"
+            exit 1
+        fi
+        echo "Will create new branch from: $BASE_BRANCH"
+    else
+        BASE_BRANCH="$CURRENT_BRANCH"
+        echo "Will create new branch from current branch: $BASE_BRANCH"
+    fi
+fi
+
+
+
+# Switch or create the branch
+if [ "$BRANCH_EXISTS" = true ]; then
+    echo "Switching to existing branch '$BRANCH_NAME'..."
+    if ! git switch "$BRANCH_NAME"; then
+        echo "Error: Failed to switch to branch '$BRANCH_NAME'"
+        exit 1
+    fi
+else
+    echo "Creating and switching to new branch '$BRANCH_NAME' from '$BASE_BRANCH'..."
+    if ! git switch -c "$BRANCH_NAME" "$BASE_BRANCH"; then
+        echo "Error: Failed to create branch '$BRANCH_NAME'"
+        exit 1
+    fi
+fi
+
+echo "Successfully switched to branch '$BRANCH_NAME'"
+
+# Handle tmux session renaming
+if command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
+    CURRENT_SESSION=$(tmux display-message -p '#S')
+    NEW_SESSION_NAME="${DIR_NAME}@${BRANCH_NAME}"
+    
+    echo "Current tmux session: $CURRENT_SESSION"
+    echo "New tmux session name: $NEW_SESSION_NAME"
+    
+    if [ "$CURRENT_SESSION" != "$NEW_SESSION_NAME" ]; then
+        # Check if target session name already exists
+        if tmux has-session -t "$NEW_SESSION_NAME" 2>/dev/null; then
+            echo "Warning: Tmux session '$NEW_SESSION_NAME' already exists"
+            echo "Switching to existing session..."
+            tmux switch-client -t "$NEW_SESSION_NAME"
+        else
+            echo "Renaming tmux session to '$NEW_SESSION_NAME'..."
+            if tmux rename-session "$NEW_SESSION_NAME"; then
+                echo "Tmux session renamed successfully"
+            else
+                echo "Warning: Failed to rename tmux session"
+            fi
+        fi
+    else
+        echo "Tmux session name already matches"
+    fi
+elif command -v tmux >/dev/null 2>&1; then
+    echo "Not in a tmux session, skipping session rename"
+else
+    echo "Tmux not available, skipping session rename"
+fi
+
+echo ""
+echo "Branch switch complete!"
+echo "Branch: $BRANCH_NAME"
+echo "Directory: $(pwd)"
+if command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
+    echo "Tmux session: $(tmux display-message -p '#S')"
+fi
