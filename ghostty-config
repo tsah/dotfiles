@@ -1,34 +1,33 @@
-font-size = 30
+font-size = 20
 font-family = Hack
 
-# Unbind cmd+w (default close window)
-keybind = cmd+w=unbind
-
 # New tab (tmux window)
-keybind = cmd+t=text:\x02c
+keybind = alt+t=text:\x02c
 # close tab (tmux window)
-keybind = cmd+x=text:\x02x
-keybind = cmd+w=text:\x02x
+keybind = alt+x=text:\x02x
+keybind = alt+w=text:\x02x
 # popup terminal (tmux)
-keybind = cmd+p=text:\x02P
+keybind = alt+p=text:\x02P
 # sesh list
-keybind = cmd+j=text:\x02T
+keybind = alt+j=text:\x02T
 # editor window
-keybind = cmd+e=text:\x02e
+keybind = alt+e=text:\x02e
 # assistant window
-keybind = cmd+a=text:\x02a
+keybind = alt+a=text:\x02a
 # git window
-keybind = cmd+g=text:\x02g
+keybind = alt+g=text:\x02g
 # commands window  
-keybind = cmd+c=text:\x02C
+keybind = alt+c=text:\x02C
 
-# Map Cmd+1-9 to tmux windows 1-9
-keybind = cmd+1=text:\x021
-keybind = cmd+2=text:\x022
-keybind = cmd+3=text:\x023
-keybind = cmd+4=text:\x024
-keybind = cmd+5=text:\x025
-keybind = cmd+6=text:\x026
-keybind = cmd+7=text:\x027
-keybind = cmd+8=text:\x028
-keybind = cmd+9=text:\x029
+# Map Alt+1-9 to tmux windows 1-9
+keybind = alt+1=text:\x021
+keybind = alt+2=text:\x022
+keybind = alt+3=text:\x023
+keybind = alt+4=text:\x024
+keybind = alt+5=text:\x025
+keybind = alt+6=text:\x026
+keybind = alt+7=text:\x027
+keybind = alt+8=text:\x028
+keybind = alt+9=text:\x029
+
+command = zsh
