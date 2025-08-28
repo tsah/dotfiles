@@ -1,9 +1,6 @@
 #!/bin/sh
 
-# ln -sf ~/dotfiles/nvim ~/.config/nvim
-if [ ! -d "$HOME/.config/nvim" ]; then
-  git clone git@github.com:tsah/kickstart-modular.nvim.git ~/.config/nvim
-fi
+ln -sf ~/dotfiles/nvim ~/.config/nvim
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
   git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 fi
