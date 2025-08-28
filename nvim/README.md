@@ -1,6 +1,6 @@
 # Neovim v0.12 configuration
 
-<!-- Originally based on: https://github.com/tsah/kickstart-modular.nvim -->
+<!-- Originally based on: https://github.com/vieitesss/nvim -->
 
 ## Plugins
 
