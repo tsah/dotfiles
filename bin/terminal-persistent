@@ -1,0 +1,11 @@
+#!/bin/bash
+# Launch or focus persistent terminal
+
+# Check if any ghostty window exists
+if hyprctl clients | grep -q "class: com.mitchellh.ghostty"; then
+    # Focus existing ghostty window
+    hyprctl dispatch focuswindow "class:com.mitchellh.ghostty"
+else
+    # Launch new terminal instance
+    exec uwsm app -- ghostty "$@"
+fi

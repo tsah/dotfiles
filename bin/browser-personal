@@ -1,0 +1,14 @@
+#!/bin/bash
+# Launch or focus personal browser profile
+
+WINDOW_CLASS="chromium-personal"
+USER_DATA_DIR="$HOME/.config/chromium-personal"
+
+# Check if personal browser window already exists
+if hyprctl clients | grep -q "class: ${WINDOW_CLASS}"; then
+    # Focus existing window
+    hyprctl dispatch focuswindow "class:${WINDOW_CLASS}"
+else
+    # Launch new personal browser instance
+    exec uwsm app -- chromium --user-data-dir="${USER_DATA_DIR}" --class="${WINDOW_CLASS}" "$@"
+fi
