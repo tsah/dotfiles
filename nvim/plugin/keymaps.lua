@@ -38,6 +38,7 @@ keymap("n", "<Leader>ls", "<cmd>lua vim.lsp.buf.signature_help()<CR>", opts) -- 
 -- copy and paste
 keymap("v", "<Leader>p", '"_dP')
 keymap("x", "y", [["+y]], s)
+keymap("n", "y", [["+y]], s)
 
 -- terminal
 keymap("t", "<Esc>", "<C-\\><C-N>")
@@ -147,7 +148,17 @@ keymap("n", "gd", "<cmd>lua vim.lsp.buf.definition()<CR>", opts)     -- go to de
 keymap("n", "gv", "<cmd>vsplit | lua vim.lsp.buf.definition()<CR>", opts) -- go to definition in vertical split
 keymap("n", "<leader>dn", "<cmd>lua vim.diagnostic.jump({ count = 1 })<CR>", opts)
 keymap("n", "<leader>dp", "<cmd>lua vim.diagnostic.jump({ count = -1 })<CR>", opts)
-keymap("n", "<leader>dd", "<cmd>lua vim.diagnostic.open_float()<CR>", opts)
+keymap("n", "gl", "<cmd>lua vim.diagnostic.open_float()<CR>", opts)
+
+-- Close diagnostic float with Escape
+keymap("n", "<Esc>", function()
+    for _, win in pairs(vim.api.nvim_list_wins()) do
+        local config = vim.api.nvim_win_get_config(win)
+        if config.relative ~= "" then  -- floating window
+            vim.api.nvim_win_close(win, false)
+        end
+    end
+end, { desc = "Close floating windows" })
 
 keymap("n", "<leader>e", '<cmd>edit!<CR>', { desc = "Force reload current file" })
 keymap("n", "<leader>ps", '<cmd>lua vim.pack.update()<CR>')

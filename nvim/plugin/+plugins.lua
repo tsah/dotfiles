@@ -83,6 +83,8 @@ require('blink.cmp').setup({
         ["<S-Tab>"] = {},
         ["<Up>"] = { "select_prev", "fallback" },
         ["<Down>"] = { "select_next", "fallback" },
+        ["<C-k>"] = { "select_prev", "fallback" },
+        ["<C-j>"] = { "select_next", "fallback" },
         ["<CR>"] = { "accept", "fallback" },
         ["<Esc>"] = { "hide", "fallback" },
         ["<C-y>"] = { "show", "show_documentation", "hide_documentation" },
