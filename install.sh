@@ -22,3 +22,7 @@ ln -sf ~/dotfiles/hypr/hyprlock.conf ~/.config/hypr/hyprlock.conf
 ln -sf ~/dotfiles/hypr/hyprsunset.conf ~/.config/hypr/hyprsunset.conf
 ln -sf ~/dotfiles/hypr/input.conf ~/.config/hypr/input.conf
 ln -sf ~/dotfiles/hypr/monitors.conf ~/.config/hypr/monitors.conf
+
+# Setup omarchy branding
+mkdir -p ~/.config/omarchy/branding
+ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
