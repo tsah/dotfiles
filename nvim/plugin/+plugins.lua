@@ -21,6 +21,7 @@ end
 local core_plugins = {
     { src = "https://github.com/mason-org/mason.nvim" },
     { src = "https://github.com/mcauley-penney/techbase.nvim" }, -- fallback theme
+    { src = "https://github.com/catppuccin/nvim" }, -- catppuccin theme
     -- { src = local_dev .. "/personal/techbase.nvim", version = "fix/core-hl-groups" },
     { src = "https://github.com/vieitesss/miniharp.nvim" },
     -- { src = local_dev .. "/personal/miniharp.nvim", version = "fix/do-not-save-index" },
