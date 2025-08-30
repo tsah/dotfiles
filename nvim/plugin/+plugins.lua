@@ -96,7 +96,7 @@ require('blink.cmp').setup({
             auto_show = true,
         },
         list = {
-            selection = { preselect = true, auto_insert = false }
+            selection = { preselect = false, auto_insert = false }
         },
         keyword = { range = 'full' }
     },
