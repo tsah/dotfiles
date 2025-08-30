@@ -30,3 +30,7 @@ ln -sf ~/dotfiles/waybar ~/.config/waybar
 # Setup omarchy branding
 mkdir -p ~/.config/omarchy/branding
 ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
+
+# Setup opencode configuration
+mkdir -p ~/.config/opencode
+ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
