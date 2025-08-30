@@ -6,6 +6,6 @@ if hyprctl clients | grep -q "class: com.mitchellh.ghostty"; then
     # Focus existing ghostty window
     hyprctl dispatch focuswindow "class:com.mitchellh.ghostty"
 else
-    # Launch new terminal instance
-    exec uwsm app -- ghostty "$@"
+    # Launch new terminal instance with persistent title
+    exec uwsm app -- ghostty --title "Persistent Terminal" "$@"
 fi
