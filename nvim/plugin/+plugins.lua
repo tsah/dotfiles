@@ -68,31 +68,18 @@ if not current_theme or not omarchy_themes.load_theme_config(current_theme) then
 end
 require('gitsigns').setup({ signcolumn = false })
 require('blink.cmp').setup({
-    fuzzy = { implementation = 'prefer_rust_with_warning' },
-    signature = { 
+    fuzzy = {
+        implementation = 'prefer_rust_with_warning',
+        sorts = { 'score', 'sort_text', 'label' }
+    },
+    signature = {
         enabled = true,
         trigger = {
             show_on_insert_on_trigger_character = true,
         }
     },
     keymap = {
-        preset = "default",
-        ["<C-space>"] = {},
-        ["<C-p>"] = {},
-        ["<Tab>"] = {},
-        ["<S-Tab>"] = {},
-        ["<Up>"] = { "select_prev", "fallback" },
-        ["<Down>"] = { "select_next", "fallback" },
-        ["<C-k>"] = { "select_prev", "fallback" },
-        ["<C-j>"] = { "select_next", "fallback" },
-        ["<CR>"] = { "accept", "fallback" },
-        ["<Esc>"] = { "hide", "fallback" },
-        ["<C-y>"] = { "show", "show_documentation", "hide_documentation" },
-        ["<C-b>"] = { "scroll_documentation_down", "fallback" },
-        ["<C-f>"] = { "scroll_documentation_up", "fallback" },
-        ["<C-l>"] = { "snippet_forward", "fallback" },
-        ["<C-h>"] = { "snippet_backward", "fallback" },
-        ["<C-e>"] = { "hide", "hide_signature" },
+        preset = "enter",
     },
 
     appearance = {
@@ -109,8 +96,9 @@ require('blink.cmp').setup({
             auto_show = true,
         },
         list = {
-            selection = { preselect = false, auto_insert = false }
-        }
+            selection = { preselect = true, auto_insert = false }
+        },
+        keyword = { range = 'full' }
     },
 
     cmdline = {
@@ -131,6 +119,8 @@ require('fzf-lua').setup({
             ["<C-f>"] = "preview-page-down",
             ["<C-b>"] = "preview-page-up",
             ["<C-p>"] = "toggle-preview",
+            ["<C-j>"] = "down",
+            ["<C-k>"] = "up",
         },
         fzf = {
             ["ctrl-a"] = "toggle-all",
@@ -138,6 +128,8 @@ require('fzf-lua').setup({
             ["ctrl-g"] = "last",
             ["ctrl-d"] = "half-page-down",
             ["ctrl-u"] = "half-page-up",
+            ["ctrl-j"] = "down",
+            ["ctrl-k"] = "up",
         }
     },
     actions = {

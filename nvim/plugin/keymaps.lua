@@ -165,7 +165,15 @@ keymap("n", "<leader>ps", '<cmd>lua vim.pack.update()<CR>')
 keymap("n", "<leader>f", '<cmd>FzfLua files<CR>')
 keymap("n", "<leader>F", '<cmd>FzfLua live_grep<CR>')
 keymap("i", "<S-Tab>", 'copilot#Accept("\\<Tab>")', { expr = true, replace_keycodes = false })
+
+-- Command mode navigation with Ctrl+j/k (wildmenu aware)
+keymap("c", "<C-j>", 'pumvisible() ? "\\<C-n>" : "\\<Down>"', { expr = true })
+keymap("c", "<C-k>", 'pumvisible() ? "\\<C-p>" : "\\<Up>"', { expr = true })
 keymap("n", "<leader>m", '<cmd>lua require("miniharp").toggle_file()<CR>')
 keymap("n", "<leader>hl", '<cmd>lua require("miniharp").show_list()<CR>')
 keymap("n", "<C-n>", require("miniharp").next)
 keymap("n", "<C-p>", require("miniharp").prev)
+
+
+
+
