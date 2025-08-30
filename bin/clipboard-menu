@@ -1,0 +1,13 @@
+#!/bin/bash
+# Use a different approach - get the content shown, then find the matching full line
+content=$(cliphist list | walker --dmenu --new --theme dmenu_250 --separator '	' --label 2 --width 800)
+if [ -n "$content" ]; then
+    echo "Selected content: '$content'" >> /tmp/clipboard-debug.log
+    # Find the full line that contains this content
+    full_line=$(cliphist list | grep -F "$content" | head -1)
+    echo "Full line: '$full_line'" >> /tmp/clipboard-debug.log
+    echo "$full_line" | cliphist decode | wl-copy
+    decoded=$(echo "$full_line" | cliphist decode)
+    echo "Decoded: '$decoded'" >> /tmp/clipboard-debug.log
+    echo "---" >> /tmp/clipboard-debug.log
+fi
