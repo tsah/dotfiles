@@ -23,6 +23,10 @@ ln -sf ~/dotfiles/hypr/hyprsunset.conf ~/.config/hypr/hyprsunset.conf
 ln -sf ~/dotfiles/hypr/input.conf ~/.config/hypr/input.conf
 ln -sf ~/dotfiles/hypr/monitors.conf ~/.config/hypr/monitors.conf
 
+# Setup waybar configuration symlink
+rm -rf ~/.config/waybar
+ln -sf ~/dotfiles/waybar ~/.config/waybar
+
 # Setup omarchy branding
 mkdir -p ~/.config/omarchy/branding
 ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
