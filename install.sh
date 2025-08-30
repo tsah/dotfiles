@@ -10,18 +10,9 @@ ln -sf ~/dotfiles/.tmux.conf ~/.tmux.conf
 mkdir -p ~/.config/ghostty
 ln -sf ~/dotfiles/ghostty-config ~/.config/ghostty/config
 
-# Setup hypr configuration symlinks
+# Setup hypr configuration symlink
 rm -rf ~/.config/hypr
-mkdir -p ~/.config/hypr
-ln -sf ~/dotfiles/hypr/autostart.conf ~/.config/hypr/autostart.conf
-ln -sf ~/dotfiles/hypr/bindings.conf ~/.config/hypr/bindings.conf
-ln -sf ~/dotfiles/hypr/envs.conf ~/.config/hypr/envs.conf
-ln -sf ~/dotfiles/hypr/hypridle.conf ~/.config/hypr/hypridle.conf
-ln -sf ~/dotfiles/hypr/hyprland.conf ~/.config/hypr/hyprland.conf
-ln -sf ~/dotfiles/hypr/hyprlock.conf ~/.config/hypr/hyprlock.conf
-ln -sf ~/dotfiles/hypr/hyprsunset.conf ~/.config/hypr/hyprsunset.conf
-ln -sf ~/dotfiles/hypr/input.conf ~/.config/hypr/input.conf
-ln -sf ~/dotfiles/hypr/monitors.conf ~/.config/hypr/monitors.conf
+ln -sf ~/dotfiles/hypr ~/.config/hypr
 
 # Setup waybar configuration symlink
 rm -rf ~/.config/waybar
@@ -34,3 +25,8 @@ ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
 # Setup opencode configuration
 mkdir -p ~/.config/opencode
 ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
+
+# Reload Hyprland configuration if running
+if pgrep -x "Hyprland" > /dev/null; then
+    hyprctl reload
+fi
