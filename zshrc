@@ -42,3 +42,6 @@ export EDITOR=nvim
 
 # Configure word boundaries - exclude / and . from word characters
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
+
+# opencode
+export PATH=/home/tsah/.opencode/bin:$PATH
