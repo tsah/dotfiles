@@ -29,9 +29,9 @@ opt.fillchars = "vert:│,horiz:─" -- characters for window separators
 vim.cmd.filetype("plugin indent on")
 
 vim.g.copilot_no_tab_map = true
-vim.g.netrw_liststyle = 3  -- Tree view
-vim.g.netrw_sort_by = "name"
-vim.g.netrw_banner = 0     -- Remove banner
-vim.g.netrw_browse_split = 0  -- Open files in current window
+
+-- Disable netrw (replaced by snacks explorer)
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
 
 require('vim._extui').enable({})

@@ -42,6 +42,7 @@ local core_plugins = {
     { src = "https://github.com/nvim-lua/plenary.nvim" },
     { src = "https://github.com/ravitemer/mcphub.nvim" },
     { src = "https://github.com/lervag/vimtex" },
+    { src = "https://github.com/folke/snacks.nvim" },
 }
 
 -- Load theme-specific plugins
@@ -113,7 +114,10 @@ require('blink.cmp').setup({
 
 local actions = require('fzf-lua.actions')
 require('fzf-lua').setup({
-    winopts = { backdrop = 85 },
+    winopts = {
+        layout = "horizontal",
+        fullscreen = true
+    },
     keymap = {
         builtin = {
             ["<C-f>"] = "preview-page-down",
@@ -196,6 +200,23 @@ require('mini.surround').setup({
 -- Configure argonaut
 require('argonaut').setup({})
 vim.keymap.set('n', '<leader>aw', ':<c-u>ArgonautToggle<cr>', { noremap = true, silent = true })
+
+-- Configure snacks.nvim
+require('snacks').setup({
+    explorer = {
+        enabled = true,
+    },
+    picker = {
+        sources = {
+            explorer = {
+                layout = {
+                    fullscreen = true,
+                },
+                auto_close = true,
+            }
+        }
+    }
+})
 
 -- Configure typescript-tools
 require('typescript-tools').setup({})
