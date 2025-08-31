@@ -18,6 +18,8 @@ keybind = alt+a=text:\x02a
 keybind = alt+g=text:\x02g
 # commands window  
 keybind = alt+c=text:\x02C
+# copy mode (tmux)
+keybind = alt+y=text:\x02[
 
 # Map Alt+1-9 to tmux windows 1-9
 keybind = alt+1=text:\x021
