@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Script to fix monitor setup when Hyprland starts/reloads with laptop lid closed
+# This handles the case where lid switch events aren't properly detected
+
+# Create a lock file to prevent multiple instances
+LOCK_FILE="/tmp/hypr-monitor-fix.lock"
+if [ -f "$LOCK_FILE" ]; then
+    # Check if the process is still running
+    if kill -0 $(cat "$LOCK_FILE") 2>/dev/null; then
+        echo "Monitor fix already running"
+        exit 0
+    else
+        rm -f "$LOCK_FILE"
+    fi
+fi
+echo $$ > "$LOCK_FILE"
+
+# Cleanup function
+cleanup() {
+    rm -f "$LOCK_FILE"
+    exit
+}
+trap cleanup EXIT INT TERM
+
+# Wait a moment for Hyprland to fully initialize
+sleep 2
+
+# Check if laptop lid is closed by reading the lid state
+LID_STATE=$(cat /proc/acpi/button/lid/*/state 2>/dev/null | awk '{print $2}' | head -1)
+
+# Also check if the laptop screen is currently active as a fallback
+EDP_ACTIVE=$(hyprctl monitors -j | jq -r '.[] | select(.name == "eDP-1") | .disabled' 2>/dev/null)
+
+if [ "$LID_STATE" = "closed" ]; then
+    echo "Lid is closed - disabling laptop screen and ensuring external monitor is primary"
+    # Disable laptop screen
+    hyprctl keyword monitor "eDP-1, disable" 2>/dev/null
+    # Ensure external monitor is enabled and positioned correctly
+    hyprctl keyword monitor "DP-1, 1920x1080@60, 0x0, 1" 2>/dev/null
+    # Move all workspaces to external monitor if needed
+    for i in {1..10}; do
+        hyprctl dispatch moveworkspacetomonitor "$i DP-1" 2>/dev/null
+    done
+else
+    echo "Lid is open - enabling both monitors"
+    # Enable both monitors with proper positioning
+    hyprctl keyword monitor "DP-1, 1920x1080@60, 0x0, 1" 2>/dev/null
+    hyprctl keyword monitor "eDP-1, 1920x1200@60, -1920x0, 1.5" 2>/dev/null
+fi
+
+# Force a workspace refresh to ensure proper layout
+sleep 1
+hyprctl dispatch focusworkspaceoncurrentmonitor 1 2>/dev/null

@@ -1,26 +1,6 @@
 font-size = 20
 font-family = Hack
 
-# New tab (tmux window)
-keybind = alt+t=text:\x02c
-# close tab (tmux window)
-keybind = alt+x=text:\x02x
-keybind = alt+w=text:\x02x
-# popup terminal (tmux)
-keybind = alt+p=text:\x02P
-# sesh list
-keybind = alt+j=text:\x02T
-# editor window
-keybind = alt+e=text:\x02e
-# assistant window
-keybind = alt+a=text:\x02a
-# git window
-keybind = alt+g=text:\x02g
-# commands window  
-keybind = alt+c=text:\x02C
-# copy mode (tmux)
-keybind = alt+y=text:\x02[
-
 # Map Alt+1-9 to tmux windows 1-9
 keybind = alt+1=text:\x021
 keybind = alt+2=text:\x022
