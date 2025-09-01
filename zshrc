@@ -16,6 +16,18 @@ zle -N up-line-or-beginning-search
 zle -N down-line-or-beginning-search
 bindkey "^[[A" up-line-or-beginning-search    # Up arrow
 bindkey "^[[B" down-line-or-beginning-search  # Down arrow
+bindkey "^A" beginning-of-line                # Ctrl+A
+bindkey "^E" end-of-line                      # Ctrl+E
+bindkey "^[[1~" beginning-of-line             # Home key (alternative sequence)
+bindkey "^[[4~" end-of-line                   # End key (alternative sequence)
+
+# Word movement
+bindkey "^[f" forward-word                    # Alt+f
+bindkey "^[b" backward-word                   # Alt+b
+bindkey "^[[1;3C" forward-word                # Alt+Right Arrow
+bindkey "^[[1;3D" backward-word               # Alt+Left Arrow
+bindkey "^[^[[C" forward-word                 # Alt+Right (alternative)
+bindkey "^[^[[D" backward-word                # Alt+Left (alternative)
 
 
 alias v=nvim
