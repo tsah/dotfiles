@@ -23,8 +23,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Wait a moment for Hyprland to fully initialize
+# Wait for Hyprland to fully initialize and detect monitors
 sleep 2
+
+# Wait for monitor detection to complete
+for i in {1..10}; do
+    if hyprctl monitors -j | jq -e '.[] | select(.name == "DP-1")' >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
 
 # Check if laptop lid is closed by reading the lid state
 LID_STATE=$(cat /proc/acpi/button/lid/*/state 2>/dev/null | awk '{print $2}' | head -1)
