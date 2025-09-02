@@ -8,7 +8,7 @@
   "modules-center": ["clock", "custom/update"],
   "modules-right": [
     "group/tray-expander",
-    "bluetooth",
+    "custom/bluetooth-headset",
     "network",
     "pulseaudio",
     "cpu",
@@ -92,28 +92,21 @@
       "critical": 10
     }
   },
-  "bluetooth": {
-    "format": "",
-    "format-disabled": "󰂲",
-    "format-connected": "",
-    "tooltip-format": "Devices connected: {num_connections}",
+  "custom/bluetooth-headset": {
+    "format": "{}",
+    "exec": "bt-device -l | grep -E '(headset|headphone|earbuds|audio)' -i >/dev/null && echo '🎧' || echo ''",
+    "interval": 5,
     "on-click": "blueberry"
   },
   "pulseaudio": {
-    "format": "{icon} {volume}%",
-    "format-muted": "󰝟 Muted",
+    "format": "{icon}",
+    "format-muted": "🔇",
     "on-click": "alacritty --class=Wiremix -e wiremix",
     "on-click-right": "pamixer -t",
     "tooltip-format": "{desc}\nVolume: {volume}%",
     "scroll-step": 5,
     "format-icons": {
-      "headphone": "",
-      "hands-free": "",
-      "headset": "",
-      "phone": "",
-      "portable": "",
-      "car": "",
-      "default": ["", "", ""]
+      "default": ["🔈", "🔉", "🔊"]
     }
   },
   "group/tray-expander": {
