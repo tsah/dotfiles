@@ -26,7 +26,18 @@ ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
 mkdir -p ~/.config/opencode
 ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 
+# Store Hyprland signature before sudo operations
+HYPR_SIG="$HYPRLAND_INSTANCE_SIGNATURE"
+
+# Setup systemd user service for lid switch handling
+mkdir -p ~/.config/systemd/user
+ln -sf ~/dotfiles/lid-switch-handler.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable lid-switch-handler.service
+systemctl --user start lid-switch-handler.service
+echo "Lid switch systemd service installed"
+
 # Reload Hyprland configuration if running
-if pgrep -x "Hyprland" > /dev/null; then
-    hyprctl reload
+if pgrep -x "Hyprland" > /dev/null && [ -n "$HYPR_SIG" ]; then
+    HYPRLAND_INSTANCE_SIGNATURE="$HYPR_SIG" hyprctl reload
 fi

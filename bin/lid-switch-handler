@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Lid switch handler: suspend when triggered by lid close event
+
+echo "$(date): Lid close event - suspending" >> /tmp/lid-debug.log
+systemctl suspend

@@ -1,0 +1,11 @@
+[Unit]
+Description=Lid Switch Handler
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/home/tsah/dotfiles/bin/lid-dbus-handler
+Restart=always
+
+[Install]
+WantedBy=default.target
