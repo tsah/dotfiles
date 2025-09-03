@@ -1,0 +1,5 @@
+#!/bin/bash
+# Simple password prompt for sudo when lid is closed
+echo -n "Password: " >&2
+read -s password
+echo "$password"
