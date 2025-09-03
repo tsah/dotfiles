@@ -5,8 +5,10 @@ if hyprctl monitors | grep -q "eDP-1"; then
     # Monitor is enabled, disable it
     hyprctl keyword monitor "eDP-1,disable"
     echo "Laptop monitor disabled"
+    notify-send "Monitor" "Laptop screen disabled" -i display
 else
     # Monitor is disabled, enable it
     hyprctl keyword monitor "eDP-1,1920x1200@60,-1920x0,1.5"
     echo "Laptop monitor enabled"
+    notify-send "Monitor" "Laptop screen enabled" -i display
 fi
