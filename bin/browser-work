@@ -1,17 +1,14 @@
 #!/bin/bash
-# Launch or focus work browser with default profile
+# Launch or focus work browser with work profile
 
-# Check if any chromium window already exists (excluding Slack which uses chromium)
-if hyprctl clients | grep "class: chromium" | grep -v "slack" > /dev/null 2>&1; then
-    # Focus existing chromium window
-    hyprctl dispatch focuswindow "class:^(chromium)$"
-    
-    # If URL was provided, open it in existing window
-    if [ -n "$1" ]; then
-        # Send the URL to the existing Chromium instance
-        chromium "$@" &
-    fi
+WINDOW_CLASS="chromium-work"
+USER_DATA_DIR="$HOME/.config/chromium-work"
+
+# Check if work browser window already exists
+if hyprctl clients | grep -q "class: ${WINDOW_CLASS}"; then
+    # Focus existing window
+    hyprctl dispatch focuswindow "class:${WINDOW_CLASS}"
 else
-    # Launch new chromium instance
-    exec uwsm app -- chromium "$@"
+    # Launch new work browser instance
+    exec uwsm app -- chromium --user-data-dir="${USER_DATA_DIR}" --class="${WINDOW_CLASS}" "$@"
 fi
