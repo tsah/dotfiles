@@ -10,4 +10,8 @@ if [ -n "$content" ]; then
     decoded=$(echo "$full_line" | cliphist decode)
     echo "Decoded: '$decoded'" >> /tmp/clipboard-debug.log
     echo "---" >> /tmp/clipboard-debug.log
+    
+    # Auto-paste after selection
+    sleep 0.1
+    wtype -M ctrl -k v
 fi
