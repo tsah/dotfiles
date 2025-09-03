@@ -1,14 +1,16 @@
 #!/bin/bash
 
-# Check if laptop monitor is currently enabled
-if hyprctl monitors | grep -q "eDP-1"; then
-    # Monitor is enabled, disable it
+# Detect lid state and adjust laptop monitor accordingly
+LID_STATE=$(cat /proc/acpi/button/lid/*/state 2>/dev/null | awk '{print $2}' | head -1)
+
+if [ "$LID_STATE" = "closed" ]; then
+    # Lid is closed - disable laptop screen
     hyprctl keyword monitor "eDP-1,disable"
-    echo "Laptop monitor disabled"
-    notify-send "Monitor" "Laptop screen disabled" -i display
+    echo "Lid closed - laptop monitor disabled"
+    notify-send "Monitor" "Lid closed - laptop screen disabled" -i display
 else
-    # Monitor is disabled, enable it
+    # Lid is open - enable laptop screen
     hyprctl keyword monitor "eDP-1,1920x1200@60,-1920x0,1.5"
-    echo "Laptop monitor enabled"
-    notify-send "Monitor" "Laptop screen enabled" -i display
+    echo "Lid open - laptop monitor enabled"
+    notify-send "Monitor" "Lid open - laptop screen enabled" -i display
 fi
