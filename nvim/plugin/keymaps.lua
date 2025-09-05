@@ -56,6 +56,10 @@ keymap("n", "gd", "<cmd>lua vim.lsp.buf.definition()<CR>", opts)     -- go to de
 keymap("n", "gv", "<cmd>vsplit | lua vim.lsp.buf.definition()<CR>", opts) -- go to definition in vertical split
 keymap("n", "<leader>dn", "<cmd>lua vim.diagnostic.jump({ count = 1 })<CR>", opts)
 keymap("n", "<leader>dp", "<cmd>lua vim.diagnostic.jump({ count = -1 })<CR>", opts)
+
+-- Quickfix navigation
+keymap("n", "]q", "<cmd>cnext<CR>", opts)
+keymap("n", "[q", "<cmd>cprev<CR>", opts)
 keymap("n", "gl", "<cmd>lua vim.diagnostic.open_float()<CR>", opts)
 
 -- Close diagnostic float with Escape
@@ -72,6 +76,7 @@ keymap("n", "<leader>e", '<cmd>edit!<CR>', { desc = "Force reload current file" 
 keymap("n", "<leader>ps", '<cmd>lua vim.pack.update()<CR>')
 keymap("n", "<leader>f", '<cmd>FzfLua files<CR>')
 keymap("n", "<leader>F", '<cmd>FzfLua live_grep<CR>')
+keymap("n", "<leader>R", '<cmd>FzfLua resume<CR>')
 keymap("i", "<S-Tab>", 'copilot#Accept("\\<Tab>")', { expr = true, replace_keycodes = false })
 
 -- Command mode navigation with Ctrl+j/k (wildmenu aware)
