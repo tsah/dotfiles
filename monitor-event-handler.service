@@ -1,0 +1,13 @@
+[Unit]
+Description=Monitor Event Handler
+After=graphical-session.target
+Wants=lid-switch-handler.service
+
+[Service]
+Type=simple
+ExecStart=/home/tsah/dotfiles/bin/monitor-event-handler
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

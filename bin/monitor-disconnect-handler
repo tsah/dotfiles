@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Monitor disconnect handler
+# Checks if lid is closed when external monitor disconnects
+
+LOG_FILE="/tmp/lid-debug.log"
+
+log_message() {
+    echo "$(date): $1" >> "$LOG_FILE"
+}
+
+send_notification() {
+    local message="$1"
+    log_message "NOTIFICATION: $message"
+    # Send desktop notification
+    notify-send "Suspend Check" "$message" --urgency=normal --app-name="monitor-handler"
+}
+
+check_external_monitors() {
+    # Check for active external monitors (anything except eDP-1)
+    local external_count=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.name != "eDP-1" and .disabled == false) | .name' | wc -l)
+    echo "$external_count"
+}
+
+get_lid_state() {
+    cat /proc/acpi/button/lid/LID/state 2>/dev/null | awk '{print $2}'
+}
+
+main() {
+    local lid_state=$(get_lid_state)
+    local external_monitors=$(check_external_monitors)
+    
+    log_message "Monitor disconnect event - Lid: $lid_state, External monitors: $external_monitors"
+    
+    if [ "$lid_state" = "closed" ] && [ "$external_monitors" -eq 0 ]; then
+        send_notification "Would suspend: External monitor disconnected with lid closed"
+        # TODO: Replace with actual suspend command
+        # systemctl suspend
+    elif [ "$lid_state" = "open" ]; then
+        log_message "Lid open - monitor disconnect doesn't trigger suspend"
+    elif [ "$external_monitors" -gt 0 ]; then
+        log_message "Other external monitors still connected - no suspend"
+    fi
+}
+
+main "$@"

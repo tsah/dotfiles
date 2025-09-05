@@ -1,5 +1,0 @@
-#!/bin/bash
-
-# Lid switch handler: do nothing when triggered by lid close event
-
-echo "$(date): Lid close event - no action" >> /tmp/lid-debug.log

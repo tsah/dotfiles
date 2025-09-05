@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Monitor event handler that watches for display changes
+# Uses a simple approach by monitoring hyprctl for changes
+
+LOG_FILE="/tmp/lid-debug.log"
+STATE_FILE="/tmp/monitor-state"
+
+log_message() {
+    echo "$(date): $1" >> "$LOG_FILE"
+}
+
+get_monitor_state() {
+    hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.name != "eDP-1") | .name' | sort
+}
+
+save_current_state() {
+    get_monitor_state > "$STATE_FILE"
+}
+
+check_for_changes() {
+    local current_state=$(get_monitor_state)
+    local previous_state=""
+    
+    if [ -f "$STATE_FILE" ]; then
+        previous_state=$(cat "$STATE_FILE")
+    fi
+    
+    if [ "$current_state" != "$previous_state" ]; then
+        log_message "Monitor state changed from [$previous_state] to [$current_state]"
+        
+        # Check if we lost external monitors
+        local prev_count=$(echo "$previous_state" | grep -c . || echo 0)
+        local curr_count=$(echo "$current_state" | grep -c . || echo 0)
+        
+        if [ "$curr_count" -lt "$prev_count" ]; then
+            log_message "External monitor(s) disconnected"
+            /home/tsah/dotfiles/bin/monitor-disconnect-handler
+        fi
+        
+        save_current_state
+    fi
+}
+
+main() {
+    log_message "Starting monitor event handler"
+    save_current_state
+    
+    while true; do
+        check_for_changes
+        sleep 2
+    done
+}
+
+# Handle cleanup
+cleanup() {
+    log_message "Monitor event handler stopped"
+    exit 0
+}
+
+trap cleanup EXIT INT TERM
+
+main "$@"

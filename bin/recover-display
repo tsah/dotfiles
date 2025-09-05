@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Display recovery script for black screen issues
+LOGFILE="$HOME/.cache/display-recovery.log"
+mkdir -p "$(dirname "$LOGFILE")"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+}
+
+log "=== Display recovery started ==="
+
+# Kill any stuck lock screens
+log "Killing hyprlock processes"
+pkill -KILL hyprlock 2>/dev/null
+
+# Reset display power management
+log "Resetting DPMS"
+hyprctl dispatch dpms off
+sleep 1
+hyprctl dispatch dpms on
+
+# Force refresh all outputs
+log "Refreshing displays"
+hyprctl reload
+
+# Restart waybar if it's running
+if pgrep waybar >/dev/null; then
+    log "Restarting waybar"
+    pkill waybar
+    sleep 1
+    waybar &
+fi
+
+# Focus on a workspace to force redraw
+log "Forcing workspace focus"
+hyprctl dispatch workspace 1
+
+log "=== Display recovery finished ==="
+echo "Display recovery completed. Check $LOGFILE for details."
