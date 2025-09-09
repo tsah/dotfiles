@@ -43,6 +43,7 @@ local core_plugins = {
     { src = "https://github.com/ravitemer/mcphub.nvim" },
     { src = "https://github.com/lervag/vimtex" },
     { src = "https://github.com/folke/snacks.nvim" },
+    { src = "https://github.com/mikavilpas/yazi.nvim" },
 }
 
 -- Load theme-specific plugins
@@ -204,7 +205,7 @@ vim.keymap.set('n', '<leader>aw', ':<c-u>ArgonautToggle<cr>', { noremap = true, 
 -- Configure snacks.nvim
 require('snacks').setup({
     explorer = {
-        enabled = true,
+        enabled = false,  -- Disabled since we're using yazi
     },
     picker = {
         sources = {
@@ -232,3 +233,12 @@ require('flash').setup({
 
 -- Flash keymaps (simple)
 vim.keymap.set({ 'n', 'x', 'o' }, 's', function() require('flash').jump() end, { desc = "Flash jump" })
+
+-- Configure yazi.nvim
+require('yazi').setup({
+    open_for_directories = false,
+    enable_mouse_support = true,
+    keymaps = {
+        show_help = '<f1>',
+    },
+})

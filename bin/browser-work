@@ -4,7 +4,7 @@
 WINDOW_CLASS="chromium"
 
 # Check if default chromium window already exists
-if hyprctl clients | grep -q "class: ${WINDOW_CLASS}"; then
+if hyprctl clients | grep -q "class: ${WINDOW_CLASS}$"; then
     # Focus existing window
     hyprctl dispatch focuswindow "class:${WINDOW_CLASS}"
 else

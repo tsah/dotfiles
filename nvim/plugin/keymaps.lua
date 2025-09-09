@@ -46,8 +46,10 @@ keymap("t", "<Esc>", "<C-\\><C-N>")
 -- cd current dir
 keymap("n", "<leader>cd", '<cmd>lua vim.fn.chdir(vim.fn.expand("%:p:h"))<CR>')
 
+-- yazi file manager
+keymap("n", "\\", "<cmd>Yazi<CR>", { desc = "Open Yazi file manager" })
+
 -- snacks explorer keybindings
-keymap("n", "\\", function() Snacks.explorer() end, { desc = "Toggle Explorer" })
 keymap("n", "<leader>E", function() Snacks.explorer() end, { desc = "Explorer" })
 
 local opts = { noremap = true, silent = true }
@@ -62,15 +64,16 @@ keymap("n", "]q", "<cmd>cnext<CR>", opts)
 keymap("n", "[q", "<cmd>cprev<CR>", opts)
 keymap("n", "gl", "<cmd>lua vim.diagnostic.open_float()<CR>", opts)
 
--- Close diagnostic float with Escape
+-- Close diagnostic float and clear search highlights with Escape
 keymap("n", "<Esc>", function()
+    vim.cmd("nohlsearch")  -- Clear search highlights
     for _, win in pairs(vim.api.nvim_list_wins()) do
         local config = vim.api.nvim_win_get_config(win)
         if config.relative ~= "" then  -- floating window
             vim.api.nvim_win_close(win, false)
         end
     end
-end, { desc = "Close floating windows" })
+end, { desc = "Clear search highlights and close floating windows" })
 
 keymap("n", "<leader>e", '<cmd>edit!<CR>', { desc = "Force reload current file" })
 keymap("n", "<leader>ps", '<cmd>lua vim.pack.update()<CR>')

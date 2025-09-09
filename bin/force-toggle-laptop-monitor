@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Force toggle laptop monitor regardless of lid state
+# Check if laptop monitor is currently enabled
+
+LAPTOP_ENABLED=$(hyprctl monitors | grep -c "eDP-1")
+
+if [ "$LAPTOP_ENABLED" -eq 0 ]; then
+    # Laptop monitor is disabled - enable it
+    hyprctl keyword monitor "eDP-1,1920x1200@60,-1920x0,1.5"
+    echo "Laptop monitor enabled"
+    notify-send "Monitor Toggle" "Laptop screen enabled" -i display
+else
+    # Laptop monitor is enabled - disable it
+    hyprctl keyword monitor "eDP-1,disable"
+    echo "Laptop monitor disabled" 
+    notify-send "Monitor Toggle" "Laptop screen disabled" -i display
+fi

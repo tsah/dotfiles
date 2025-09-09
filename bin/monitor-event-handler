@@ -36,6 +36,18 @@ check_for_changes() {
         if [ "$curr_count" -lt "$prev_count" ]; then
             log_message "External monitor(s) disconnected"
             /home/tsah/dotfiles/bin/monitor-disconnect-handler
+        elif [ "$curr_count" -gt "$prev_count" ]; then
+            log_message "External monitor(s) connected"
+            # Get the first external monitor (not eDP-1)
+            local external_monitor=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.name != "eDP-1") | .name' | head -1)
+            if [ -n "$external_monitor" ]; then
+                log_message "Moving workspaces 1-5 to external monitor: $external_monitor"
+                sleep 1  # Give monitor time to initialize
+                for i in {1..5}; do
+                    hyprctl dispatch moveworkspacetomonitor "$i $external_monitor" 2>/dev/null
+                done
+            fi
+        fi
         fi
         
         save_current_state
