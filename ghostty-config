@@ -2,14 +2,17 @@ font-size = 22
 font-family = Hack
 
 # Map Alt+1-9 to tmux windows 1-9
-keybind = alt+1=text:\x021
-keybind = alt+2=text:\x022
-keybind = alt+3=text:\x023
-keybind = alt+4=text:\x024
-keybind = alt+5=text:\x025
-keybind = alt+6=text:\x026
-keybind = alt+7=text:\x027
-keybind = alt+8=text:\x028
-keybind = alt+9=text:\x029
+# keybind = alt+1=text:\x021
+# keybind = alt+2=text:\x022
+# keybind = alt+3=text:\x023
+# keybind = alt+4=text:\x024
+# keybind = alt+5=text:\x025
+# keybind = alt+6=text:\x026
+# keybind = alt+7=text:\x027
+# keybind = alt+8=text:\x028
+# keybind = alt+9=text:\x029
 
 command = zsh
+
+# Enable shell integration for dynamic tab titles  
+shell-integration = detect

@@ -1,11 +1,12 @@
 #!/bin/bash
-# Launch or focus persistent terminal
+# Launch or focus persistent terminal on workspace 1
 
-# Check if persistent terminal window exists
-if hyprctl clients | grep -q "title: Persistent Terminal"; then
-    # Focus existing persistent terminal window
-    hyprctl dispatch focuswindow "title:Persistent Terminal"
+# Check if there's already a ghostty terminal on workspace 1
+if hyprctl clients | grep -A4 "workspace: 1" | grep -q "com.mitchellh.ghostty"; then
+    # Focus existing terminal on workspace 1
+    hyprctl dispatch workspace 1
 else
-    # Launch new terminal instance with persistent title
-    exec uwsm app -- ghostty --title="Persistent Terminal" "$@"
+    # Launch new terminal instance on workspace 1
+    hyprctl dispatch workspace 1
+    exec uwsm app -- ghostty "$@"
 fi
