@@ -2,6 +2,11 @@ font-size = 22
 font-family = Hack
 
 # Map Alt+1-9 to tmux windows 1-9
+keybind = alt+j=write_screen_file:open
+
+# Tab management
+keybind = alt+t=new_tab
+keybind = alt+w=close_tab
 # keybind = alt+1=text:\x021
 # keybind = alt+2=text:\x022
 # keybind = alt+3=text:\x023
