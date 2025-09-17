@@ -55,7 +55,8 @@ keymap("n", "<leader>E", function() Snacks.explorer() end, { desc = "Explorer" }
 local opts = { noremap = true, silent = true }
 -- Definition navigation
 keymap("n", "gd", "<cmd>lua vim.lsp.buf.definition()<CR>", opts)     -- go to definition
-keymap("n", "gv", "<cmd>vsplit | lua vim.lsp.buf.definition()<CR>", opts) -- go to definition in vertical split
+keymap("n", "gv", "<cmd>vsplit | wincmd l | lua vim.lsp.buf.definition()<CR>", opts) -- go to definition in vertical split
+keymap("n", "gr", "<cmd>FzfLua lsp_references<CR>", opts)           -- go to references
 keymap("n", "<leader>dn", "<cmd>lua vim.diagnostic.jump({ count = 1 })<CR>", opts)
 keymap("n", "<leader>dp", "<cmd>lua vim.diagnostic.jump({ count = -1 })<CR>", opts)
 

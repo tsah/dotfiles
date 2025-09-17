@@ -22,14 +22,13 @@ local core_plugins = {
     { src = "https://github.com/mason-org/mason.nvim" },
     { src = "https://github.com/mcauley-penney/techbase.nvim" }, -- fallback theme
     { src = "https://github.com/catppuccin/nvim" }, -- catppuccin theme
-    -- { src = local_dev .. "/personal/techbase.nvim", version = "fix/core-hl-groups" },
     { src = "https://github.com/vieitesss/miniharp.nvim" },
-    -- { src = local_dev .. "/personal/miniharp.nvim", version = "fix/do-not-save-index" },
-    -- { src = "https://github.com/ThePrimeagen/harpoon",        version = "harpoon2" },
     { src = "https://github.com/ibhagwan/fzf-lua" },
     { src = "https://github.com/lewis6991/gitsigns.nvim" },
-    { src = "https://github.com/saghen/blink.cmp",            version = vim.version.range("^1") },
-    -- { src = local_dev .. "/personal/command.nvim",            version = "feat/add-tests" },
+    {
+        src = "https://github.com/saghen/blink.cmp",
+        version = vim.version.range("^1")
+    },
     { src = "https://github.com/vieitesss/command.nvim" },
     { src = "https://github.com/tpope/vim-fugitive" },
     { src = "https://github.com/echasnovski/mini.surround" },
@@ -44,6 +43,8 @@ local core_plugins = {
     { src = "https://github.com/lervag/vimtex" },
     { src = "https://github.com/folke/snacks.nvim" },
     { src = "https://github.com/mikavilpas/yazi.nvim" },
+    { src = "https://github.com/nvim-treesitter/nvim-treesitter" },
+    { src = "https://github.com/nvim-treesitter/nvim-treesitter-context" }
 }
 
 -- Load theme-specific plugins
@@ -241,4 +242,19 @@ require('yazi').setup({
     keymaps = {
         show_help = '<f1>',
     },
+})
+
+-- Configure treesitter
+require('nvim-treesitter.configs').setup({
+    ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python" },
+    auto_install = true,
+    highlight = {
+        enable = true,
+    },
+})
+
+-- Configure treesitter-context
+require('treesitter-context').setup({
+    enable = true,
+    max_lines = 4,
 })
