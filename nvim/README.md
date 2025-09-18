@@ -11,7 +11,6 @@
 - [blink.cmp](https://github.com/saghen/blink.cmp)
 - [command.nvim](https://github.com/vieitesss/command.nvim)
 - [vim-fugitive](https://github.com/tpope/vim-fugitive)
-- [copilot.vim](https://github.com/github/copilot.vim)
 - [codecompanion.nvim](https://github.com/olimorris/codecompanion.nvim)
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [mcphub.nvim](https://github.com/ravitemer/mcphub.nvim)

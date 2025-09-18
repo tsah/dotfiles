@@ -49,8 +49,7 @@ keymap("n", "<leader>cd", '<cmd>lua vim.fn.chdir(vim.fn.expand("%:p:h"))<CR>')
 -- yazi file manager
 keymap("n", "\\", "<cmd>Yazi<CR>", { desc = "Open Yazi file manager" })
 
--- snacks explorer keybindings
-keymap("n", "<leader>E", function() Snacks.explorer() end, { desc = "Explorer" })
+
 
 local opts = { noremap = true, silent = true }
 -- Definition navigation
@@ -81,7 +80,7 @@ keymap("n", "<leader>ps", '<cmd>lua vim.pack.update()<CR>')
 keymap("n", "<leader>f", '<cmd>FzfLua files<CR>')
 keymap("n", "<leader>F", '<cmd>FzfLua live_grep<CR>')
 keymap("n", "<leader>R", '<cmd>FzfLua resume<CR>')
-keymap("i", "<S-Tab>", 'copilot#Accept("\\<Tab>")', { expr = true, replace_keycodes = false })
+
 
 -- Command mode navigation with Ctrl+j/k (wildmenu aware)
 keymap("c", "<C-j>", 'pumvisible() ? "\\<C-n>" : "\\<Down>"', { expr = true })

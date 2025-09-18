@@ -28,7 +28,7 @@ opt.fillchars = "vert:│,horiz:─" -- characters for window separators
 
 vim.cmd.filetype("plugin indent on")
 
-vim.g.copilot_no_tab_map = true
+
 
 -- Disable netrw (replaced by snacks explorer)
 vim.g.loaded_netrw = 1
