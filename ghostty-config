@@ -6,8 +6,7 @@ confirm-close-surface = false
 keybind = alt+t=text:\x1bt
 keybind = alt+w=text:\x1bw
 keybind = alt+j=text:\x1bj
-
-# Map Alt+1-9 to tmux windows 1-9 (send Alt sequences)
+# Pass through Alt+numbers for tmux window switching
 keybind = alt+1=text:\x1b1
 keybind = alt+2=text:\x1b2
 keybind = alt+3=text:\x1b3
@@ -17,6 +16,8 @@ keybind = alt+6=text:\x1b6
 keybind = alt+7=text:\x1b7
 keybind = alt+8=text:\x1b8
 keybind = alt+9=text:\x1b9
+
+
 
 command = zsh
 
