@@ -13,6 +13,11 @@
       "template": "commit and push (1 or more logical commits)\n\nAnalyze the current changes and create logical, well-structured commits with descriptive messages. Group related changes together and push all commits to the remote repository.",
       "description": "Create logical commits and push to remote",
       "agent": "build"
+    },
+    "jj_pr": {
+      "template": "Create a jj bookmark and GitHub PR for current working copy\n\nFollow these steps:\n1. Run `jj status` to check current state\n2. Handle bookmarks:\n   - Run `jj bookmark list` to see existing bookmarks\n   - If a bookmark already exists for this work, use `jj bookmark set existing-bookmark-name` to set it to current commit\n   - If no appropriate bookmark exists, create new one with `jj bookmark create feature/descriptive-name`\n3. Push to GitHub with `jj git push --bookmark your-bookmark-name --allow-new`\n4. Create PR with `gh pr create --head your-bookmark-name --base master --title \"Your descriptive title\" --body \"Detailed description\"`\n\nUse descriptive bookmark names like feature/add-user-auth, fix/memory-leak, docs/api-guide. The working copy changes are automatically included when you create or set a bookmark. Always specify --head and --base explicitly when using gh pr create.",
+      "description": "Push jj working copy to branch and create GitHub PR",
+      "agent": "build"
     }
   }
 }
