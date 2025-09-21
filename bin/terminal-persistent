@@ -1,12 +1,26 @@
 #!/bin/bash
-# Launch or focus persistent terminal on workspace 1
+# Focus or launch omarchy.persistentterminal anywhere; no auto-move
 
-# Check if there's already a persistent terminal on workspace 1
-if hyprctl clients | grep -A4 "workspace: 1" | grep -q "PersistentTerminal"; then
-    # Focus existing terminal on workspace 1
-    hyprctl dispatch workspace 1
-else
-    # Launch new terminal instance on workspace 1
-    hyprctl dispatch workspace 1
-    exec uwsm app -- ghostty --config-file ~/dotfiles/ghostty-persistent.conf "$@"
+#!/bin/bash
+# Robust focus-or-launch for persistent terminal by exact app_id/class
+
+query_existing() {
+  hyprctl -j clients | jq -r '
+    .[]
+    | select((.class?=="omarchy.persistentterminal") or (.app_id?=="omarchy.persistentterminal"))
+    | select(.mapped==true)
+    | "\(.address) \(.workspace.id) \(.class) \(.app_id)"
+  ' | head -n1
+}
+
+client=$(query_existing)
+if [ -n "${client:-}" ]; then
+  addr=$(printf %s "$client" | awk '{print $1}')
+  ws=$(printf %s "$client" | awk '{print $2}')
+  hyprctl dispatch workspace "$ws"
+  hyprctl dispatch focuswindow "address:$addr"
+  exit 0
 fi
+
+# None found: launch on workspace 1 with config file
+hyprctl dispatch exec "[workspace 1] uwsm app -- ghostty --config-file=$HOME/dotfiles/ghostty-persistent.conf"
