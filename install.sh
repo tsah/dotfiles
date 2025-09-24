@@ -26,6 +26,10 @@ ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
 mkdir -p ~/.config/opencode
 ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 
+# Setup niri configuration symlink
+rm -rf ~/.config/niri
+ln -sf ~/dotfiles/niri ~/.config/niri
+
 # Store Hyprland signature before sudo operations
 HYPR_SIG="$HYPRLAND_INSTANCE_SIGNATURE"
 

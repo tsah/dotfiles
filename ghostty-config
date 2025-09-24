@@ -23,3 +23,4 @@ command = zsh
 
 # Enable shell integration for dynamic tab titles  
 shell-integration = detect
+window-decoration = none
