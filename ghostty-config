@@ -1,4 +1,4 @@
-font-size = 18
+font-size = 22
 font-family = Hack
 confirm-close-surface = false
 
@@ -16,8 +16,6 @@ keybind = alt+6=text:\x1b6
 keybind = alt+7=text:\x1b7
 keybind = alt+8=text:\x1b8
 keybind = alt+9=text:\x1b9
-
-
 
 command = zsh
 

@@ -50,11 +50,15 @@ alias cmdyolo="cmd --yolo"
 # opencode
 export PATH=/Users/tsah/.opencode/bin:$PATH
 
+# nvim
+export PATH=/home/tsah/nvim-linux-x86_64/bin:$PATH
+
 # Set default editor
 export EDITOR=nvim
 
 # Configure word boundaries - exclude / and . from word characters
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
 
-# opencode
-export PATH=/home/tsah/.opencode/bin:$PATH
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
