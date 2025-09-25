@@ -22,6 +22,8 @@ fi
 
 echo "📦 Installing core packages from official repos..."
 sudo pacman -S --needed \
+    zsh \
+    iwd \
     cliphist \
     wtype \
     lazygit \
@@ -35,13 +37,25 @@ sudo pacman -S --needed \
     playerctl \
     pipewire-pulse
 
+echo "🔧 Enabling iwd service..."
+sudo systemctl enable --now iwd
+
 echo "📦 Installing AUR packages..."
 yay -S --needed \
+    neovim-git \
     sesh-bin \
     ghostty \
     hyprlock \
     wiremix \
     uwsm
+
+echo "📦 Installing Zap (Zsh plugin manager)..."
+if ! command -v zap &> /dev/null; then
+    zsh <(curl -s https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh)
+    echo "✅ Zap installed"
+else
+    echo "✅ Zap already installed"
+fi
 
 echo "📦 Installing OpenCode (SST Claude CLI)..."
 if ! command -v opencode &> /dev/null; then
@@ -58,6 +72,10 @@ echo ""
 echo "✅ Core package installation complete!"
 echo ""
 echo "📋 Installed packages:"
+echo "   • zsh - Z shell"
+echo "   • iwd - Wireless daemon"
+echo "   • neovim-git - Neovim prerelease"
+echo "   • zap - Zsh plugin manager"
 echo "   • cliphist - Clipboard history manager"
 echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
