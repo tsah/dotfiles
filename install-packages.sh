@@ -24,12 +24,24 @@ echo "📦 Installing core packages from official repos..."
 sudo pacman -S --needed \
     cliphist \
     wtype \
-    lazygit
+    lazygit \
+    waybar \
+    mako \
+    fuzzel \
+    nautilus \
+    chromium \
+    blueberry \
+    brightnessctl \
+    playerctl \
+    pipewire-pulse
 
 echo "📦 Installing AUR packages..."
 yay -S --needed \
     sesh-bin \
-    ghostty
+    ghostty \
+    hyprlock \
+    wiremix \
+    uwsm
 
 echo "📦 Installing OpenCode (SST Claude CLI)..."
 if ! command -v opencode &> /dev/null; then
@@ -52,5 +64,17 @@ echo "   • lazygit - Git TUI"
 echo "   • ghostty - Terminal emulator"
 echo "   • sesh - Session manager"
 echo "   • opencode - SST Claude CLI"
+echo "   • waybar - Status bar"
+echo "   • mako - Notification daemon"
+echo "   • fuzzel - App launcher"
+echo "   • nautilus - File manager"
+echo "   • chromium - Web browser"
+echo "   • blueberry - Bluetooth manager"
+echo "   • brightnessctl - Brightness control"
+echo "   • playerctl - Media control"
+echo "   • pipewire-pulse - Audio control"
+echo "   • hyprlock - Screen locker"
+echo "   • wiremix - Audio mixer"
+echo "   • uwsm - Universal Wayland Session Manager"
 echo ""
 echo "🔄 You may need to restart your shell or source your config files."
