@@ -59,8 +59,7 @@ input {
 
     // Focus windows and outputs automatically when moving the mouse into them.
     // Setting max-scroll-amount="0%" makes it work only on windows already fully on screen.
-    // Remove max-scroll-amount or set to higher value to allow scrolling to partially visible windows.
-    focus-follows-mouse
+    focus-follows-mouse max-scroll-amount="90%"
 }
 
 // You can configure outputs by their name, which you can find
@@ -105,7 +104,7 @@ input {
 // https://yalter.github.io/niri/Configuration:-Layout
 layout {
     // Set gaps around windows in logical pixels.
-    gaps 0
+    gaps 4
 
     // When to center a column when changing focus, options are:
     // - "never", default behavior, focusing an off-screen column will keep at the left
@@ -204,6 +203,20 @@ layout {
         // active-gradient from="#e5989b" to="#ffb4a2" angle=45 relative-to="workspace-view" in="oklch longer hue"
 
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
+    }
+
+    // Tab indicator styling for tabbed columns
+    tab-indicator {
+        active-color "#7fc8ff"
+        inactive-color "#505050" 
+        urgent-color "#ff6b6b"
+        width 8
+        gap 4
+        position "right"
+        place-within-column
+        length total-proportion=1.0
+        corner-radius 4
+        gaps-between-tabs 2
     }
 
     // You can enable drop shadows for windows.
