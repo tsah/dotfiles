@@ -48,7 +48,6 @@ local core_plugins = {
     { src = "https://github.com/nvim-treesitter/nvim-treesitter-context" },
     { src = "https://github.com/MunifTanjim/nui.nvim" },
     { src = "https://github.com/julienvincent/hunk.nvim" },
-    { src = "https://github.com//NicolasGB/jj.nvim)" }
 }
 
 -- Load theme-specific plugins
@@ -250,8 +249,3 @@ require('treesitter-context').setup({
 
 -- Configure hunk.nvim
 require('hunk').setup({})
-
--- Configure jj-fugitive.nvim
-require('jj').setup({})
-
-
