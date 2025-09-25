@@ -8,6 +8,7 @@
   "modules-center": ["clock"],
   "modules-right": [
     "group/tray-expander",
+    "custom/keyboard-layout",
     "bluetooth",
     "network",
     "pulseaudio",
@@ -55,15 +56,15 @@
     "on-click": "iwctl"
   },
   "battery": {
-    "format": "{capacity}% {icon}",
-    "format-discharging": "{icon}",
-    "format-charging": "{icon}",
-    "format-plugged": "",
+    "format": "{icon} {capacity}%",
+    "format-discharging": "{icon} {capacity}%",
+    "format-charging": "{icon} {capacity}%",
+    "format-plugged": "🔌 {capacity}%",
     "format-icons": {
       "charging": ["󰢜", "󰂆", "󰂇", "󰂈", "󰢝", "󰂉", "󰢞", "󰂊", "󰂋", "󰂅"],
       "default": ["󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
     },
-    "format-full": "󰂅",
+    "format-full": "󰂅 {capacity}%",
     "tooltip-format-discharging": "{power:>1.0f}W↓ {capacity}%",
     "tooltip-format-charging": "{power:>1.0f}W↑ {capacity}%",
     "interval": 5,
@@ -80,14 +81,14 @@
     "on-click": "blueberry"
   },
   "pulseaudio": {
-    "format": "{icon}",
+    "format": "{icon} {volume}%",
     "on-click": "ghostty --class=Wiremix -e wiremix",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",
     "scroll-step": 5,
-    "format-muted": "",
+    "format-muted": "🔇",
     "format-icons": {
-      "default": ["", "", ""]
+      "default": ["🔈", "🔉", "🔊"]
     }
   },
   "group/tray-expander": {
@@ -105,5 +106,11 @@
   "tray": {
     "icon-size": 12,
     "spacing": 12
+  },
+  "custom/keyboard-layout": {
+    "exec": "niri msg keyboard-layouts | grep '^\\s*\\*' | cut -d' ' -f4- | cut -d'(' -f2 | tr -d ')'",
+    "interval": 1,
+    "format": "⌨ {}",
+    "tooltip": false
   }
 }
