@@ -283,6 +283,9 @@ spawn-at-startup "mako"
 // Start wallpaper rotation
 spawn-at-startup "~/dotfiles/bin/wallpaper-rotate.sh"
 
+// Start idle daemon for auto lock after 10 minutes and turn off screen after 15 minutes
+spawn-at-startup "swayidle" "-w" "timeout" "600" "hyprlock" "timeout" "900" "niri msg action power-off-monitors" "resume" "niri msg action power-off-monitors"
+
 // To run a shell command (with variables, pipes, etc.), use spawn-sh-at-startup:
 // spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
 
