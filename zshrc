@@ -20,6 +20,7 @@ bindkey "^A" beginning-of-line                # Ctrl+A
 bindkey "^E" end-of-line                      # Ctrl+E
 bindkey "^[[1~" beginning-of-line             # Home key (alternative sequence)
 bindkey "^[[4~" end-of-line                   # End key (alternative sequence)
+bindkey "^[[H" beginning-of-line
 
 # Word movement
 bindkey "^[f" forward-word                    # Alt+f
