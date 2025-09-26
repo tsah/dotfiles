@@ -30,5 +30,9 @@ ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 rm -rf ~/.config/niri
 ln -sf ~/dotfiles/niri ~/.config/niri
 
-# Reload niri configuration
-niri msg action load-config-file
+# Reload configuration based on current window manager
+if [ -n "$NIRI_SOCKET" ]; then
+    niri msg action load-config-file
+elif [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+    hyprctl reload
+fi

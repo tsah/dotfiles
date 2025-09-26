@@ -7,5 +7,5 @@ if [ -n "$CHROMIUM_ID" ]; then
     niri msg action focus-window --id="$CHROMIUM_ID"
 else
     # Spawn new chromium browser
-    chromium &
+    chromium --ozone-platform=wayland --enable-features=UseOzonePlatform &
 fi

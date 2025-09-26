@@ -31,4 +31,4 @@ if [ -n "$client_info" ]; then
 fi
 
 # None found: launch new chromium on workspace 2
-hyprctl dispatch exec "[workspace 2] chromium"
+hyprctl dispatch exec "[workspace 2] chromium --ozone-platform=wayland --enable-features=UseOzonePlatform"

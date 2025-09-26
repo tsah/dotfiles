@@ -11,5 +11,5 @@ if [ -n "$browser_id" ]; then
     niri msg action focus-window --id "$browser_id"
 else
     # Launch new personal browser instance
-    chromium --user-data-dir="${USER_DATA_DIR}" --class="chromium-personal" &
+    chromium --user-data-dir="${USER_DATA_DIR}" --class="chromium-personal" --ozone-platform=wayland --enable-features=UseOzonePlatform --disable-features=UseCustomChrome --gtk-version=4 &
 fi
