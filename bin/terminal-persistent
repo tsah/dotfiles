@@ -1,24 +1,28 @@
 #!/bin/bash
-# Focus or launch omarchy.persistentterminal anywhere; no auto-move
+# Focus or launch persistent terminal anywhere; no auto-move
 
-#!/bin/bash
-# Robust focus-or-launch for persistent terminal by exact app_id/class
+# Find existing persistent terminal window
+client_info=$(hyprctl clients | awk '
+  /^Window/ { 
+    addr = $2
+  }
+  /^\tclass:/ {
+    class = $2
+  }
+  /^\tworkspace:/ {
+    workspace = $2
+  }
+  (class == "persistent-terminal" || class == "omarchy.persistentterminal") && workspace != "" {
+    print addr " " workspace
+    exit
+  }
+')
 
-query_existing() {
-  hyprctl -j clients | jq -r '
-    .[]
-    | select((.class?=="omarchy.persistentterminal") or (.app_id?=="omarchy.persistentterminal"))
-    | select(.mapped==true)
-    | "\(.address) \(.workspace.id) \(.class) \(.app_id)"
-  ' | head -n1
-}
-
-client=$(query_existing)
-if [ -n "${client:-}" ]; then
-  addr=$(printf %s "$client" | awk '{print $1}')
-  ws=$(printf %s "$client" | awk '{print $2}')
+if [ -n "$client_info" ]; then
+  addr=$(echo "$client_info" | awk '{print $1}')
+  ws=$(echo "$client_info" | awk '{print $2}')
   hyprctl dispatch workspace "$ws"
-  hyprctl dispatch focuswindow "address:$addr"
+  hyprctl dispatch focuswindow "address:0x$addr"
   exit 0
 fi
 
