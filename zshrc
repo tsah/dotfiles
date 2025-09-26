@@ -8,6 +8,11 @@ plug "zsh-users/zsh-syntax-highlighting"
 autoload -Uz compinit
 compinit
 
+# Source SSH agent from Hyprland
+if [ -f ~/.ssh-agent-info ]; then
+    source ~/.ssh-agent-info > /dev/null
+fi
+
 # Enable history search
 autoload -U up-line-or-beginning-search
 autoload -U down-line-or-beginning-search
