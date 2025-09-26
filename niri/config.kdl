@@ -96,7 +96,7 @@ output "eDP-1" {
     // so to put another output directly adjacent to it on the right, set its x to 1920.
     // If the position is unset or results in an overlap, the output is instead placed
     // automatically.
-    position x=1280 y=0
+    position x=1920 y=0
 }
 
 output "DP-1" {
@@ -664,4 +664,7 @@ binds {
     // Powers off the monitors. To turn them back on, do any input like
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
+
+    // Toggle laptop screen (eDP-1)
+    Mod+M hotkey-overlay-title="Toggle laptop screen" { spawn "/home/tsah/dotfiles/bin/toggle-laptop-screen"; }
 }

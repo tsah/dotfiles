@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Manual toggle script for laptop screen (eDP-1)
+# Checks current state and toggles accordingly with notification
+
+# Check if hyprctl is available (Hyprland)
+if command -v hyprctl &> /dev/null; then
+    # Get current monitor status
+    MONITOR_STATUS=$(hyprctl monitors | grep "eDP-1" | head -1)
+    
+    if [[ -n "$MONITOR_STATUS" ]]; then
+        # Monitor is enabled, disable it
+        hyprctl keyword monitor "eDP-1,disable"
+        notify-send "Display Toggle" "Laptop screen disabled" -i display
+        echo "Laptop screen disabled"
+    else
+        # Monitor is disabled, enable it
+        hyprctl keyword monitor "eDP-1,1920x1200@60,1920x0,1"
+        notify-send "Display Toggle" "Laptop screen enabled" -i display
+        echo "Laptop screen enabled"
+    fi
+# Check if niri is available
+elif command -v niri &> /dev/null; then
+    # Get current output status from niri
+    OUTPUT_STATUS=$(niri msg outputs | grep "eDP-1" -A 5 | grep "disabled: false")
+    
+    if [[ -n "$OUTPUT_STATUS" ]]; then
+        # Monitor is enabled, disable it
+        niri msg action disable-output "eDP-1"
+        notify-send "Display Toggle" "Laptop screen disabled" -i display
+        echo "Laptop screen disabled"
+    else
+        # Monitor is disabled, enable it
+        niri msg action enable-output "eDP-1"
+        notify-send "Display Toggle" "Laptop screen enabled" -i display
+        echo "Laptop screen enabled"
+    fi
+else
+    notify-send "Display Toggle" "Neither Hyprland nor Niri detected" -u critical -i dialog-error
+    echo "Error: Neither hyprctl nor niri command found"
+    exit 1
+fi
