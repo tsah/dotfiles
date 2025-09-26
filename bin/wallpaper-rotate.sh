@@ -4,7 +4,7 @@ pkill swaybg
 
 while true; do
   # Find all image files in the background directory
-  IMAGE=$(find ~/background -type f \( -name "*.jpg" -o -name "*.png" -o -name "*.jpeg" \) 2>/dev/null | shuf -n 1)
+  IMAGE=$(find ~/background -type f \( -name "*.jpg" -o -name "*.JPG" -o -name "*.png" -o -name "*.PNG" -o -name "*.jpeg" -o -name "*.JPEG" \) 2>/dev/null | shuf -n 1)
   
   # Only set wallpaper if we found an image
   if [ -n "$IMAGE" ]; then
