@@ -11,12 +11,12 @@ if command -v hyprctl &> /dev/null; then
     if [[ -n "$MONITOR_STATUS" ]]; then
         # Monitor is enabled, disable it
         hyprctl keyword monitor "eDP-1,disable"
-        notify-send "Display Toggle" "Laptop screen disabled" -i display
+        notify-send "Display Toggle" "Laptop screen disabled" -i display -t 1000
         echo "Laptop screen disabled"
     else
         # Monitor is disabled, enable it
         hyprctl keyword monitor "eDP-1,1920x1200@60,1920x0,1"
-        notify-send "Display Toggle" "Laptop screen enabled" -i display
+        notify-send "Display Toggle" "Laptop screen enabled" -i display -t 1000
         echo "Laptop screen enabled"
     fi
 # Check if niri is available
@@ -27,12 +27,12 @@ elif command -v niri &> /dev/null; then
     if [[ -n "$OUTPUT_STATUS" ]]; then
         # Monitor is enabled, disable it
         niri msg action disable-output "eDP-1"
-        notify-send "Display Toggle" "Laptop screen disabled" -i display
+        notify-send "Display Toggle" "Laptop screen disabled" -i display -t 1000
         echo "Laptop screen disabled"
     else
         # Monitor is disabled, enable it
         niri msg action enable-output "eDP-1"
-        notify-send "Display Toggle" "Laptop screen enabled" -i display
+        notify-send "Display Toggle" "Laptop screen enabled" -i display -t 1000
         echo "Laptop screen enabled"
     fi
 else
