@@ -1,0 +1,34 @@
+#!/bin/bash
+# Focus or launch chromium work browser
+
+# Find existing chromium window
+client_info=$(hyprctl clients | awk '
+  /^Window/ { 
+    addr = $2
+  }
+  /^\tclass:/ {
+    class = $2
+  }
+  /^\tworkspace:/ {
+    workspace = $2
+  }
+  class == "chromium" && workspace != "" {
+    print addr " " workspace
+    exit
+  }
+')
+
+if [ -n "$client_info" ]; then
+  addr=$(echo "$client_info" | awk '{print $1}')
+  ws=$(echo "$client_info" | awk '{print $2}')
+  # Only switch workspace if we're not already on it
+  current_ws=$(hyprctl activeworkspace | head -1 | awk '{print $3}' | tr -d '()')
+  if [ "$current_ws" != "$ws" ]; then
+    hyprctl dispatch workspace "$ws"
+  fi
+  hyprctl dispatch focuswindow "address:0x$addr"
+  exit 0
+fi
+
+# None found: launch new chromium on workspace 2
+hyprctl dispatch exec "[workspace 2] chromium"
