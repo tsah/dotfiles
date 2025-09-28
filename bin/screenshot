@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Enhanced screenshot script based on omarchy's implementation
+# Usage: screenshot [region|window|output]
+
+set -euo pipefail
+
+mode=${1:-region}
+screenshot_dir=${SCREENSHOT_DIR:-"$HOME/Pictures/Screenshots"}
+timestamp=$(date +%Y%m%d-%H%M%S)
+temp_file="/tmp/screenshot-$timestamp.png"
+final_file="$screenshot_dir/screenshot-$timestamp.png"
+
+# Ensure screenshot directory exists
+mkdir -p "$screenshot_dir"
+
+# Function to take screenshot and handle editing
+take_screenshot() {
+    local hyprshot_mode="$1"
+    
+    # Check if satty is available for editing
+    if command -v satty >/dev/null 2>&1; then
+        # Use hyprshot with --raw to output to stdout, pipe to satty
+        # Configure satty to match omarchy's behavior
+        hyprshot -m "$hyprshot_mode" --raw --silent | satty --filename - --output-filename "$final_file" --early-exit --actions-on-enter save-to-clipboard --save-after-copy --copy-command wl-copy
+        
+        # Check if screenshot was successful (satty creates the file)
+        if [[ ! -f "$final_file" ]]; then
+            echo "Screenshot failed or cancelled"
+            exit 1
+        fi
+    else
+        # No satty available, use hyprshot direct save
+        hyprshot -m "$hyprshot_mode" -o "$final_file" --silent
+        
+        # Check if screenshot was taken successfully
+        if [[ ! -f "$final_file" ]]; then
+            echo "Screenshot failed or cancelled"
+            exit 1
+        fi
+        
+        # Copy to clipboard if wl-copy is available
+        if command -v wl-copy >/dev/null 2>&1; then
+            wl-copy < "$final_file"
+        fi
+        
+        echo "Screenshot saved to: $final_file"
+    fi
+}
+
+# Take screenshot based on mode
+case "$mode" in
+    region|r)
+        take_screenshot region
+        ;;
+    window|w)
+        take_screenshot window
+        ;;
+    output|o|display|d)
+        take_screenshot output
+        ;;
+    *)
+        echo "Usage: $0 [region|window|output]"
+        echo "  region  - Select a region to capture (default)"
+        echo "  window  - Capture active window"
+        echo "  output  - Capture entire display"
+        exit 1
+        ;;
+esac
