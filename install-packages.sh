@@ -42,7 +42,6 @@ sudo systemctl enable --now iwd
 
 echo "📦 Installing AUR packages..."
 yay -S --needed \
-    neovim-git \
     sesh-bin \
     ghostty \
     hyprlock \
