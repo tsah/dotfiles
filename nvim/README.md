@@ -4,7 +4,7 @@
 
 ## Plugins
 
-- [techbase.nvim](https://github.com/mcauley-penney/techbase.nvim)
+- [catppuccin](https://github.com/catppuccin/nvim)
 - [miniharp.nvim](https://github.com/vieitesss/miniharp.nvim)
 - [fzf-lua](https://github.com/ibhagwan/fzf-lua)
 - [gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim)

@@ -3,24 +3,10 @@ vim.g.mapleader = " "
 local HOME = vim.fn.expand("~")
 local local_dev = "file://" .. HOME
 
--- Load omarchy theme system
-local omarchy_themes_path = vim.fn.stdpath('config') .. '/plugin/omarchy-themes.lua'
-local omarchy_themes
-if vim.fn.filereadable(omarchy_themes_path) == 1 then
-    omarchy_themes = dofile(omarchy_themes_path)
-else
-    -- Fallback when omarchy-themes.lua is not available
-    omarchy_themes = {
-        get_current_theme = function() return nil end,
-        load_theme_plugins = function() return {} end,
-        load_theme_config = function() return nil end,
-    }
-end
-
 -- Core plugins (always loaded)
 local core_plugins = {
     { src = "https://github.com/mason-org/mason.nvim" },
-    { src = "https://github.com/mcauley-penney/techbase.nvim" }, -- fallback theme
+
     { src = "https://github.com/catppuccin/nvim" }, -- catppuccin theme
     { src = "https://github.com/vieitesss/miniharp.nvim" },
     { src = "https://github.com/ibhagwan/fzf-lua" },
@@ -50,11 +36,8 @@ local core_plugins = {
     { src = "https://github.com/julienvincent/hunk.nvim" },
 }
 
--- Load theme-specific plugins
-local theme_plugins = omarchy_themes.load_theme_plugins()
-
 -- Combine core and theme plugins
-local all_plugins = vim.list_extend(core_plugins, theme_plugins)
+local all_plugins = core_plugins
 
 vim.pack.add(all_plugins, { load = true })
 
@@ -64,14 +47,11 @@ require('command').setup({})
 require('miniharp').setup({ show_on_autoload = true })
 require('mason').setup({})
 
--- Setup themes: omarchy theme takes precedence, fallback to techbase
-local current_theme = omarchy_themes.get_current_theme()
-if not current_theme or not omarchy_themes.load_theme_config(current_theme) then
-    require('techbase').setup({})
-    vim.schedule(function()
-        vim.cmd.colorscheme('techbase')
-    end)
-end
+-- Setup theme
+require('catppuccin').setup({})
+vim.schedule(function()
+    vim.cmd.colorscheme('catppuccin-mocha')
+end)
 require('gitsigns').setup({ signcolumn = false })
 require('blink.cmp').setup({
     fuzzy = {
