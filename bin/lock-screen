@@ -1,0 +1,5 @@
+#!/bin/sh
+# Reset keyboard layout to English (us) before locking
+# This ensures unlock is always possible regardless of current layout
+niri msg action switch-layout us 2>/dev/null || true
+hyprlock
