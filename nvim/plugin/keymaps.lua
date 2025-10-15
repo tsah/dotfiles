@@ -90,6 +90,17 @@ keymap("n", "<leader>hl", '<cmd>lua require("miniharp").show_list()<CR>')
 keymap("n", "<C-n>", require("miniharp").next)
 keymap("n", "<C-p>", require("miniharp").prev)
 
+keymap('n', '<leader>aw', ':<c-u>ArgonautToggle<cr>', { noremap = true, silent = true })
 
+keymap({ 'n', 'x', 'o' }, 's', function() require('flash').jump() end, { desc = "Flash jump" })
 
-
+keymap('n', '<leader>ot', function() require('opencode').toggle() end, { desc = 'Toggle opencode' })
+keymap('n', '<leader>oa', function() require('opencode').ask('@cursor: ') end, { desc = 'Ask about cursor' })
+keymap('v', '<leader>oa', function() require('opencode').ask('@selection: ') end, { desc = 'Ask about selection' })
+keymap('n', '<leader>o+', function() require('opencode').prompt('@buffer', { append = true }) end, { desc = 'Add buffer to prompt' })
+keymap('v', '<leader>o+', function() require('opencode').prompt('@selection', { append = true }) end, { desc = 'Add selection to prompt' })
+keymap('n', '<leader>oe', function() require('opencode').prompt('Explain @cursor and its context') end, { desc = 'Explain code at cursor' })
+keymap('n', '<leader>on', function() require('opencode').command('session_new') end, { desc = 'New opencode session' })
+keymap('n', '<S-C-u>', function() require('opencode').command('messages_half_page_up') end, { desc = 'Opencode messages up' })
+keymap('n', '<S-C-d>', function() require('opencode').command('messages_half_page_down') end, { desc = 'Opencode messages down' })
+keymap({ 'n', 'v' }, '<leader>os', function() require('opencode').select() end, { desc = 'Select opencode prompt' })

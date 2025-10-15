@@ -5,8 +5,14 @@ local plugins = {
     { src = "https://github.com/catppuccin/nvim" },
     { src = "https://github.com/vieitesss/miniharp.nvim" },
     { src = "https://github.com/ibhagwan/fzf-lua" },
-    { src = "https://github.com/lewis6991/gitsigns.nvim", version = "v1.0.2" },
-    { src = "https://github.com/saghen/blink.cmp", version = "v1.7.0" },
+    {
+        src = "https://github.com/lewis6991/gitsigns.nvim",
+        version = "v1.0.2"
+    },
+    {
+        src = "https://github.com/saghen/blink.cmp",
+        version = "v1.7.0"
+    },
     { src = "https://github.com/vieitesss/command.nvim" },
     { src = "https://github.com/tpope/vim-fugitive" },
     { src = "https://github.com/echasnovski/mini.surround" },
@@ -28,4 +34,5 @@ local plugins = {
 }
 
 vim.pack.add(plugins, { load = true })
+
 vim.env.PATH = vim.fn.stdpath("data") .. "/mason/bin:" .. vim.env.PATH
