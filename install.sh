@@ -6,6 +6,7 @@ if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
 fi
 ln -sf ~/dotfiles/zshrc ~/.zshrc
 ln -sf ~/dotfiles/.zprofile ~/.zprofile
+ln -sf ~/dotfiles/.gitconfig ~/.gitconfig
 ln -sf ~/dotfiles/.tmux.conf ~/.tmux.conf
 mkdir -p ~/.config/ghostty
 ln -sf ~/dotfiles/ghostty-config ~/.config/ghostty/config
