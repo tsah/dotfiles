@@ -38,6 +38,11 @@
   margin: 0 7.5px;
 }
 
+#network,
+#bluetooth {
+  padding: 0 4px;
+}
+
 #custom-expand-icon {
   margin-right: 7px;
 }
