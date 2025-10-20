@@ -1,3 +1,6 @@
 [alias]
     co = checkout
     cob = checkout -b
+[user]
+	email = tsah.weiss@gmail.com
+	name = Tsah Weiss
