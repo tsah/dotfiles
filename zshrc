@@ -13,27 +13,60 @@ if [ -f ~/.ssh-agent-info ]; then
     source ~/.ssh-agent-info > /dev/null
 fi
 
+# Vi mode
+bindkey -v
+export KEYTIMEOUT=1
+export VI_MODE_SET_CURSOR=true
+bindkey -M viins 'jk' vi-cmd-mode
+
+function zle-keymap-select {
+  if [[ ${KEYMAP} == vicmd ]]; then
+    echo -ne '\e[2 q'
+  else
+    echo -ne '\e[6 q'
+  fi
+}
+zle -N zle-keymap-select
+
+zle-line-init() {
+  zle -K viins
+  echo -ne '\e[6 q'
+}
+zle -N zle-line-init
+echo -ne '\e[6 q'
+
+function vi-yank-xclip {
+  zle vi-yank
+  echo "$CUTBUFFER" | wl-copy
+}
+
+zle -N vi-yank-xclip
+bindkey -M vicmd 'y' vi-yank-xclip
+
+autoload edit-command-line
+zle -N edit-command-line
+bindkey -M vicmd v edit-command-line
+
 # Enable history search
 autoload -U up-line-or-beginning-search
 autoload -U down-line-or-beginning-search
-autoload -Uz edit-command-line
 zle -N up-line-or-beginning-search
 zle -N down-line-or-beginning-search
-bindkey "^[[A" up-line-or-beginning-search    # Up arrow
-bindkey "^[[B" down-line-or-beginning-search  # Down arrow
-bindkey "^A" beginning-of-line                # Ctrl+A
-bindkey "^E" end-of-line                      # Ctrl+E
-bindkey "^[[1~" beginning-of-line             # Home key (alternative sequence)
-bindkey "^[[4~" end-of-line                   # End key (alternative sequence)
-bindkey "^[[H" beginning-of-line
+bindkey -M viins "^[[A" up-line-or-beginning-search
+bindkey -M viins "^[[B" down-line-or-beginning-search
+bindkey -M viins "^A" beginning-of-line
+bindkey -M viins "^E" end-of-line
+bindkey -M viins "^[[1~" beginning-of-line
+bindkey -M viins "^[[4~" end-of-line
+bindkey -M viins "^[[H" beginning-of-line
 
 # Word movement
-bindkey "^[f" forward-word                    # Alt+f
-bindkey "^[b" backward-word                   # Alt+b
-bindkey "^[[1;3C" forward-word                # Alt+Right Arrow
-bindkey "^[[1;3D" backward-word               # Alt+Left Arrow
-bindkey "^[^[[C" forward-word                 # Alt+Right (alternative)
-bindkey "^[^[[D" backward-word                # Alt+Left (alternative)
+bindkey -M viins "^[f" forward-word
+bindkey -M viins "^[b" backward-word
+bindkey -M viins "^[[1;3C" forward-word
+bindkey -M viins "^[[1;3D" backward-word
+bindkey -M viins "^[^[[C" forward-word
+bindkey -M viins "^[^[[D" backward-word
 
 
 alias v=nvim
