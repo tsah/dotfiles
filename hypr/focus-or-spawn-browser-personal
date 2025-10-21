@@ -33,4 +33,5 @@ if [ -n "$client_info" ]; then
 fi
 
 # None found: launch new personal browser on workspace 5
-hyprctl dispatch exec "[workspace 5] chromium --user-data-dir=\"${USER_DATA_DIR}\" --class=\"chromium-personal\" --ozone-platform=wayland --ozone-platform-hint=wayland --enable-features=UseOzonePlatform,TouchpadOverscrollHistoryNavigation"
+hyprctl dispatch workspace 5
+hyprctl dispatch exec "chromium --user-data-dir=\"${USER_DATA_DIR}\" --class=\"chromium-personal\" --ozone-platform=wayland --ozone-platform-hint=wayland --enable-features=UseOzonePlatform,TouchpadOverscrollHistoryNavigation"

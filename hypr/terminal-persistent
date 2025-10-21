@@ -37,4 +37,5 @@ fi
 
 echo "$(date): No window found, launching new" >> /tmp/hypr-terminal.log
 # None found: launch on workspace 1
-hyprctl dispatch exec "[workspace 1] uwsm app -- ghostty"
+hyprctl dispatch workspace 1
+hyprctl dispatch exec "uwsm app -- ghostty"
