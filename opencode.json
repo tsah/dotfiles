@@ -19,20 +19,8 @@
     "plan": {
       "model": "anthropic/claude-sonnet-4-5-20250929"
     },
-    "sonnet-45-plan": {
-      "model": "anthropic/claude-sonnet-4-5-20250929"
-    },
-    "sonnet-45-build": {
-      "model": "anthropic/claude-sonnet-4-5-20250929"
-    },
-    "gpt5-plan": {
-      "model": "openai/gpt-5-codex"
-    },
-    "gpt5-build": {
-      "model": "openai/gpt-5-codex"
-    },
-    "kimi-k2-build": {
-      "model": "opencode/kimi-k2"
+    "fast-build": {
+      "model": "anthropic/claude-haiku-4-5-20251001"
     },
     "grok-free-build": {
       "model": "opencode/grok-code"
