@@ -13,6 +13,7 @@
     "network",
     "pulseaudio",
     "cpu",
+    "custom/plugged-indicator",
     "battery"
   ],
    "hyprland/workspaces": {
@@ -73,13 +74,13 @@
   "battery": {
     "format": "{icon} {capacity}%",
     "format-discharging": "{icon} {capacity}%",
-    "format-charging": "{icon} {capacity}%",
+    "format-charging": "⚡ {icon} {capacity}%",
     "format-plugged": "🔌 {capacity}%",
     "format-icons": {
       "charging": ["󰢜", "󰂆", "󰂇", "󰂈", "󰢝", "󰂉", "󰢞", "󰂊", "󰂋", "󰂅"],
       "default": ["󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
     },
-    "format-full": "󰂅 {capacity}%",
+    "format-full": "🔌 󰂅 {capacity}%",
     "tooltip-format-discharging": "{power:>1.0f}W↓ {capacity}%",
     "tooltip-format-charging": "{power:>1.0f}W↑ {capacity}%",
     "interval": 5,
@@ -131,6 +132,12 @@
      "exec": "/home/tsah/dotfiles/niri/get-keyboard-layout.sh",
     "interval": 1,
     "format": "⌨ {}",
+    "tooltip": false
+  },
+  "custom/plugged-indicator": {
+    "exec": "/home/tsah/dotfiles/bin/plugged-indicator",
+    "interval": 5,
+    "format": "{}",
     "tooltip": false
   }
 }

@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Check if AC power is connected
+if upower -i /org/freedesktop/UPower/devices/line_power_AC | grep -q "online:.*yes"; then
+    echo "🔌"
+else
+    echo ""
+fi
