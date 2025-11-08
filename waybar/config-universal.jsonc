@@ -13,7 +13,6 @@
     "network",
     "pulseaudio",
     "cpu",
-    "custom/plugged-indicator",
     "battery"
   ],
    "hyprland/workspaces": {
