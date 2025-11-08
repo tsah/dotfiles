@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Move current workspace to next monitor
+
+if command -v hyprctl &> /dev/null; then
+    # Hyprland
+    CURRENT_WORKSPACE=$(hyprctl activeworkspace | grep -oP 'workspace ID \K\d+')
+    CURRENT_MONITOR=$(hyprctl activeworkspace | grep -oP 'on monitor \K\S+' | sed 's/:$//')
+
+    # Get list of monitors
+    MONITORS=$(hyprctl monitors | grep -oP '^Monitor \K\S+' | tr '\n' ' ')
+
+    # Find next monitor
+    MONITOR_ARRAY=($MONITORS)
+    for i in "${!MONITOR_ARRAY[@]}"; do
+        if [[ "${MONITOR_ARRAY[$i]}" == "$CURRENT_MONITOR" ]]; then
+            NEXT_INDEX=$(( (i + 1) % ${#MONITOR_ARRAY[@]} ))
+            NEXT_MONITOR=${MONITOR_ARRAY[$NEXT_INDEX]}
+            break
+        fi
+    done
+
+    hyprctl dispatch moveworkspacetomonitor "$CURRENT_WORKSPACE" "$NEXT_MONITOR"
+elif command -v niri &> /dev/null; then
+    # Niri
+    CURRENT_OUTPUT=$(niri msg workspaces | jq -r '.[] | select(.is_active) | .output')
+    # Get list of outputs
+    OUTPUTS=$(niri msg outputs | jq -r 'keys[]' | tr '\n' ' ')
+    OUTPUT_ARRAY=($OUTPUTS)
+    for i in "${!OUTPUT_ARRAY[@]}"; do
+        if [[ "${OUTPUT_ARRAY[$i]}" == "$CURRENT_OUTPUT" ]]; then
+            NEXT_INDEX=$(( (i + 1) % ${#OUTPUT_ARRAY[@]} ))
+            NEXT_OUTPUT=${OUTPUT_ARRAY[$NEXT_INDEX]}
+            break
+        fi
+    done
+    niri msg action move-workspace-to-output "$NEXT_OUTPUT"
+else
+    echo "Unsupported window manager"
+    exit 1
+fi
