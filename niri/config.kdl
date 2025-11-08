@@ -663,4 +663,7 @@ binds {
 
     // Toggle laptop screen (eDP-1)
     Mod+M hotkey-overlay-title="Toggle laptop screen" { spawn "/home/tsah/dotfiles/bin/toggle-laptop-screen"; }
+
+    // Move workspace to next monitor
+    Mod+Shift+Alt+M hotkey-overlay-title="Move workspace to next monitor" { spawn "/home/tsah/dotfiles/bin/move-workspace-to-next-monitor"; }
 }
