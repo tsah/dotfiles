@@ -90,7 +90,9 @@ keymap("n", "<leader>hl", '<cmd>lua require("miniharp").show_list()<CR>')
 keymap("n", "<C-n>", require("miniharp").next)
 keymap("n", "<C-p>", require("miniharp").prev)
 
-keymap('n', '<leader>aw', ':<c-u>ArgonautToggle<cr>', { noremap = true, silent = true })
+keymap('n', '<leader>aw', function() require('trevj').format_at_cursor() end, { noremap = true, silent = true })
+
+
 
 keymap({ 'n', 'x', 'o' }, 's', function() require('flash').jump() end, { desc = "Flash jump" })
 

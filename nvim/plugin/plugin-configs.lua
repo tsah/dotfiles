@@ -127,7 +127,7 @@ require('mini.surround').setup({
     },
 })
 
-require('argonaut').setup({})
+require('trevj').setup({})
 require('typescript-tools').setup({})
 
 require('flash').setup({
