@@ -1,0 +1,7 @@
+default-timeout=5000
+
+[app-name=hyprshot]
+default-timeout=2000
+
+[app-name=screenshot]
+default-timeout=2000
