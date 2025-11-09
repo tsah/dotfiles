@@ -1,0 +1,13 @@
+#!/bin/bash
+# Toggle scratchpad, launching terminal if empty
+
+# Check if scratchpad has any windows
+scratchpad_windows=$(hyprctl clients | grep "workspace: special:scratchpad" | wc -l)
+
+# Toggle the scratchpad
+hyprctl dispatch togglespecialworkspace scratchpad
+
+# If scratchpad was empty, launch terminal
+if [ "$scratchpad_windows" -eq 0 ]; then
+    uwsm-app -- xdg-terminal-exec &
+fi
