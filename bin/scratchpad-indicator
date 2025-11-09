@@ -1,0 +1,10 @@
+#!/bin/bash
+# Check if scratchpad is visible (active window on it)
+
+active_ws=$(hyprctl activewindow 2>/dev/null | grep "workspace:" | awk '{print $2}' || echo "")
+
+if [ "$active_ws" = "-98" ]; then
+    echo "󰏪"
+else
+    echo ""
+fi

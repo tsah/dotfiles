@@ -16,8 +16,8 @@ ln -sf ~/dotfiles/ghostty-config ~/.config/ghostty/config
 # ln -sf ~/dotfiles/hypr ~/.config/hypr
 
 # Setup waybar configuration symlink
-# rm -rf ~/.config/waybar
-# ln -sf ~/dotfiles/waybar ~/.config/waybar
+rm -rf ~/.config/waybar
+ln -sf ~/dotfiles/waybar ~/.config/waybar
 
 # Setup omarchy branding
 # mkdir -p ~/.config/omarchy/branding
