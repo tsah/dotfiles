@@ -162,7 +162,8 @@ require('treesitter-context').setup({
 require('hunk').setup({})
 
 require('snacks').setup({
-    input = { enabled = true }
+    input = { enabled = true },
+    terminal = { enabled = true }
 })
 
 vim.g.opencode_opts = {}
