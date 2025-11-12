@@ -1,4 +1,5 @@
 font-size = 18
+font-family = Adwaita Mono
 confirm-close-surface = false
 
 # Alt key bindings for tmux (send Alt sequences directly to tmux)
