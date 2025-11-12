@@ -107,13 +107,13 @@ vim.g.vimtex_quickfix_ignore_filters = { "Underfull", "Overfull", "LaTeX Warning
 
 require('mini.surround').setup({
     mappings = {
-        add = '<leader>sa',
-        delete = '<leader>sd',
-        find = '<leader>sf',
-        find_left = '<leader>sF',
-        highlight = '<leader>sh',
-        replace = '<leader>sr',
-        update_n_lines = '<leader>sn',
+        add = 'Sa',
+        delete = 'Sd',
+        find = '',
+        find_left = '',
+        highlight = '',
+        replace = 'Sr',
+        update_n_lines = '',
         suffix_last = 'l',
         suffix_next = 'n',
     },
