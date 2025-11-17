@@ -70,6 +70,8 @@ if echo "${CURRENT_SESSION_NAME}" | grep -qE "__(persistent|temp)$"; then
                     tmux new-session -d -s "${TARGET_POPUP_SESSION}" -c "${CURRENT_PATH}"
                 fi
             fi
+            # Hide status bar in popup session
+            tmux set-option -t "${TARGET_POPUP_SESSION}" status off
             # Now switch to it
             tmux switch-client -t "${TARGET_POPUP_SESSION}"
         fi
@@ -105,17 +107,17 @@ else
         if [[ -n "$COMMAND" ]]; then
             # For persistent sessions with command, use a different approach
             # Create session with the command directly, or attach if exists
-            TMUX_CMD="tmux new-session -A -s ${POPUP_SESSION_NAME} ${COMMAND}"
+            TMUX_CMD="tmux new-session -A -s ${POPUP_SESSION_NAME} ${COMMAND} \\; set-option -t ${POPUP_SESSION_NAME} status off"
         else
             # For persistent sessions without command, just create session
-            TMUX_CMD="tmux new-session -A -s ${POPUP_SESSION_NAME}"
+            TMUX_CMD="tmux new-session -A -s ${POPUP_SESSION_NAME} \\; set-option -t ${POPUP_SESSION_NAME} status off"
         fi
     else
         # Temporary session - don't use -A flag, session dies when command exits
         if [[ -n "$COMMAND" ]]; then
-            TMUX_CMD="tmux new-session -s ${POPUP_SESSION_NAME} ${COMMAND}"
+            TMUX_CMD="tmux new-session -s ${POPUP_SESSION_NAME} ${COMMAND} \\; set-option -t ${POPUP_SESSION_NAME} status off"
         else
-            TMUX_CMD="tmux new-session -s ${POPUP_SESSION_NAME}"
+            TMUX_CMD="tmux new-session -s ${POPUP_SESSION_NAME} \\; set-option -t ${POPUP_SESSION_NAME} status off"
         fi
     fi
 
