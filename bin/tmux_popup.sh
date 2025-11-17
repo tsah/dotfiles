@@ -22,15 +22,6 @@ SESSION_TYPE="${1:-shell}"
 COMMAND="${2:-}"
 PERSISTENT="${3:-true}"
 
-# Special handling for opencode - check for virtual environment
-if [[ "$SESSION_TYPE" == "opencode" ]]; then
-    # Check if .venv directory exists in current path
-    if [[ -d ".venv" ]]; then
-        # Activate virtual environment before running opencode
-        COMMAND="source .venv/bin/activate && ${COMMAND}"
-    fi
-fi
-
 # Get the session name of the pane where the key binding was pressed.
 CURRENT_SESSION_NAME=$(tmux display-message -p -t "${TMUX_PANE}" '#{session_name}')
 
