@@ -6,7 +6,7 @@
 # - Different session types
 # - Switching between popup types without nesting
 #
-# Popup session naming format: OUTER__TYPE__PERSISTENCE__popup
+# Popup session naming format: OUTER__TYPE__PERSISTENCE
 # This groups popups by outer session when listing sessions
 #
 # Usage:
@@ -28,12 +28,12 @@ CURRENT_SESSION_NAME=$(tmux display-message -p -t "${TMUX_PANE}" '#{session_name
 # No need to remove quotes - we don't add them anymore
 
 # Check if we are inside ANY popup session
-if echo "${CURRENT_SESSION_NAME}" | grep -q "__popup$"; then
+if echo "${CURRENT_SESSION_NAME}" | grep -qE "__(persistent|temp)$"; then
     # --- INSIDE A POPUP ---
     # Extract the type and outer session from the current popup session name
-    # Format is: OUTER__TYPE__PERSISTENCE__popup
+    # Format is: OUTER__TYPE__PERSISTENCE
     OUTER_SESSION_ID=$(echo "${CURRENT_SESSION_NAME}" | cut -d'_' -f1)
-    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^[^_]+__([^_]+)__(persistent|temp)__popup$/\1/')
+    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^[^_]+__([^_]+)__(persistent|temp)$/\1/')
     
     # Check if this is the same type of popup
     if [[ "${POPUP_TYPE}" == "${SESSION_TYPE}" ]]; then
@@ -46,7 +46,7 @@ if echo "${CURRENT_SESSION_NAME}" | grep -q "__popup$"; then
         if [[ "$PERSISTENT" != "true" ]]; then
             PERSISTENCE_LABEL="temp"
         fi
-        TARGET_POPUP_SESSION="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}__popup"
+        TARGET_POPUP_SESSION="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}"
         
         # Get current working directory
         CURRENT_PATH=$(tmux display-message -p '#{pane_current_path}')
@@ -89,12 +89,12 @@ else
     fi
 
     # Construct the unique popup session name using the captured ID.
-    # Format: OUTER__TYPE__PERSISTENCE__popup
+    # Format: OUTER__TYPE__PERSISTENCE
     PERSISTENCE_LABEL="persistent"
     if [[ "$PERSISTENT" != "true" ]]; then
         PERSISTENCE_LABEL="temp"
     fi
-    POPUP_SESSION_NAME="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}__popup"
+    POPUP_SESSION_NAME="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}"
 
     # Get current working directory
     CURRENT_PATH=$(tmux display-message -p '#{pane_current_path}')
