@@ -1,5 +1,5 @@
-require('command').setup({})
-require('miniharp').setup({ show_on_autoload = true })
+-- require('command').setup({})
+-- require('miniharp').setup({ show_on_autoload = true })
 require('mason').setup({})
 
 require('catppuccin').setup({})
@@ -107,12 +107,12 @@ vim.g.vimtex_quickfix_ignore_filters = { "Underfull", "Overfull", "LaTeX Warning
 
 require('mini.surround').setup({
     mappings = {
-        add = 'Sa',
-        delete = 'Sd',
+        add = '<leader>sa',
+        delete = '<leader>sd',
         find = '',
         find_left = '',
         highlight = '',
-        replace = 'Sr',
+        replace = '<leader>sr',
         update_n_lines = '',
         suffix_last = 'l',
         suffix_next = 'n',
