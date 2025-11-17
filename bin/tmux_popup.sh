@@ -6,7 +6,7 @@
 # - Different session types
 # - Switching between popup types without nesting
 #
-# Popup session naming format: OUTER__TYPE__popup
+# Popup session naming format: OUTER__TYPE__PERSISTENCE__popup
 # This groups popups by outer session when listing sessions
 #
 # Usage:
@@ -25,16 +25,15 @@ PERSISTENT="${3:-true}"
 # Get the session name of the pane where the key binding was pressed.
 CURRENT_SESSION_NAME=$(tmux display-message -p -t "${TMUX_PANE}" '#{session_name}')
 
-# Remove quotes from session name if present
-CURRENT_SESSION_NAME=$(echo "${CURRENT_SESSION_NAME}" | tr -d '"')
+# No need to remove quotes - we don't add them anymore
 
 # Check if we are inside ANY popup session
 if echo "${CURRENT_SESSION_NAME}" | grep -q "__popup$"; then
     # --- INSIDE A POPUP ---
     # Extract the type and outer session from the current popup session name
-    # Format is: OUTER__TYPE__popup
+    # Format is: OUTER__TYPE__PERSISTENCE__popup
     OUTER_SESSION_ID=$(echo "${CURRENT_SESSION_NAME}" | cut -d'_' -f1)
-    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^[^_]+__([^_]+)__popup$/\1/')
+    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^[^_]+__([^_]+)__(persistent|temp)__popup$/\1/')
     
     # Check if this is the same type of popup
     if [[ "${POPUP_TYPE}" == "${SESSION_TYPE}" ]]; then
@@ -43,7 +42,11 @@ if echo "${CURRENT_SESSION_NAME}" | grep -q "__popup$"; then
     else
         # Different type - switch to (or create) the other popup type
         # Construct the target popup session name
-        TARGET_POPUP_SESSION="${OUTER_SESSION_ID}__${SESSION_TYPE}__popup"
+        PERSISTENCE_LABEL="persistent"
+        if [[ "$PERSISTENT" != "true" ]]; then
+            PERSISTENCE_LABEL="temp"
+        fi
+        TARGET_POPUP_SESSION="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}__popup"
         
         # Get current working directory
         CURRENT_PATH=$(tmux display-message -p '#{pane_current_path}')
@@ -86,8 +89,12 @@ else
     fi
 
     # Construct the unique popup session name using the captured ID.
-    # Format: OUTER__TYPE__popup
-    POPUP_SESSION_NAME="${OUTER_SESSION_ID}__${SESSION_TYPE}__popup"
+    # Format: OUTER__TYPE__PERSISTENCE__popup
+    PERSISTENCE_LABEL="persistent"
+    if [[ "$PERSISTENT" != "true" ]]; then
+        PERSISTENCE_LABEL="temp"
+    fi
+    POPUP_SESSION_NAME="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}__popup"
 
     # Get current working directory
     CURRENT_PATH=$(tmux display-message -p '#{pane_current_path}')
@@ -98,17 +105,17 @@ else
         if [[ -n "$COMMAND" ]]; then
             # For persistent sessions with command, use a different approach
             # Create session with the command directly, or attach if exists
-            TMUX_CMD="tmux new-session -A -s \\\"${POPUP_SESSION_NAME}\\\" \\\"${COMMAND}\\\""
+            TMUX_CMD="tmux new-session -A -s ${POPUP_SESSION_NAME} ${COMMAND}"
         else
             # For persistent sessions without command, just create session
-            TMUX_CMD="tmux new-session -A -s \\\"${POPUP_SESSION_NAME}\\\""
+            TMUX_CMD="tmux new-session -A -s ${POPUP_SESSION_NAME}"
         fi
     else
         # Temporary session - don't use -A flag, session dies when command exits
         if [[ -n "$COMMAND" ]]; then
-            TMUX_CMD="tmux new-session -s \\\"${POPUP_SESSION_NAME}\\\" \\\"${COMMAND}\\\""
+            TMUX_CMD="tmux new-session -s ${POPUP_SESSION_NAME} ${COMMAND}"
         else
-            TMUX_CMD="tmux new-session -s \\\"${POPUP_SESSION_NAME}\\\""
+            TMUX_CMD="tmux new-session -s ${POPUP_SESSION_NAME}"
         fi
     fi
 
