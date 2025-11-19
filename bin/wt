@@ -96,13 +96,6 @@ fi
 REPO_NAME=$(basename "$MAIN_REPO_ROOT")
 DIR_NAME=$(basename "$WORKTREE_ROOT")
 
-# Check if we're in a worktree (not the main repo)
-if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
-    echo "Error: This script is designed for worktrees, not the main repository"
-    echo "Current directory appears to be the main repository: $MAIN_REPO_ROOT"
-    exit 1
-fi
-
 # Handle fix-session mode
 if [ "$FIX_SESSION" = true ]; then
     if ! command -v tmux >/dev/null 2>&1 || [ -z "$TMUX" ]; then
@@ -111,7 +104,15 @@ if [ "$FIX_SESSION" = true ]; then
     fi
     
     CURRENT_SESSION=$(tmux display-message -p '#S')
-    EXPECTED_SESSION_NAME="${DIR_NAME}@${CURRENT_BRANCH}"
+    
+    # Check if we're in a worktree or main repo
+    if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
+        # Main repository - just use repo name + branch
+        EXPECTED_SESSION_NAME="${REPO_NAME}@${CURRENT_BRANCH}"
+    else
+        # Worktree - use directory name + branch
+        EXPECTED_SESSION_NAME="${DIR_NAME}@${CURRENT_BRANCH}"
+    fi
     
     echo "Current session: $CURRENT_SESSION"
     echo "Expected session name: $EXPECTED_SESSION_NAME"
@@ -140,6 +141,14 @@ if [ "$FIX_SESSION" = true ]; then
     echo "Directory: $(pwd)"
     echo "Branch: $CURRENT_BRANCH"
     exit 0
+fi
+
+# Check if we're in a worktree (not the main repo)
+if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
+    echo "Error: This script is designed for worktrees, not the main repository"
+    echo "Current directory appears to be the main repository: $MAIN_REPO_ROOT"
+    echo "Use 'wt -f' to fix the session name in the main repository"
+    exit 1
 fi
 
 echo "Current worktree: $WORKTREE_ROOT"
