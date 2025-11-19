@@ -6,8 +6,8 @@
 # - Different session types
 # - Switching between popup types without nesting
 #
-# Popup session naming format: OUTER__TYPE__PERSISTENCE
-# This groups popups by outer session when listing sessions
+# Popup session naming format: _OUTER__TYPE__PERSISTENCE
+# The leading underscore keeps popups separate from regular sessions in lists
 #
 # Usage:
 #   tmux_popup.sh [session_type] [command] [persistent]
@@ -27,13 +27,21 @@ CURRENT_SESSION_NAME=$(tmux display-message -p -t "${TMUX_PANE}" '#{session_name
 
 # No need to remove quotes - we don't add them anymore
 
-# Check if we are inside ANY popup session
-if echo "${CURRENT_SESSION_NAME}" | grep -qE "__(persistent|temp)$"; then
+# Strip branch name from wt-style sessions (format: dir@branch)
+# This ensures popups use the base directory name as the outer session ID
+strip_branch_name() {
+    echo "$1" | sed 's/@.*//'
+}
+
+# Check if we are inside ANY popup session (starts with _ and ends with __persistent or __temp)
+if echo "${CURRENT_SESSION_NAME}" | grep -qE "^_.*__(persistent|temp)$"; then
     # --- INSIDE A POPUP ---
     # Extract the type and outer session from the current popup session name
-    # Format is: OUTER__TYPE__PERSISTENCE
-    OUTER_SESSION_ID=$(echo "${CURRENT_SESSION_NAME}" | cut -d'_' -f1)
-    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^[^_]+__([^_]+)__(persistent|temp)$/\1/')
+    # Format is: _OUTER__TYPE__PERSISTENCE
+    # Note: OUTER may contain @ from wt-style sessions, but we preserve it here
+    # Remove leading underscore and extract outer session (everything before first __)
+    OUTER_SESSION_ID=$(echo "${CURRENT_SESSION_NAME}" | sed 's/^_//' | sed 's/__.*//')
+    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^_[^_]+__([^_]+)__(persistent|temp)$/\1/')
     
     # Check if this is the same type of popup
     if [[ "${POPUP_TYPE}" == "${SESSION_TYPE}" ]]; then
@@ -46,7 +54,7 @@ if echo "${CURRENT_SESSION_NAME}" | grep -qE "__(persistent|temp)$"; then
         if [[ "$PERSISTENT" != "true" ]]; then
             PERSISTENCE_LABEL="temp"
         fi
-        TARGET_POPUP_SESSION="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}"
+        TARGET_POPUP_SESSION="_${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}"
         
         # Get current working directory
         CURRENT_PATH=$(tmux display-message -p '#{pane_current_path}')
@@ -83,6 +91,10 @@ else
 
     # First, capture the session ID of the *outer* session reliably.
     OUTER_SESSION_ID=$(tmux display-message -p '#{session_name}')
+    
+    # Strip branch name from wt-style sessions (format: dir@branch)
+    # This ensures all branches in the same worktree directory share popups
+    OUTER_SESSION_ID=$(strip_branch_name "${OUTER_SESSION_ID}")
 
     # Handle edge case where ID might still be empty (very unlikely, but safe)
     if [[ -z "${OUTER_SESSION_ID}" ]]; then
@@ -91,12 +103,12 @@ else
     fi
 
     # Construct the unique popup session name using the captured ID.
-    # Format: OUTER__TYPE__PERSISTENCE
+    # Format: _OUTER__TYPE__PERSISTENCE
     PERSISTENCE_LABEL="persistent"
     if [[ "$PERSISTENT" != "true" ]]; then
         PERSISTENCE_LABEL="temp"
     fi
-    POPUP_SESSION_NAME="${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}"
+    POPUP_SESSION_NAME="_${OUTER_SESSION_ID}__${SESSION_TYPE}__${PERSISTENCE_LABEL}"
 
     # Get current working directory
     CURRENT_PATH=$(tmux display-message -p '#{pane_current_path}')
