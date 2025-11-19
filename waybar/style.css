@@ -30,26 +30,39 @@
   opacity: 0.5;
 }
 
-#cpu,
 #battery,
 #pulseaudio,
 #custom-omarchy,
 #custom-screenrecording-indicator,
-#custom-update {
+#custom-update,
+#custom-keyboard-layout {
   min-width: 12px;
   margin: 0 7.5px;
 }
 
-#tray {
-  margin-right: 16px;
+#network {
+  margin: 0 7.5px;
+  margin-right: 7.5px;
+}
+
+#cpu {
+  margin: 0 7.5px;
+  margin-left: 7.5px;
+  margin-right: 10px;
 }
 
 #bluetooth {
-  margin-right: 17px;
+  margin: 0 7.5px;
+  margin-right: 3px;
 }
 
-#network {
-  margin-right: 13px;
+#custom-headset {
+  margin: 0 7.5px;
+  margin-left: 3px;
+}
+
+#custom-headset.disconnected {
+  opacity: 0.3;
 }
 
 #custom-expand-icon {

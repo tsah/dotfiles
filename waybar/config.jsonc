@@ -7,11 +7,12 @@
   "modules-left": ["custom/omarchy", "hyprland/workspaces", "custom/scratchpad"],
   "modules-center": ["clock", "custom/update", "custom/screenrecording-indicator"],
   "modules-right": [
-    "group/tray-expander",
-    "bluetooth",
     "network",
-    "pulseaudio",
     "cpu",
+    "custom/keyboard-layout",
+    "bluetooth",
+    "custom/headset",
+    "pulseaudio",
     "battery"
   ],
   "hyprland/workspaces": {
@@ -78,15 +79,15 @@
     "on-click": "omarchy-launch-wifi"
   },
   "battery": {
-    "format": "{capacity}% {icon}",
-    "format-discharging": "{capacity}% {icon}",
-    "format-charging": "{capacity}% {icon}",
-    "format-plugged": "{capacity}% ",
+    "format": "{icon} {capacity}%",
+    "format-discharging": "{icon} {capacity}%",
+    "format-charging": "{icon} {capacity}%",
+    "format-plugged": "{icon}  {capacity}%",
     "format-icons": {
       "charging": ["󰢜", "󰂆", "󰂇", "󰂈", "󰢝", "󰂉", "󰢞", "󰂊", "󰂋", "󰂅"],
       "default": ["󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
     },
-    "format-full": "{capacity}% 󰂅",
+    "format-full": "{icon} {capacity}% 󰂅",
     "tooltip-format-discharging": "{power:>1.0f}W↓ {capacity}%",
     "tooltip-format-charging": "{power:>1.0f}W↑ {capacity}%",
     "interval": 5,
@@ -103,8 +104,14 @@
     "tooltip-format": "Devices connected: {num_connections}",
     "on-click": "blueberry"
   },
+  "custom/headset": {
+    "exec": "/home/tsah/dotfiles/bin/headset-indicator",
+    "interval": 5,
+    "format": "{}",
+    "return-type": "json"
+  },
   "pulseaudio": {
-    "format": "{icon}",
+    "format": "{icon} {volume}%",
     "on-click": "xdg-terminal-exec --app-id=com.omarchy.Wiremix -e wiremix",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",
@@ -114,12 +121,13 @@
       "default": ["", "", ""]
     }
   },
-  "group/tray-expander": {
-    "orientation": "inherit",
-    "drawer": {
-      "transition-duration": 600,
-      "children-class": "tray-group-item"
-    },
+  "custom/keyboard-layout": {
+    "exec": "/home/tsah/dotfiles/bin/keyboard-layout",
+    "interval": 1,
+    "format": "{}",
+    "on-click": "hyprctl switchxkblayout current +1"  // or niri command
+  },
+
     "modules": ["custom/expand-icon", "tray"]
   },
   "custom/expand-icon": {
