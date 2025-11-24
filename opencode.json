@@ -14,10 +14,10 @@
   },
   "agent": {
     "build": {
-      "model": "anthropic/claude-sonnet-4-5-20250929"
+      "model": "opencode/gpt-5.1-codex"
     },
     "plan": {
-      "model": "anthropic/claude-sonnet-4-5-20250929"
+      "model": "opencode/gemini-3-pro"
     },
     "fast-build": {
       "model": "anthropic/claude-haiku-4-5-20251001"
