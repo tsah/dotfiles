@@ -7,7 +7,7 @@ vim.schedule(function()
     vim.cmd.colorscheme('catppuccin-mocha')
 end)
 
-require('gitsigns').setup({ signcolumn = false })
+require('gitsigns').setup({ signcolumn = true })
 
 require('blink.cmp').setup({
     fuzzy = {
