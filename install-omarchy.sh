@@ -11,13 +11,12 @@ ln -sf ~/dotfiles/.tmux.conf ~/.tmux.conf
 mkdir -p ~/.config/ghostty
 ln -sf ~/dotfiles/ghostty-config ~/.config/ghostty/config
 
-# Setup hypr configuration symlink
-# rm -rf ~/.config/hypr
-# ln -sf ~/dotfiles/hypr ~/.config/hypr
+# Setup omarchy (Hyprland) configuration symlinks
+rm -rf ~/.config/hypr
+ln -sf ~/dotfiles/omarchy/hypr ~/.config/hypr
 
-# Setup waybar configuration symlink
 rm -rf ~/.config/waybar
-ln -sf ~/dotfiles/waybar ~/.config/waybar
+ln -sf ~/dotfiles/omarchy/waybar ~/.config/waybar
 
 # Setup omarchy branding
 # mkdir -p ~/.config/omarchy/branding
@@ -29,7 +28,7 @@ ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 
 # Setup niri configuration symlink
 # rm -rf ~/.config/niri
-# ln -sf ~/dotfiles/niri ~/.config/niri
+# ln -sf ~/dotfiles/arch-niri ~/.config/niri
 
 # Setup mako configuration
 # mkdir -p ~/.config/mako
