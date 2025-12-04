@@ -17,7 +17,7 @@
       "model": "opencode/gpt-5.1-codex"
     },
     "plan": {
-      "model": "opencode/gemini-3-pro"
+      "model": "anthropic/claude-opus-4-5-20251101"
     },
     "fast-build": {
       "model": "anthropic/claude-haiku-4-5-20251001"
