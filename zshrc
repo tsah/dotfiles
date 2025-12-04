@@ -103,3 +103,12 @@ export NVM_DIR="$HOME/.nvm"
 
 # opencode
 export PATH=/home/tsah/.opencode/bin:$PATH
+
+# bun completions
+[ -s "/home/tsah/.bun/_bun" ] && source "/home/tsah/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+export PATH=$HOME/dev/personal/advent2025/zig-linux-x86_64-0.13.0:$PATH
+export PATH=/home/tsah/dev/personal/advent2025/zig-linux-x86_64-0.13.0:$PATH
