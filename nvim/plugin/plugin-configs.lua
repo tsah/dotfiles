@@ -83,19 +83,6 @@ require('fzf-lua').setup({
     }
 })
 
-require('codecompanion').setup({
-    extensions = {
-        mcphub = {
-            callback = "mcphub.extensions.codecompanion",
-            opts = {
-                make_vars = true,
-                make_slash_commands = true,
-                show_result_in_chat = true
-            }
-        }
-    },
-})
-
 vim.g.vimtex_imaps_enabled = 0
 vim.g.vimtex_view_method = "skim"
 vim.g.latex_view_general_viewer = "skim"
