@@ -32,6 +32,6 @@ else
         sesh connect "$SELECTED"
         # Run wt -f in the new session's context using send-keys
         # The command checks if it's a git repo and runs wt -f if so
-        tmux send-keys "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ~/dotfiles/bin/wt -f; clear" Enter
+        # tmux send-keys "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ~/dotfiles/bin/wt -f; clear" Enter
     fi
 fi
