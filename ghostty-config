@@ -22,3 +22,10 @@ command = zsh
 # Enable shell integration for dynamic tab titles  
 shell-integration = detect
 window-decoration = none
+
+# Scrollback configuration
+scrollback-limit = 10000
+
+# Integration with Neovim for scrollback/copy
+# Ctrl+Shift+y : Open scrollback file in nvim (native Ghostty feature)
+keybind = ctrl+shift+y=write_screen_file:open
