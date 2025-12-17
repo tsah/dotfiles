@@ -5,7 +5,8 @@ vim.lsp.enable({
   "texlab",
   "rust-analyzer",
   "helm_ls",
-  "basedpyright"
+  "basedpyright",
+  "zls"
 })
 
 vim.diagnostic.config({ 
