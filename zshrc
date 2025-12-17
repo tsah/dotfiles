@@ -110,5 +110,9 @@ export PATH=/home/tsah/.opencode/bin:$PATH
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
-export PATH=$HOME/dev/personal/advent2025/zig-linux-x86_64-0.13.0:$PATH
-export PATH=/home/tsah/dev/personal/advent2025/zig-linux-x86_64-0.13.0:$PATH
+
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/home/tsah/google-cloud-sdk/path.zsh.inc' ]; then . '/home/tsah/google-cloud-sdk/path.zsh.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/home/tsah/google-cloud-sdk/completion.zsh.inc' ]; then . '/home/tsah/google-cloud-sdk/completion.zsh.inc'; fi
