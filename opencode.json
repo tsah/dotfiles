@@ -13,16 +13,19 @@
     }
   },
   "agent": {
-    "build": {
-      "model": "anthropic/claude-sonnet-4-5"
-    },
     "plan": {
       "model": "anthropic/claude-opus-4-5-20251101"
     },
-    "fast-build": {
+    "build-strong": {
+      "model": "anthropic/claude-opus-4-5-20251101"
+    },
+    "build-medium": {
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "build-fast": {
       "model": "anthropic/claude-haiku-4-5-20251001"
     },
-    "grok-free-build": {
+    "build-free": {
       "model": "opencode/grok-code"
     }
   },
@@ -30,22 +33,22 @@
     "commits_push": {
       "template": "commit and push (1 or more logical commits)\n\nAnalyze the current changes and create logical, well-structured commits with descriptive messages. Group related changes together and push all commits to the remote repository.",
       "description": "Create logical commits and push to remote",
-      "agent": "build"
+      "agent": "build-fast"
     },
     "single_commit_push": {
       "template": "commit and push all uncommited changes. If there's something that obviously doesn't need to be commited, stop and ask the user",
       "description": "Create a commit and push to remote",
-      "agent": "build"
+      "agent": "build-fast"
     },
     "rebase_master": {
       "template": "Create a backup branch. then: run git fetch and rebase on latest master. if there are any conflict, solve them logically according to the changes on the branch. If there were conflicts, give a summary of the conflicts and your decisions",
       "description": "Rebase on latest master",
-      "agent": "build"
+      "agent": "build-strong"
     },
     "prepare_pr": {
       "template": "Prepare current branch for PR with comprehensive review and fixes\n\nFollow these steps:\n1. Commit any uncommitted changes:\n   - Check git status to see uncommitted changes\n   - Create a logical commit with a descriptive message for any uncommitted work\n\n2. Review ALL changes on the branch since it diverged from main/master:\n   - Run `git diff main...HEAD` (or `git diff master...HEAD`) to see all changes\n   - Run `git log main..HEAD` (or `git log master..HEAD`) to see all commits\n   - Review the code thoroughly for:\n     a) Leftover or redundant code (commented-out code, unused variables, dead code paths)\n     b) Logic clarity - ensure code is explicit, simple, and modular\n     c) Fail-fast patterns - check errors are caught early and handled properly\n     d) Code smells (long functions, duplicated code, unclear naming, tight coupling)\n     e) Comments - go over all added comments and for each:\n        - Remove it if the code is self-explanatory\n        - Remove it but extract non-self-explanatory code into a function with descriptive name\n        - Keep it only if it explains the WHY (not the HOW)\n\n3. Fix any issues found:\n   - Remove redundant code\n   - Simplify complex logic\n   - Extract functions to improve modularity\n   - Add early returns and proper error handling\n   - Improve naming and structure\n   - Apply comment review decisions\n\n4. Run relevant tests:\n   - Identify which tests are relevant based on the changes\n   - Run those tests and ensure they pass\n   - Fix any test failures\n\nIMPORTANT: If you encounter any dilemma or ambiguity during the review (e.g., uncertain if code is redundant, unclear if a refactoring would break something, unsure about business logic), PAUSE and ask the user for guidance before proceeding.",
       "description": "Commit changes, review branch code, fix issues, run tests",
-      "agent": "build"
+      "agent": "build-strong"
     }
   }
 }
