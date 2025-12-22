@@ -35,5 +35,5 @@ hyprctl dispatch moveworkspacetomonitor "$WS1" "$MONITOR2"
 # 2. Move WS2 to MONITOR1  
 hyprctl dispatch moveworkspacetomonitor "$WS2" "$MONITOR1"
 
-# 3. Focus WS2 (which is now on MONITOR1 where we are)
-hyprctl dispatch workspace "$WS2"
+# 3. Move focus to the OTHER monitor (MONITOR2)
+hyprctl dispatch focusmonitor "$MONITOR2"
