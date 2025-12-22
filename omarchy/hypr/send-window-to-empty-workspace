@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Find an empty workspace, send focused window to it, then focus that workspace on current monitor
+
+# Get current monitor
+CURRENT_MONITOR=$(hyprctl activeworkspace -j | jq -r '.monitor')
+
+# Get all workspace IDs that have windows
+USED_WORKSPACES=$(hyprctl workspaces -j | jq -r '.[] | select(.windows > 0) | .id' | sort -n)
+
+# Find first empty workspace ID (starting from 1)
+EMPTY_WS=1
+for ws_id in $(seq 1 100); do
+    if ! echo "$USED_WORKSPACES" | grep -q "^${ws_id}$"; then
+        EMPTY_WS=$ws_id
+        break
+    fi
+done
+
+# Get focused window address
+FOCUSED_WINDOW=$(hyprctl activewindow -j | jq -r '.address')
+
+# Exit if no window is focused
+if [ "$FOCUSED_WINDOW" = "null" ] || [ -z "$FOCUSED_WINDOW" ]; then
+    exit 0
+fi
+
+# Send window to empty workspace
+hyprctl dispatch movetoworkspacesilent "$EMPTY_WS,address:$FOCUSED_WINDOW"
+
+# Move that workspace to current monitor
+hyprctl dispatch moveworkspacetomonitor "$EMPTY_WS" "$CURRENT_MONITOR"
+
+# Focus the workspace
+hyprctl dispatch workspace "$EMPTY_WS"
