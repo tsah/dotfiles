@@ -26,6 +26,10 @@ ln -sf ~/dotfiles/omarchy/waybar ~/.config/waybar
 mkdir -p ~/.config/opencode
 ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 
+# Setup jj (jujutsu) configuration
+mkdir -p ~/.config/jj
+ln -sf ~/dotfiles/jj-config.toml ~/.config/jj/config.toml
+
 # Setup niri configuration symlink
 # rm -rf ~/.config/niri
 # ln -sf ~/dotfiles/arch-niri ~/.config/niri
