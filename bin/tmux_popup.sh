@@ -40,9 +40,17 @@ if echo "${CURRENT_SESSION_NAME}" | grep -qE "^_.*__(persistent|temp)$"; then
     # Format is: _OUTER__TYPE__PERSISTENCE
     # Note: OUTER may contain @ from wt-style sessions, but we preserve it here
     # Remove leading underscore and extract outer session (everything before first __)
-    OUTER_SESSION_ID=$(echo "${CURRENT_SESSION_NAME}" | sed 's/^_//' | sed 's/__.*//')
-    POPUP_TYPE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/^_[^_]+__([^_]+)__(persistent|temp)$/\1/')
-    
+    # Extract components by working backwards from the known suffixes
+    # Format: _OUTER__TYPE__PERSISTENCE
+    # PERSISTENCE is either "persistent" or "temp"
+    # TYPE is a single word without underscores (e.g., "opencode", "lazygit", "shell")
+    # OUTER can contain underscores (e.g., "qmk_firmware")
+    PERSISTENCE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/.*__(persistent|temp)$/\1/')
+    # Remove the __PERSISTENCE suffix, then extract TYPE (last component after __)
+    WITHOUT_PERSISTENCE=$(echo "${CURRENT_SESSION_NAME}" | sed -E 's/__(persistent|temp)$//')
+    POPUP_TYPE=$(echo "${WITHOUT_PERSISTENCE}" | sed -E 's/.*__([^_]+)$/\1/')
+    # OUTER is everything between leading _ and the __TYPE part
+    OUTER_SESSION_ID=$(echo "${WITHOUT_PERSISTENCE}" | sed -E 's/^_(.*)__[^_]+$/\1/')
     # Check if this is the same type of popup
     if [[ "${POPUP_TYPE}" == "${SESSION_TYPE}" ]]; then
         # Same type - toggle off (detach to close popup)
