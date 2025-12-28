@@ -16,7 +16,7 @@
     "plan": {
       "model": "anthropic/claude-opus-4-5-20251101"
     },
-    "build-strong": {
+    "build": {
       "model": "anthropic/claude-opus-4-5-20251101"
     },
     "build-medium": {
