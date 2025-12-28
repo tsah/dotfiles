@@ -13,5 +13,6 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     uwsm-app -- xdg-terminal-exec tmux attach-session -t "$SESSION_NAME"
 else
     # Create new session with nvim editing the notes file
-    uwsm-app -- xdg-terminal-exec tmux new-session -s "$SESSION_NAME" nvim "$NOTES_FILE"
+    NOTES_DIR="$(dirname "$NOTES_FILE")"
+    uwsm-app -- xdg-terminal-exec tmux new-session -s "$SESSION_NAME" -c "$NOTES_DIR" nvim "$NOTES_FILE"
 fi
