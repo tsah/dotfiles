@@ -155,3 +155,10 @@ require('snacks').setup({
 
 vim.g.opencode_opts = {}
 vim.opt.autoread = true
+
+require('better_escape').setup({
+    timeout = 100,  -- fast jk escape
+    mappings = {
+        i = { j = { k = "<Esc>" } },
+    },
+})

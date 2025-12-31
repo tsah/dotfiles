@@ -1,8 +1,6 @@
 local keymap = vim.keymap.set
 local s = { silent = true }
 
-keymap("n", "<space>", "<Nop>")
-
 
 -- movement
 keymap("n", "j", function()
@@ -14,8 +12,7 @@ end, { expr = true, silent = true })
 keymap("n", "<C-d>", "<C-d>zz")
 keymap("n", "<C-u>", "<C-u>zz")
 
--- edit
-keymap("i", "jk", "<Esc>", s)
+-- edit (jk escape handled by better-escape.nvim)
 
 --- save and quit
 keymap("n", "<Leader>w", "<cmd>w!<CR>", s)

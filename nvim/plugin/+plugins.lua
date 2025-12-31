@@ -30,6 +30,7 @@ local plugins = {
     { src = "https://github.com/julienvincent/hunk.nvim" },
     { src = "https://github.com/folke/snacks.nvim" },
     { src = "https://github.com/NickvanDyke/opencode.nvim" },
+    { src = "https://github.com/max397574/better-escape.nvim" },
 }
 
 vim.pack.add(plugins, { load = true })

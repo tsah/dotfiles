@@ -26,6 +26,9 @@ opt.winborder = "rounded" -- rounded window borders
 opt.hlsearch = true
 opt.fillchars = "vert:│,horiz:─" -- characters for window separators
 
+-- Key mapping timeout for leader sequences (jk escape handled separately by better-escape.nvim)
+opt.timeoutlen = 500
+
 vim.cmd.filetype("plugin indent on")
 
 

@@ -4,6 +4,10 @@
       "rev": "9874177",
       "src": "https://github.com/luancgs/argonaut.nvim"
     },
+    "better-escape.nvim": {
+      "rev": "19a38aa",
+      "src": "https://github.com/max397574/better-escape.nvim"
+    },
     "blink.cmp": {
       "rev": "327fff9",
       "src": "https://github.com/saghen/blink.cmp",
