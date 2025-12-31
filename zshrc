@@ -110,6 +110,7 @@ export PATH=/home/tsah/.opencode/bin:$PATH
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
+export PATH="/home/tsah/.cargo/bin:$PATH"
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/home/tsah/google-cloud-sdk/path.zsh.inc' ]; then . '/home/tsah/google-cloud-sdk/path.zsh.inc'; fi
