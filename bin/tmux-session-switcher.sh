@@ -11,19 +11,21 @@ if echo "${CURRENT_SESSION}" | grep -qE "^_.*__(persistent|temp)$"; then
     tmux detach-client
 else
     # Not in a popup - show session switcher and switch
-    SELECTED=$(sesh list --icons | fzf-tmux -p 80%,70% \
+    # Filter out popup sessions (_*__persistent|temp) and numbered sessions (just digits after icon)
+    FILTER='(_.*__(persistent|temp)| [0-9]+$)'
+    SELECTED=$(sesh list --icons | grep -vE "$FILTER" | fzf-tmux -p 80%,70% \
         --no-sort \
         --ansi \
         --border-label ' sesh ' \
         --prompt '⚡  ' \
         --header '  ^a all ^t tmux ^g configs ^x zoxide ^d tmux kill ^f find' \
         --bind 'tab:down,btab:up' \
-        --bind 'ctrl-a:change-prompt(⚡  )+reload(sesh list --icons)' \
-        --bind 'ctrl-t:change-prompt(🪟  )+reload(sesh list -t --icons)' \
+        --bind "ctrl-a:change-prompt(⚡  )+reload(sesh list --icons | grep -vE '$FILTER')" \
+        --bind "ctrl-t:change-prompt(🪟  )+reload(sesh list -t --icons | grep -vE '$FILTER')" \
         --bind 'ctrl-g:change-prompt(⚙️  )+reload(sesh list -c --icons)' \
         --bind 'ctrl-x:change-prompt(📁  )+reload(sesh list -z --icons)' \
         --bind 'ctrl-f:change-prompt(🔎  )+reload(fd -H -d 2 -t d -E .Trash . ~)' \
-        --bind 'ctrl-d:execute(tmux kill-session -t {2..})+change-prompt(⚡  )+reload(sesh list --icons)' \
+        --bind "ctrl-d:execute(tmux kill-session -t {2..})+change-prompt(⚡  )+reload(sesh list --icons | grep -vE '$FILTER')" \
         --preview-window 'right:55%' \
         --preview 'sesh preview {}')
     
