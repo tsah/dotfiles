@@ -8,3 +8,6 @@ email = "tsah.weiss@tweezr.io"
 pager = "delta"
 diff-formatter = ":git"
 editor = "nvim"
+
+[aliases]
+tc = ["util", "exec", "--", "jj-track-current"]

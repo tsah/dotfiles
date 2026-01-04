@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+# Get the current bookmark name
+BOOKMARK=$(jj log -r @ --no-graph -T 'bookmarks.join("\n")' | head -n1)
+
+if [ -z "${BOOKMARK}" ]; then
+    echo "Error: No bookmark found on current revision" >&2
+    exit 1
+fi
+
+echo "Tracking bookmark '${BOOKMARK}' on origin..."
+jj bookmark track "${BOOKMARK}@origin"
