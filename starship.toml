@@ -1,0 +1,82 @@
+# Starship prompt configuration
+# https://starship.rs/config/
+
+add_newline = true
+command_timeout = 200
+
+# Format: directory, then git OR jj status, then prompt character
+# - custom.git_info: shows git branch/status only in non-jj repos
+# - custom.jj: shows jj info only in jj repos
+format = "$directory${custom.git_info}${custom.jj}$character"
+
+## ------------------------------------------------------------------------------------------------
+## ---- Character (prompt symbol)
+
+[character]
+error_symbol = "[✗](bold cyan)"
+success_symbol = "[❯](bold cyan)"
+
+## ------------------------------------------------------------------------------------------------
+## ---- Directory
+
+[directory]
+truncation_length = 2
+truncation_symbol = "…/"
+repo_root_style = "bold cyan"
+repo_root_format = "[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "
+
+## ------------------------------------------------------------------------------------------------
+## ---- Git module (only in non-jj repos)
+## Uses custom module to check for .jj absence
+
+[custom.git_info]
+command = '''
+# Skip if this is a jj repo (check repo root)
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+[ -d "$repo_root/.jj" ] && exit 0
+
+branch=$(git branch --show-current 2>/dev/null)
+if [ -z "$branch" ]; then
+  branch=$(git rev-parse --short HEAD 2>/dev/null)
+fi
+[ -z "$branch" ] && exit 0
+
+# Get status indicators
+status=""
+# Ahead/behind
+ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null)
+behind=$(git rev-list --count HEAD..@{u} 2>/dev/null)
+[ "$ahead" -gt 0 ] 2>/dev/null && status="${status}⇡${ahead}"
+[ "$behind" -gt 0 ] 2>/dev/null && status="${status}⇣${behind}"
+# Untracked
+git status --porcelain 2>/dev/null | grep -q "^??" && status="${status}?"
+# Modified
+git status --porcelain 2>/dev/null | grep -q "^.M\|^M" && status="${status}~"
+
+# Get diff stats
+additions=$(git diff --numstat 2>/dev/null | awk '{a+=$1}END{if(a>0)print a}')
+deletions=$(git diff --numstat 2>/dev/null | awk '{d+=$2}END{if(d>0)print d}')
+stats=""
+[ -n "$additions" ] && stats="+${additions}"
+[ -n "$deletions" ] && stats="${stats:+$stats }-${deletions}"
+
+# Output with ANSI colors (magenta=35)
+printf "\033[35m%s\033[0m" "$branch"
+[ -n "$status" ] && printf " %s" "$status"
+[ -n "$stats" ] && printf " \033[90m[\033[32m+%s\033[90m \033[31m-%s\033[90m]\033[0m" "$additions" "$deletions"
+echo ""
+'''
+format = "$output "
+detect_folders = [".git"]
+when = ""
+shell = ["bash", "--noprofile", "--norc"]
+
+## ------------------------------------------------------------------------------------------------
+## ---- jj (Jujutsu) module via starship-jj
+## Requires: cargo install starship-jj --locked
+
+[custom.jj]
+command = "starship-jj --ignore-working-copy starship prompt"
+format = "$output"
+detect_folders = [".jj"]
+when = ""

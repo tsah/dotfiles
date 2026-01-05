@@ -30,6 +30,13 @@ ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 mkdir -p ~/.config/jj
 ln -sf ~/dotfiles/jj-config.toml ~/.config/jj/config.toml
 
+# Setup starship prompt configuration
+ln -sf ~/dotfiles/starship.toml ~/.config/starship.toml
+
+# Setup starship-jj configuration (jj prompt integration)
+mkdir -p ~/.config/starship-jj
+ln -sf ~/dotfiles/starship-jj.toml ~/.config/starship-jj/starship-jj.toml
+
 # Setup niri configuration symlink
 # rm -rf ~/.config/niri
 # ln -sf ~/dotfiles/arch-niri ~/.config/niri

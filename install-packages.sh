@@ -64,6 +64,18 @@ else
     echo "✅ OpenCode already installed"
 fi
 
+echo "📦 Installing starship-jj (jj prompt for Starship)..."
+if ! command -v starship-jj &> /dev/null; then
+    if command -v cargo &> /dev/null; then
+        cargo install starship-jj --locked
+        echo "✅ starship-jj installed"
+    else
+        echo "⚠️  Cargo not found. Install Rust first, then run: cargo install starship-jj --locked"
+    fi
+else
+    echo "✅ starship-jj already installed"
+fi
+
 echo ""
 echo "🎯 Optional packages (install as needed):"
 echo "   yay -S impala bt-device"
@@ -81,6 +93,7 @@ echo "   • lazygit - Git TUI"
 echo "   • ghostty - Terminal emulator"
 echo "   • sesh - Session manager"
 echo "   • opencode - SST Claude CLI"
+echo "   • starship-jj - jj prompt integration for Starship"
 echo "   • waybar - Status bar"
 echo "   • mako - Notification daemon"
 echo "   • fuzzel - App launcher"
