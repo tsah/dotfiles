@@ -1,13 +1,122 @@
 #:schema https://docs.jj-vcs.dev/latest/config-schema.json
 
+## ------------------------------------------------------------------------------------------------
+## ---- User settings
+
 [user]
 name = "tsah"
-email = "tsah.weiss@tweezr.io"
+email = "tsah.weiss@gmail.com"  # default to personal email
+
+## ------------------------------------------------------------------------------------------------
+## ---- UI settings
 
 [ui]
 pager = "delta"
-diff-formatter = ":git"
 editor = "nvim"
+default-command = "log"              # `jj` alone shows log instead of help
+diff-formatter = "difft"             # use difftastic for structural diffs
+graph.style = "square"               # cleaner graph rendering
+log-synthetic-elided-nodes = true    # show elided nodes in graph
+
+## ------------------------------------------------------------------------------------------------
+## ---- Difftastic integration
+
+[merge-tools.difft]
+program = "difft"
+diff-args = ["--color=always", "$left", "$right"]
+
+## ------------------------------------------------------------------------------------------------
+## ---- Git settings
+
+[git]
+auto-local-bookmark = false          # don't auto-create bookmarks on fetch
+
+## ------------------------------------------------------------------------------------------------
+## ---- Snapshot settings
+
+[snapshot]
+auto-update-stale = true             # auto-update stale working copies
+
+## ------------------------------------------------------------------------------------------------
+## ---- Scope-based email settings
+## Work repos (under ~/dev/work) use work email, everything else uses personal
+
+[[--scope]]
+--when.repositories = ["~/dev/work"]
+[--scope.user]
+email = "tsah.weiss@tweezr.io"
+
+## ------------------------------------------------------------------------------------------------
+## ---- Revset aliases
+
+[revset-aliases]
+# Commits with WIP prefix - useful for filtering/highlighting
+'wip()' = 'description(glob:"WIP:*")'
+
+# Current stack of work - mutable commits reachable from @
+'stack()' = 'ancestors(reachable(@, mutable()), 2)'
+
+# All open work - stacks reachable from @ or commits by me
+'open()' = 'stack(mine() | @, 1)'
+
+## ------------------------------------------------------------------------------------------------
+## ---- Command aliases
 
 [aliases]
+# Existing custom alias
 tc = ["util", "exec", "--", "jj-track-current"]
+
+# Create bookmark at @ and track it on origin
+bt = ["bookmark", "create", "--track"]
+
+# New commit from trunk - quick way to start fresh work
+nt = ["new", "trunk()"]
+
+# File operations with familiar names
+credit = ["file", "annotate"]                  # like git blame
+cat = ["file", "show"]                         # show file contents at revision
+
+# Move changes between commits
+consume = ["squash", "--into", "@", "--from"]  # pull changes into current commit
+eject = ["squash", "--from", "@", "--into"]    # push changes out to another commit
+
+# Show all open stacks of work
+open = ["log", "-r", "open()"]
+
+## ------------------------------------------------------------------------------------------------
+## ---- Colors for log node template
+
+[colors]
+"node" = { bold = true }
+"node elided" = { fg = "bright black" }
+"node working_copy" = { fg = "green" }
+"node conflict" = { fg = "red" }
+"node immutable" = { fg = "bright cyan" }
+"node wip" = { fg = "yellow" }
+"node normal" = { bold = false }
+
+## ------------------------------------------------------------------------------------------------
+## ---- Templates
+
+[templates]
+# Namespace for auto-created push bookmarks (replaces deprecated git.push-bookmark-prefix)
+git_push_bookmark = '"tsah/push-" ++ change_id.short()'
+# Custom log node with visual distinction for different commit states:
+#   ◉ (green)  - working copy
+#   ! (yellow) - WIP commits (description starts with "WIP:")
+#   x (red)    - conflicts
+#   ◆ (cyan)   - immutable (trunk, remote bookmarks)
+#   ⇋ (gray)   - elided/synthetic nodes
+#   ○          - normal mutable commits
+log_node = '''
+label("node",
+  coalesce(
+    if(!self, label("elided", "⇋")),
+    if(current_working_copy, label("working_copy", "◉")),
+    if(conflict, label("conflict", "x")),
+    if(immutable, label("immutable", "◆")),
+    if(description.starts_with("WIP:"), label("wip", "!")),
+    label("normal", "○")
+  )
+)
+'''
