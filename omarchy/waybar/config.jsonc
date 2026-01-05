@@ -10,6 +10,7 @@
     "network",
     "cpu",
     "custom/keyboard-layout",
+    "custom/dropbox",
     "bluetooth",
     "custom/headset",
     "pulseaudio",
@@ -104,7 +105,7 @@
     "format-connected": "󰂱",
     "format-no-controller": "",
     "tooltip-format": "Devices connected: {num_connections}",
-    "on-click": "omarchy-launch-bluetooth"
+    "on-click": "blueman-manager"
   },
   "custom/headset": {
     "exec": "/home/tsah/dotfiles/bin/headset-indicator",
@@ -128,6 +129,14 @@
     "interval": 1,
     "format": "{}",
     "on-click": "hyprctl switchxkblayout current +1"  // or niri command
+  },
+  "custom/dropbox": {
+    "exec": "/home/tsah/dotfiles/bin/dropbox-indicator",
+    "interval": 10,
+    "format": "{}",
+    "return-type": "json",
+    "on-click": "nautilus ~/Dropbox",
+    "tooltip": true
   },
 
     "modules": ["custom/expand-icon", "tray"]

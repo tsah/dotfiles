@@ -1,0 +1,31 @@
+#!/bin/bash
+# Dropbox status indicator for waybar
+
+# Check if dropbox is running
+if ! pgrep -f "dropbox" >/dev/null 2>&1; then
+    echo '{"text": "󰇣", "tooltip": "Dropbox not running", "class": "stopped"}'
+    exit 0
+fi
+
+# Get status (with timeout to avoid hanging)
+STATUS=$(timeout 2 dropbox status 2>/dev/null | tail -1)
+
+case "$STATUS" in
+    *"Up to date"*)
+        echo '{"text": "󰇣", "tooltip": "Dropbox: Up to date", "class": "synced"}'
+        ;;
+    *"Syncing"*|*"Downloading"*|*"Uploading"*)
+        echo '{"text": "󰇣", "tooltip": "Dropbox: Syncing...", "class": "syncing"}'
+        ;;
+    *"Connecting"*)
+        echo '{"text": "󰇣", "tooltip": "Dropbox: Connecting...", "class": "connecting"}'
+        ;;
+    *)
+        # If we can't get status but process is running, assume it's working
+        if pgrep -f "dropbox" >/dev/null 2>&1; then
+            echo '{"text": "󰇣", "tooltip": "Dropbox: Running", "class": "synced"}'
+        else
+            echo '{"text": "󰇣", "tooltip": "Dropbox: Unknown", "class": "unknown"}'
+        fi
+        ;;
+esac

@@ -94,3 +94,16 @@ tooltip {
 #custom-screenrecording-indicator.active {
   color: #a55555;
 }
+
+#custom-dropbox {
+  margin: 0 7.5px;
+}
+
+#custom-dropbox.syncing {
+  color: #f9e2af;
+}
+
+#custom-dropbox.stopped {
+  color: #a55555;
+  opacity: 0.5;
+}
