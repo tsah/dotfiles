@@ -1,0 +1,53 @@
+#!/bin/bash
+# Launch two Slack webapps and group them together
+
+CONFIG_FILE=~/.config/slack-urls.conf
+
+# Load URLs from config file (not tracked by git)
+if [ ! -f "$CONFIG_FILE" ]; then
+    notify-send -u critical "Slack launcher" "Config file missing: $CONFIG_FILE"
+    exit 1
+fi
+
+source "$CONFIG_FILE"
+
+if [ -z "$SLACK_URL_1" ] || [ -z "$SLACK_URL_2" ]; then
+    notify-send -u critical "Slack launcher" "SLACK_URL_1 and SLACK_URL_2 must be set in $CONFIG_FILE"
+    exit 1
+fi
+
+# Launch first Slack webapp
+omarchy-launch-webapp "$SLACK_URL_1" &
+
+# Wait for the window to appear
+sleep 1.5
+
+# Get the address of the newly created Slack window
+FIRST_WINDOW=$(hyprctl clients -j | jq -r '.[] | select(.class | test("chrome-app.slack.com")) | .address' | tail -1)
+
+if [ -z "$FIRST_WINDOW" ]; then
+    echo "Failed to find first Slack window"
+    exit 1
+fi
+
+# Focus the first window and create a group
+hyprctl dispatch focuswindow "address:$FIRST_WINDOW"
+hyprctl dispatch togglegroup
+
+# Launch second Slack webapp
+omarchy-launch-webapp "$SLACK_URL_2" &
+
+# Wait for the second window to appear
+sleep 1.5
+
+# Get the address of the second Slack window (the newest one)
+SECOND_WINDOW=$(hyprctl clients -j | jq -r '.[] | select(.class | test("chrome-app.slack.com")) | .address' | tail -1)
+
+if [ -z "$SECOND_WINDOW" ] || [ "$SECOND_WINDOW" = "$FIRST_WINDOW" ]; then
+    echo "Failed to find second Slack window"
+    exit 1
+fi
+
+# Focus the second window and move it into the group
+hyprctl dispatch focuswindow "address:$SECOND_WINDOW"
+hyprctl dispatch moveintogroup l
