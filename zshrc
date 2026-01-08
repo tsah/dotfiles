@@ -75,6 +75,15 @@ alias l="ls -ls"
 alias lg=lazygit
 alias oc=opencode
 alias ocu="brew install sst/tap/opencode"
+alias s='sesh list --icons | fzf --ansi --no-sort \
+  --border-label " sesh " \
+  --prompt "⚡  " \
+  --header "  ^a all ^t tmux ^g configs ^x zoxide" \
+  --bind "ctrl-a:change-prompt(⚡  )+reload(sesh list --icons)" \
+  --bind "ctrl-t:change-prompt(🪟  )+reload(sesh list -t --icons)" \
+  --bind "ctrl-g:change-prompt(⚙️  )+reload(sesh list -c --icons)" \
+  --bind "ctrl-x:change-prompt(📁  )+reload(sesh list -z --icons)" \
+  --preview "sesh preview {}" | xargs -r sesh connect'
 
 source ~/.env
 eval "$(zoxide init zsh)"
