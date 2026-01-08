@@ -41,29 +41,28 @@ if [ -z "$branch" ]; then
 fi
 [ -z "$branch" ] && exit 0
 
-# Get status indicators
+# Get status indicators (cache git status output)
 status=""
+porcelain=$(git status --porcelain 2>/dev/null)
 # Ahead/behind
 ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null)
 behind=$(git rev-list --count HEAD..@{u} 2>/dev/null)
 [ "$ahead" -gt 0 ] 2>/dev/null && status="${status}⇡${ahead}"
 [ "$behind" -gt 0 ] 2>/dev/null && status="${status}⇣${behind}"
 # Untracked
-git status --porcelain 2>/dev/null | grep -q "^??" && status="${status}?"
+echo "$porcelain" | grep -q "^??" && status="${status}?"
 # Modified
-git status --porcelain 2>/dev/null | grep -q "^.M\|^M" && status="${status}~"
+echo "$porcelain" | grep -q "^.M\|^M" && status="${status}~"
 
-# Get diff stats
-additions=$(git diff --numstat 2>/dev/null | awk '{a+=$1}END{if(a>0)print a}')
-deletions=$(git diff --numstat 2>/dev/null | awk '{d+=$2}END{if(d>0)print d}')
-stats=""
-[ -n "$additions" ] && stats="+${additions}"
-[ -n "$deletions" ] && stats="${stats:+$stats }-${deletions}"
+# Get diff stats (single call, parse both)
+diffstat=$(git diff --numstat 2>/dev/null | awk '{a+=$1; d+=$2} END{print a, d}')
+additions=${diffstat% *}
+deletions=${diffstat#* }
 
 # Output with ANSI colors (magenta=35)
 printf "\033[35m%s\033[0m" "$branch"
 [ -n "$status" ] && printf " %s" "$status"
-[ -n "$stats" ] && printf " \033[90m[\033[32m+%s\033[90m \033[31m-%s\033[90m]\033[0m" "$additions" "$deletions"
+[ "$additions" -gt 0 ] 2>/dev/null && printf " \033[90m[\033[32m+%s\033[90m \033[31m-%s\033[90m]\033[0m" "$additions" "$deletions"
 echo ""
 '''
 format = "$output "
