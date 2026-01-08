@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+# Create a bookmark on @ and track it on origin
+
+if [ -z "$1" ]; then
+    echo "Usage: jj-bookmark-create-tracked <bookmark-name>" >&2
+    exit 1
+fi
+
+BOOKMARK="$1"
+
+jj bookmark create "${BOOKMARK}"
+jj bookmark track "${BOOKMARK}@origin"
+echo "Created and tracking bookmark '${BOOKMARK}' on origin"

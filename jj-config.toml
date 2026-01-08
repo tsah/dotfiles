@@ -14,8 +14,8 @@ email = "tsah.weiss@gmail.com"  # default to personal email
 pager = "delta"
 editor = "nvim"
 default-command = "log"              # `jj` alone shows log instead of help
-diff-formatter = "difft"             # use difftastic for structural diffs
-graph.style = "square"               # cleaner graph rendering
+diff-formatter = ":git"              # use git-style diffs (piped to delta via pager)
+# graph.style = "square"               # cleaner graph rendering
 log-synthetic-elided-nodes = true    # show elided nodes in graph
 
 ## ------------------------------------------------------------------------------------------------
@@ -67,7 +67,7 @@ email = "tsah.weiss@tweezr.io"
 tc = ["util", "exec", "--", "jj-track-current"]
 
 # Create bookmark at @ and track it on origin
-bt = ["bookmark", "create", "--track"]
+bt = ["util", "exec", "--", "jj-bookmark-create-tracked"]
 
 # New commit from trunk - quick way to start fresh work
 nt = ["new", "trunk()"]
