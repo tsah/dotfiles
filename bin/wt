@@ -36,17 +36,21 @@ spawn_impl() {
         exit 1
     fi
 
-    MAIN_REPO_ROOT=$(git rev-parse --show-toplevel)
-    if [ -z "$MAIN_REPO_ROOT" ]; then
-        echo "Error: Could not determine main repository root"
+    CURRENT_ROOT=$(git rev-parse --show-toplevel)
+    if [ -z "$CURRENT_ROOT" ]; then
+        echo "Error: Could not determine repository root"
         exit 1
     fi
 
     WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
-    WORKTREE_COUNT=$(echo "$WORKTREE_LIST" | grep -c "^worktree" || true)
-    if [ "$WORKTREE_COUNT" -gt 1 ]; then
+    
+    # The main repository is always the first worktree listed
+    MAIN_REPO_ROOT=$(echo "$WORKTREE_LIST" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
+    
+    if [ "$CURRENT_ROOT" != "$MAIN_REPO_ROOT" ]; then
         echo "Error: This command must be run from the main repository, not a worktree"
         echo "Current directory: $(pwd)"
+        echo "Main repository: $MAIN_REPO_ROOT"
         exit 1
     fi
 
@@ -56,28 +60,57 @@ spawn_impl() {
     WORKTREE_NAME="${REPO_NAME}-${BRANCH_NAME}"
     WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
 
-    if [ -d "$WORKTREE_PATH" ]; then
+    # Check if branch is already checked out in a worktree
+    EXISTING_WORKTREE=$(git worktree list --porcelain | grep -B2 "branch refs/heads/$BRANCH_NAME$" | grep "^worktree " | cut -d' ' -f2 || true)
+    
+    if [ -n "$EXISTING_WORKTREE" ]; then
+        # Branch is already in a worktree - just connect to it
+        echo "Branch '$BRANCH_NAME' is already checked out in worktree: $EXISTING_WORKTREE"
+        echo "Connecting to existing worktree..."
+        WORKTREE_PATH="$EXISTING_WORKTREE"
+        WORKTREE_NAME=$(basename "$WORKTREE_PATH")
+    elif [ -d "$WORKTREE_PATH" ]; then
+        # Directory exists but branch isn't in a worktree - error
         echo "Error: Worktree directory already exists: $WORKTREE_PATH"
         echo "Use 'wt destroy' if you're in that worktree, or choose a different branch name"
         exit 1
+    elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+        # Branch exists locally but not in a worktree - create worktree for existing branch
+        echo "Spawning worktree for existing branch: $BRANCH_NAME"
+        echo "  Repository: $REPO_NAME"
+        echo "  Worktree: $WORKTREE_PATH"
+        echo "  Branch: $BRANCH_NAME (existing)"
+
+        if ! git worktree add "$WORKTREE_PATH" "$BRANCH_NAME"; then
+            echo "Error: Failed to create worktree"
+            exit 1
+        fi
+        echo "Worktree created successfully"
+    else
+        # Branch doesn't exist - create new branch from default
+        # Determine the default branch (origin/master or origin/main)
+        if git show-ref --verify --quiet refs/remotes/origin/master; then
+            BASE_REF="origin/master"
+        elif git show-ref --verify --quiet refs/remotes/origin/main; then
+            BASE_REF="origin/main"
+        else
+            echo "Error: Could not find origin/master or origin/main"
+            echo "Available remote branches:"
+            git branch -r
+            exit 1
+        fi
+
+        echo "Spawning new worktree for task: $BRANCH_NAME"
+        echo "  Repository: $REPO_NAME"
+        echo "  Worktree: $WORKTREE_PATH"
+        echo "  Branch: $BRANCH_NAME (from $BASE_REF)"
+
+        if ! git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$BASE_REF"; then
+            echo "Error: Failed to create worktree"
+            exit 1
+        fi
+        echo "Worktree created successfully"
     fi
-
-    if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
-        echo "Error: Branch '$BRANCH_NAME' already exists locally"
-        exit 1
-    fi
-
-    echo "Spawning new worktree for task: $BRANCH_NAME"
-    echo "  Repository: $REPO_NAME"
-    echo "  Worktree: $WORKTREE_PATH"
-    echo "  Branch: $BRANCH_NAME (from origin/master)"
-
-    if ! git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" origin/master; then
-        echo "Error: Failed to create worktree"
-        exit 1
-    fi
-
-    echo "Worktree created successfully"
 
     if command -v tmux >/dev/null 2>&1; then
         SESSION_NAME="$WORKTREE_NAME"
@@ -156,41 +189,44 @@ destroy_impl() {
             ;;
     esac
 
-    if command -v tmux >/dev/null 2>&1; then
-        if tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
-            echo "Killing tmux session '$WORKTREE_NAME'..."
-            tmux kill-session -t "$WORKTREE_NAME"
-        fi
-    fi
-
+    # Remove worktree first (before killing tmux session)
     if ! git worktree remove "$WORKTREE_ROOT" --force; then
         echo "Error: Failed to remove worktree"
         exit 1
     fi
-
+    
     echo "Worktree removed successfully"
 
-    MAIN_SESSION_NAME="${REPO_NAME}"
+    # Now handle tmux session cleanup
     if command -v tmux >/dev/null 2>&1; then
-        cd "$MAIN_REPO_ROOT" || exit 1
-
+        CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
+        
         if [ -n "$TMUX" ]; then
-            if tmux has-session -t "$MAIN_SESSION_NAME" 2>/dev/null; then
-                echo "Switching to main repository session '$MAIN_SESSION_NAME'..."
-                tmux switch-client -t "$MAIN_SESSION_NAME"
-            else
-                echo "Main repository session doesn't exist, creating..."
+            # We're in tmux - switch to main session before killing current one
+            MAIN_SESSION_NAME="${REPO_NAME}"
+            
+            # Create main session if it doesn't exist
+            if ! tmux has-session -t "$MAIN_SESSION_NAME" 2>/dev/null; then
+                echo "Creating main repository session '$MAIN_SESSION_NAME'..."
                 tmux new-session -d -s "$MAIN_SESSION_NAME" -c "$MAIN_REPO_ROOT"
                 tmux rename-window -t "$MAIN_SESSION_NAME:1" 'Main'
+            fi
+            
+            echo "Switching to main repository session '$MAIN_SESSION_NAME'..."
+            
+            # Switch first, then kill the old session if it exists
+            if [ -n "$CURRENT_SESSION" ] && [ "$CURRENT_SESSION" != "$MAIN_SESSION_NAME" ]; then
+                tmux switch-client -t "$MAIN_SESSION_NAME" \; kill-session -t "$CURRENT_SESSION"
+            else
                 tmux switch-client -t "$MAIN_SESSION_NAME"
             fi
         else
-            echo "Worktree destroyed. Returning to main repository: $MAIN_REPO_ROOT"
-            cd "$MAIN_REPO_ROOT" || exit 1
+            # Not in tmux, just kill the session if it exists
+            if tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
+                echo "Killing tmux session '$WORKTREE_NAME'..."
+                tmux kill-session -t "$WORKTREE_NAME"
+            fi
         fi
-    else
-        echo "Worktree destroyed. Returning to main repository: $MAIN_REPO_ROOT"
-        cd "$MAIN_REPO_ROOT" || exit 1
     fi
 
     echo "Done!"
