@@ -2,35 +2,212 @@
 # Worktree branch switcher with directory and tmux session renaming
 
 usage() {
-    echo "Usage: $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
+    echo "Usage: $0 spawn <branch> | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
-    echo "Switch to a branch in the current worktree and rename tmux session."
+    echo "Task-oriented worktree manager: spawn worktrees per task, destroy when done."
     echo ""
-    echo "Arguments:"
-    echo "  <branch-name>     Name of the branch to switch to or create"
+    echo "Task Commands:"
+    echo "  spawn <branch>    Create new worktree from origin/master and switch to tmux session"
+    echo "                    Worktree name: {repo}-{branch} (e.g., dotfiles-fix-login-bug)"
+    echo "                    Session name: {repo}-{branch}"
+    echo "  destroy           Delete current worktree and tmux session, return to main repo"
+    echo ""
+    echo "Branch Commands:"
+    echo "  <branch-name>     Switch to/create branch in current worktree and rename tmux session"
     echo ""
     echo "Options:"
     echo "  -m, --from-master Create new branch from master/main instead of current branch"
-    echo "  -f, --fix-session Fix current session name to [dir]_[branch] format or attach to existing"
+    echo "  -f, --fix-session Fix current session name to match expected format"
     echo "  -h, --help        Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 feature-new           # Switch to feature-new (or create from current branch)"
-    echo "  $0 feature-new -m        # Switch to feature-new (or create from master/main)"
-    echo "  $0 --fix-session         # Fix current session name to match dir_branch format"
-    echo ""
-    echo "The script will:"
-    echo "  1. Switch/create the branch in the current worktree"
-    echo "  2. Rename the tmux session to [dir]_[branch] format"
+    echo "  $0 spawn fix-login-bug   # Create worktree dotfiles-fix-login-bug, switch to tmux"
+    echo "  $0 destroy               # Delete current worktree, return to main repo"
+    echo "  $0 feature-new           # Switch to feature-new in current worktree"
+    echo "  $0 feature-new -m        # Create from master/main instead of current branch"
+    echo "  $0 --fix-session         # Fix current session name"
+}
+
+spawn_impl() {
+    BRANCH_NAME="$1"
+
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Error: Not in a git repository"
+        exit 1
+    fi
+
+    MAIN_REPO_ROOT=$(git rev-parse --show-toplevel)
+    if [ -z "$MAIN_REPO_ROOT" ]; then
+        echo "Error: Could not determine main repository root"
+        exit 1
+    fi
+
+    WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
+    WORKTREE_COUNT=$(echo "$WORKTREE_LIST" | grep -c "^worktree" || true)
+    if [ "$WORKTREE_COUNT" -gt 1 ]; then
+        echo "Error: This command must be run from the main repository, not a worktree"
+        echo "Current directory: $(pwd)"
+        exit 1
+    fi
+
+    REPO_NAME=$(basename "$MAIN_REPO_ROOT")
+    REPO_PARENT=$(dirname "$MAIN_REPO_ROOT")
+
+    WORKTREE_NAME="${REPO_NAME}-${BRANCH_NAME}"
+    WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
+
+    if [ -d "$WORKTREE_PATH" ]; then
+        echo "Error: Worktree directory already exists: $WORKTREE_PATH"
+        echo "Use 'wt destroy' if you're in that worktree, or choose a different branch name"
+        exit 1
+    fi
+
+    if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+        echo "Error: Branch '$BRANCH_NAME' already exists locally"
+        exit 1
+    fi
+
+    echo "Spawning new worktree for task: $BRANCH_NAME"
+    echo "  Repository: $REPO_NAME"
+    echo "  Worktree: $WORKTREE_PATH"
+    echo "  Branch: $BRANCH_NAME (from origin/master)"
+
+    if ! git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" origin/master; then
+        echo "Error: Failed to create worktree"
+        exit 1
+    fi
+
+    echo "Worktree created successfully"
+
+    if command -v tmux >/dev/null 2>&1; then
+        SESSION_NAME="$WORKTREE_NAME"
+
+        if [ -n "$TMUX" ]; then
+            if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+                echo "Switching to existing tmux session '$SESSION_NAME'..."
+                tmux switch-client -t "$SESSION_NAME"
+            else
+                echo "Creating new tmux session '$SESSION_NAME'..."
+                tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
+                tmux rename-window -t "$SESSION_NAME:1" 'Main'
+                tmux switch-client -t "$SESSION_NAME"
+            fi
+        else
+            if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+                echo "Attaching to existing tmux session '$SESSION_NAME'..."
+                tmux attach-session -t "$SESSION_NAME"
+            else
+                echo "Creating new tmux session '$SESSION_NAME'..."
+                tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
+                tmux rename-window -t "$SESSION_NAME:1" 'Main'
+                tmux attach-session -t "$SESSION_NAME"
+            fi
+        fi
+    else
+        echo "Tmux not available, staying in worktree directory..."
+        cd "$WORKTREE_PATH" || exit 1
+        exec "$SHELL"
+    fi
+}
+
+destroy_impl() {
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Error: Not in a git repository"
+        exit 1
+    fi
+
+    WORKTREE_ROOT=$(git rev-parse --show-toplevel)
+    CURRENT_BRANCH=$(git branch --show-current)
+
+    MAIN_REPO_ROOT=$(git worktree list --porcelain | grep -E "^worktree " | head -1 | cut -d' ' -f2)
+    if [ -z "$MAIN_REPO_ROOT" ]; then
+        echo "Error: Could not determine main repository root"
+        exit 1
+    fi
+
+    if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
+        echo "Error: This command must be run from a spawned worktree, not the main repository"
+        echo "Current directory: $(pwd)"
+        exit 1
+    fi
+
+    REPO_NAME=$(basename "$MAIN_REPO_ROOT")
+    WORKTREE_NAME=$(basename "$WORKTREE_ROOT")
+
+    if ! echo "$WORKTREE_NAME" | grep -qE "^${REPO_NAME}-"; then
+        echo "Warning: This doesn't look like a spawned worktree (expected: ${REPO_NAME}-*)"
+        echo "Current worktree: $WORKTREE_NAME"
+        echo "Main repository: $REPO_NAME"
+    fi
+
+    echo "Destroying worktree: $WORKTREE_ROOT"
+    echo "  Branch: $CURRENT_BRANCH"
+    echo "  Worktree name: $WORKTREE_NAME"
+
+    printf "Are you sure you want to delete this worktree? [y/N] "
+    read -r response
+    case "$response" in
+        [yY]|[yY][eE][sS])
+            echo "Proceeding with destruction..."
+            ;;
+        *)
+            echo "Aborted."
+            exit 0
+            ;;
+    esac
+
+    if command -v tmux >/dev/null 2>&1; then
+        if tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
+            echo "Killing tmux session '$WORKTREE_NAME'..."
+            tmux kill-session -t "$WORKTREE_NAME"
+        fi
+    fi
+
+    if ! git worktree remove "$WORKTREE_ROOT" --force; then
+        echo "Error: Failed to remove worktree"
+        exit 1
+    fi
+
+    echo "Worktree removed successfully"
+
+    MAIN_SESSION_NAME="${REPO_NAME}"
+    if command -v tmux >/dev/null 2>&1; then
+        cd "$MAIN_REPO_ROOT" || exit 1
+
+        if [ -n "$TMUX" ]; then
+            if tmux has-session -t "$MAIN_SESSION_NAME" 2>/dev/null; then
+                echo "Switching to main repository session '$MAIN_SESSION_NAME'..."
+                tmux switch-client -t "$MAIN_SESSION_NAME"
+            else
+                echo "Main repository session doesn't exist, creating..."
+                tmux new-session -d -s "$MAIN_SESSION_NAME" -c "$MAIN_REPO_ROOT"
+                tmux rename-window -t "$MAIN_SESSION_NAME:1" 'Main'
+                tmux switch-client -t "$MAIN_SESSION_NAME"
+            fi
+        else
+            echo "Worktree destroyed. Returning to main repository: $MAIN_REPO_ROOT"
+            cd "$MAIN_REPO_ROOT" || exit 1
+        fi
+    else
+        echo "Worktree destroyed. Returning to main repository: $MAIN_REPO_ROOT"
+        cd "$MAIN_REPO_ROOT" || exit 1
+    fi
+
+    echo "Done!"
 }
 
 # Parse arguments
+COMMAND=""
 BRANCH_NAME=""
 FROM_MASTER=false
 FIX_SESSION=false
 
 while [ $# -gt 0 ]; do
     case $1 in
+        spawn|destroy)
+            COMMAND="$1"
+            shift
+            ;;
         -m|--from-master)
             FROM_MASTER=true
             shift
@@ -60,6 +237,32 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Handle task commands first
+if [ "$COMMAND" = "spawn" ]; then
+    if [ -z "$BRANCH_NAME" ]; then
+        echo "Error: spawn command requires a branch name"
+        usage
+        exit 1
+    fi
+    if [ "$FROM_MASTER" = true ]; then
+        echo "Error: spawn command always uses origin/master, --from-master not applicable"
+        usage
+        exit 1
+    fi
+    if [ "$FIX_SESSION" = true ]; then
+        echo "Error: spawn command does not support --fix-session"
+        usage
+        exit 1
+    fi
+    spawn_impl "$BRANCH_NAME"
+    exit $?
+fi
+
+if [ "$COMMAND" = "destroy" ]; then
+    destroy_impl
+    exit $?
+fi
 
 if [ -z "$BRANCH_NAME" ] && [ "$FIX_SESSION" = false ]; then
     echo "Error: Branch name is required"
