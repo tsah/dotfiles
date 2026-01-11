@@ -4,10 +4,7 @@
 add_newline = true
 command_timeout = 200
 
-# Format: directory, then git OR jj status, then prompt character
-# - custom.git_info: shows git branch/status only in non-jj repos
-# - custom.jj: shows jj info only in jj repos
-format = "$directory${custom.git_info}${custom.jj}$character"
+format = "$directory${custom.git_info}$character"
 
 ## ------------------------------------------------------------------------------------------------
 ## ---- Character (prompt symbol)
@@ -26,56 +23,46 @@ repo_root_style = "bold cyan"
 repo_root_format = "[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "
 
 ## ------------------------------------------------------------------------------------------------
-## ---- Git module (only in non-jj repos)
-## Uses custom module to check for .jj absence
+## ---- Git module
 
 [custom.git_info]
 command = '''
-# Skip if this is a jj repo (check repo root)
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
-[ -d "$repo_root/.jj" ] && exit 0
+# Run slow operations in parallel using temp files
+tmp=$(mktemp -d)
+trap "rm -rf $tmp" EXIT
 
-branch=$(git branch --show-current 2>/dev/null)
-if [ -z "$branch" ]; then
-  branch=$(git rev-parse --short HEAD 2>/dev/null)
-fi
+# These 4 operations run in parallel
+git status --porcelain 2>/dev/null > "$tmp/status" &
+git rev-list --count @{u}..HEAD 2>/dev/null > "$tmp/ahead" &
+git rev-list --count HEAD..@{u} 2>/dev/null > "$tmp/behind" &
+git diff --shortstat 2>/dev/null > "$tmp/diff" &
+
+# Get branch while parallel ops run (fast)
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
 [ -z "$branch" ] && exit 0
 
-# Get status indicators (cache git status output)
+wait
+
+# Build status string from parallel results
 status=""
-porcelain=$(git status --porcelain 2>/dev/null)
-# Ahead/behind
-ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null)
-behind=$(git rev-list --count HEAD..@{u} 2>/dev/null)
+ahead=$(cat "$tmp/ahead")
+behind=$(cat "$tmp/behind")
 [ "$ahead" -gt 0 ] 2>/dev/null && status="${status}⇡${ahead}"
 [ "$behind" -gt 0 ] 2>/dev/null && status="${status}⇣${behind}"
-# Untracked
-echo "$porcelain" | grep -q "^??" && status="${status}?"
-# Modified
-echo "$porcelain" | grep -q "^.M\|^M" && status="${status}~"
+grep -q "^??" "$tmp/status" && status="${status}?"
+grep -q "^.M\|^M" "$tmp/status" && status="${status}~"
 
-# Get diff stats (single call, parse both)
-diffstat=$(git diff --numstat 2>/dev/null | awk '{a+=$1; d+=$2} END{print a, d}')
-additions=${diffstat% *}
-deletions=${diffstat#* }
+# Parse diff stats: "N files changed, X insertions(+), Y deletions(-)"
+additions=$(sed -n 's/.*\([0-9]\+\) insertion.*/\1/p' "$tmp/diff")
+deletions=$(sed -n 's/.*\([0-9]\+\) deletion.*/\1/p' "$tmp/diff")
 
 # Output with ANSI colors (magenta=35)
 printf "\033[35m%s\033[0m" "$branch"
 [ -n "$status" ] && printf " %s" "$status"
-[ "$additions" -gt 0 ] 2>/dev/null && printf " \033[90m[\033[32m+%s\033[90m \033[31m-%s\033[90m]\033[0m" "$additions" "$deletions"
+[ -n "$additions" ] && printf " \033[90m[\033[32m+%s\033[90m \033[31m-%s\033[90m]\033[0m" "$additions" "${deletions:-0}"
 echo ""
 '''
 format = "$output "
 detect_folders = [".git"]
 when = ""
 shell = ["bash", "--noprofile", "--norc"]
-
-## ------------------------------------------------------------------------------------------------
-## ---- jj (Jujutsu) module via starship-jj
-## Requires: cargo install starship-jj --locked
-
-[custom.jj]
-command = "starship-jj --ignore-working-copy starship prompt"
-format = "$output"
-detect_folders = [".jj"]
-when = ""
