@@ -20,7 +20,7 @@ else
         --prompt '⚡  ' \
         --header '  ^a all ^t tmux ^g configs ^x zoxide ^d tmux kill ^f find' \
         --bind 'tab:down,btab:up' \
-        --bind 'alt-j:abort' \
+        --bind 'alt-k:abort' \
         --bind "ctrl-a:change-prompt(⚡  )+reload(sesh list --icons | grep -vE '$FILTER')" \
         --bind "ctrl-t:change-prompt(🪟  )+reload(sesh list -t --icons | grep -vE '$FILTER')" \
         --bind 'ctrl-g:change-prompt(⚙️  )+reload(sesh list -c --icons)' \
