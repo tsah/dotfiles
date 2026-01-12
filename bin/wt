@@ -47,11 +47,13 @@ spawn_impl() {
     # The main repository is always the first worktree listed
     MAIN_REPO_ROOT=$(echo "$WORKTREE_LIST" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
     
+    # If we're in a worktree, switch context to main repo for git operations
     if [ "$CURRENT_ROOT" != "$MAIN_REPO_ROOT" ]; then
-        echo "Error: This command must be run from the main repository, not a worktree"
-        echo "Current directory: $(pwd)"
-        echo "Main repository: $MAIN_REPO_ROOT"
-        exit 1
+        echo "Running from worktree, using main repository: $MAIN_REPO_ROOT"
+        cd "$MAIN_REPO_ROOT" || {
+            echo "Error: Failed to change to main repository"
+            exit 1
+        }
     fi
 
     REPO_NAME=$(basename "$MAIN_REPO_ROOT")
@@ -109,7 +111,11 @@ spawn_impl() {
             echo "Error: Failed to create worktree"
             exit 1
         fi
-        echo "Worktree created successfully"
+        
+        # Set up upstream tracking so 'git push' works out of the box
+        git config "branch.${BRANCH_NAME}.remote" origin
+        git config "branch.${BRANCH_NAME}.merge" "refs/heads/${BRANCH_NAME}"
+        echo "Worktree created successfully (upstream configured for git push)"
     fi
 
     if command -v tmux >/dev/null 2>&1; then
