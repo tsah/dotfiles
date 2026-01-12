@@ -66,3 +66,4 @@ format = "$output "
 detect_folders = [".git"]
 when = ""
 shell = ["bash", "--noprofile", "--norc"]
+ignore_timeout = true

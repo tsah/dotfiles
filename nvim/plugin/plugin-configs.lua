@@ -153,7 +153,9 @@ require('snacks').setup({
     terminal = { enabled = true }
 })
 
-vim.g.opencode_opts = {}
+vim.g.opencode_opts = {
+    provider = { enabled = false }  -- Always use external opencode instances (started with --port)
+}
 vim.opt.autoread = true
 
 require('better_escape').setup({

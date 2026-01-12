@@ -19,12 +19,6 @@
     "build": {
       "model": "anthropic/claude-opus-4-5-20251101"
     },
-    "build-medium": {
-      "model": "anthropic/claude-sonnet-4-5"
-    },
-    "build-fast": {
-      "model": "anthropic/claude-haiku-4-5-20251001"
-    },
     "build-free": {
       "model": "opencode/grok-code"
     }
