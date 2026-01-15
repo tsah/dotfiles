@@ -2,12 +2,13 @@
 # Worktree branch switcher with directory and tmux session renaming
 
 usage() {
-    echo "Usage: $0 spawn <branch> | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
+    echo "Usage: $0 spawn <branch> [--new-window|-w] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
     echo "Task-oriented worktree manager: spawn worktrees per task, destroy when done."
     echo ""
     echo "Task Commands:"
     echo "  spawn <branch>    Create new worktree from origin/master and switch to tmux session"
+    echo "  spawn <branch> -w Create new worktree and open session in new Ghostty window"
     echo "                    Worktree name: {repo}-{branch} (e.g., dotfiles-fix-login-bug)"
     echo "                    Session name: {repo}-{branch}"
     echo "  destroy           Delete current worktree and tmux session, return to main repo"
@@ -30,6 +31,7 @@ usage() {
 
 spawn_impl() {
     BRANCH_NAME="$1"
+    NEW_WINDOW="$2"
 
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo "Error: Not in a git repository"
@@ -118,29 +120,40 @@ spawn_impl() {
         echo "Worktree created successfully (upstream configured for git push)"
     fi
 
+    # Register worktree path with zoxide so it appears in sesh
+    if command -v zoxide >/dev/null 2>&1; then
+        zoxide add "$WORKTREE_PATH"
+    fi
+
     if command -v tmux >/dev/null 2>&1; then
         SESSION_NAME="$WORKTREE_NAME"
 
-        if [ -n "$TMUX" ]; then
-            if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-                echo "Switching to existing tmux session '$SESSION_NAME'..."
-                tmux switch-client -t "$SESSION_NAME"
-            else
-                echo "Creating new tmux session '$SESSION_NAME'..."
-                tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
-                tmux rename-window -t "$SESSION_NAME:1" 'Main'
-                tmux switch-client -t "$SESSION_NAME"
-            fi
+        # Ensure the tmux session exists (attach/switch happens after).
+        if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+            echo "Tmux session '$SESSION_NAME' already exists"
         else
-            if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-                echo "Attaching to existing tmux session '$SESSION_NAME'..."
-                tmux attach-session -t "$SESSION_NAME"
-            else
-                echo "Creating new tmux session '$SESSION_NAME'..."
-                tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
-                tmux rename-window -t "$SESSION_NAME:1" 'Main'
-                tmux attach-session -t "$SESSION_NAME"
+            echo "Creating new tmux session '$SESSION_NAME'..."
+            tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
+            tmux rename-window -t "$SESSION_NAME:1" 'Main'
+        fi
+
+        if [ "$NEW_WINDOW" = true ]; then
+            if ! command -v ghostty >/dev/null 2>&1; then
+                echo "Error: ghostty not found (required for --new-window)" >&2
+                exit 1
             fi
+
+            echo "Opening tmux session '$SESSION_NAME' in new Ghostty window..."
+            ghostty +new-window -e tmux attach -t "$SESSION_NAME"
+            return 0
+        fi
+
+        if [ -n "$TMUX" ]; then
+            echo "Switching to tmux session '$SESSION_NAME'..."
+            tmux switch-client -t "$SESSION_NAME"
+        else
+            echo "Attaching to tmux session '$SESSION_NAME'..."
+            tmux attach-session -t "$SESSION_NAME"
         fi
     else
         echo "Tmux not available, staying in worktree directory..."
@@ -243,6 +256,7 @@ COMMAND=""
 BRANCH_NAME=""
 FROM_MASTER=false
 FIX_SESSION=false
+NEW_WINDOW=false
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -256,6 +270,10 @@ while [ $# -gt 0 ]; do
             ;;
         -f|--fix-session)
             FIX_SESSION=true
+            shift
+            ;;
+        -w|--new-window)
+            NEW_WINDOW=true
             shift
             ;;
         -h|--help)
@@ -297,13 +315,23 @@ if [ "$COMMAND" = "spawn" ]; then
         usage
         exit 1
     fi
-    spawn_impl "$BRANCH_NAME"
+    if [ "$NEW_WINDOW" = true ] && ! command -v tmux >/dev/null 2>&1; then
+        echo "Error: --new-window requires tmux" >&2
+        exit 1
+    fi
+    spawn_impl "$BRANCH_NAME" "$NEW_WINDOW"
     exit $?
 fi
 
 if [ "$COMMAND" = "destroy" ]; then
     destroy_impl
     exit $?
+fi
+
+if [ "$NEW_WINDOW" = true ]; then
+    echo "Error: --new-window is only supported with 'spawn'"
+    usage
+    exit 1
 fi
 
 if [ -z "$BRANCH_NAME" ] && [ "$FIX_SESSION" = false ]; then
