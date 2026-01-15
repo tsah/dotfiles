@@ -21,6 +21,16 @@
     },
     "build-free": {
       "model": "opencode/grok-code"
+    },
+    "code-review": {
+      "description": "Reviews code for best practices, bugs, and potential issues. Use after writing significant code.",
+      "mode": "subagent",
+      "temperature": 0.4,
+      "tools": {
+        "write": false,
+        "edit": false
+      },
+      "prompt": "You are a senior code reviewer. Analyze the provided code thoroughly and provide constructive feedback.\n\nFocus on:\n- Code correctness and potential bugs\n- Edge cases and error handling\n- Performance implications\n- Security vulnerabilities\n- Code clarity and maintainability\n- Adherence to best practices and idioms\n- Naming conventions and code organization\n\nProvide specific, actionable feedback. Reference line numbers when applicable. Suggest improvements but do not make changes directly."
     }
   },
   "command": {
