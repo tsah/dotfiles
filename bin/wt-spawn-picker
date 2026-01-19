@@ -1,0 +1,90 @@
+#!/bin/bash
+# Worktree spawn picker - combines project selection with wt spawn
+#
+# Flow:
+# 1. Pick a git repository from sesh/zoxide list
+# 2. Type/select a branch name
+# 3. Spawn worktree + tmux session (attaches in current terminal)
+
+# Step 1: Get git repositories from sesh/zoxide
+# Filter to only directories that are git repos
+get_git_repos() {
+    sesh list -z 2>/dev/null | while read -r dir; do
+        # Expand ~ to $HOME
+        expanded_dir="${dir/#\~/$HOME}"
+        if [[ -d "$expanded_dir/.git" ]] || git -C "$expanded_dir" rev-parse --git-dir &>/dev/null; then
+            echo "$dir"
+        fi
+    done
+}
+
+REPOS=$(get_git_repos)
+
+if [[ -z "$REPOS" ]]; then
+    echo "No git repositories found in zoxide database" >&2
+    exit 1
+fi
+
+# Step 1: Select repository
+SELECTED_REPO=$(echo "$REPOS" | fzf \
+    --no-sort \
+    --border-label ' Select Repository ' \
+    --prompt '📁  ' \
+    --header 'Select a git repository for worktree' \
+    --preview 'dir="${1/#\~/$HOME}"; cd "$dir" 2>/dev/null && git log --oneline -10 2>/dev/null || echo "Not a git repo"')
+
+if [[ -z "$SELECTED_REPO" ]]; then
+    exit 0
+fi
+
+# Expand ~ to $HOME
+REPO_PATH="${SELECTED_REPO/#\~/$HOME}"
+
+if [[ ! -d "$REPO_PATH" ]]; then
+    echo "Error: Directory not found: $REPO_PATH" >&2
+    exit 1
+fi
+
+cd "$REPO_PATH" || exit 1
+
+# Get the main worktree root (in case we selected a worktree)
+MAIN_REPO_ROOT=$(git worktree list --porcelain 2>/dev/null | grep -E "^worktree " | head -1 | cut -d' ' -f2)
+if [[ -n "$MAIN_REPO_ROOT" ]]; then
+    cd "$MAIN_REPO_ROOT" || exit 1
+fi
+
+REPO_NAME=$(basename "$(pwd)")
+
+# Step 2: Get existing branches for suggestions
+BRANCHES=$(git branch -a --format='%(refname:short)' 2>/dev/null | \
+    sed 's|^origin/||' | \
+    grep -v '^HEAD$' | \
+    sort -u)
+
+# Show branch picker with --print-query to allow typing new branch names
+RESULT=$(echo "$BRANCHES" | fzf \
+    --print-query \
+    --no-sort \
+    --border-label " Spawn worktree in $REPO_NAME " \
+    --prompt '🌿  ' \
+    --header 'Type a new branch name or select existing' \
+    --preview 'branch="{}"; [[ -n "$branch" ]] && git log --oneline -10 "$branch" 2>/dev/null || echo "New branch"')
+
+# fzf --print-query outputs: line 1 = query, line 2 = selected item
+QUERY=$(echo "$RESULT" | head -1)
+SELECTED=$(echo "$RESULT" | tail -1)
+
+# Use query if no selection (user typed a new branch name)
+BRANCH_NAME="${SELECTED:-$QUERY}"
+
+if [[ -z "$BRANCH_NAME" ]]; then
+    exit 0
+fi
+
+# Clean up branch name (remove leading/trailing whitespace, replace spaces with dashes)
+BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]/-/g')
+
+echo "Spawning worktree for branch '$BRANCH_NAME' in $REPO_NAME..."
+
+# Run wt spawn (attaches tmux in this terminal)
+exec ~/dotfiles/bin/wt spawn "$BRANCH_NAME"
