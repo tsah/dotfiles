@@ -62,12 +62,15 @@ BRANCHES=$(git branch -a --format='%(refname:short)' 2>/dev/null | \
     sort -u)
 
 # Show branch picker with --print-query to allow typing new branch names
+# ctrl-n: use typed query directly (for new branches)
+# enter: select highlighted item
 RESULT=$(echo "$BRANCHES" | fzf \
     --print-query \
     --no-sort \
     --border-label " Spawn worktree in $REPO_NAME " \
     --prompt '🌿  ' \
-    --header 'Type a new branch name or select existing' \
+    --header 'Enter: select | Ctrl-N: use typed text as new branch' \
+    --bind 'ctrl-n:become(echo "{q}")' \
     --preview 'branch="{}"; [[ -n "$branch" ]] && git log --oneline -10 "$branch" 2>/dev/null || echo "New branch"')
 
 # fzf --print-query outputs: line 1 = query, line 2 = selected item
