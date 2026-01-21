@@ -249,6 +249,69 @@ dotfiles/
 └── install-packages.sh   # Package installer (Arch)
 ```
 
+## OpenCode Configuration
+
+OpenCode configs are in `~/dotfiles/opencode/` and symlinked to `~/.config/opencode/`:
+
+```
+dotfiles/
+├── opencode.json              # Main config (symlinked to ~/.config/opencode/opencode.json)
+└── opencode/
+    ├── agents/                # Custom subagent definitions (markdown)
+    │   ├── code-review.md
+    │   ├── pr-ci-analyzer.md
+    │   └── pr-comments-gatherer.md
+    └── commands/              # Custom slash commands (markdown)
+        ├── pr.md
+        ├── prepare_pr.md
+        └── ...
+```
+
+### Key Configuration
+
+**opencode.json** configures:
+- MCP servers (e.g., Linear integration)
+- Provider/model settings
+- Agent overrides (model, tools, permissions)
+- Global tool enable/disable
+
+**Limiting MCP to specific agents:**
+```json
+{
+  "mcp": {
+    "linear": { "type": "remote", "url": "https://mcp.linear.app/mcp" }
+  },
+  "tools": {
+    "linear_*": false
+  },
+  "agent": {
+    "linear-agent": {
+      "mode": "subagent",
+      "tools": { "linear_*": true }
+    }
+  }
+}
+```
+
+### Omarchy Skill
+
+OpenCode loads the **Omarchy skill** from `~/.claude/skills/omarchy/SKILL.md` (Claude Code compatibility path). This skill provides domain-specific knowledge for:
+- Hyprland, Waybar, Walker configuration
+- Terminal emulator configs (Ghostty, Alacritty, Kitty)
+- Omarchy commands (`omarchy-*`)
+- Theme and keybinding customization
+- Safe customization patterns (never edit `~/.local/share/omarchy/`)
+
+The skill is automatically loaded when editing files in `~/.config/hypr/`, `~/.config/waybar/`, etc.
+
+**Useful debug commands:**
+```bash
+opencode debug skill          # List available skills and locations
+opencode debug config         # Show resolved configuration
+opencode agent list           # List agents and their permissions
+opencode mcp list             # List MCP servers and status
+```
+
 ## Common Tasks
 
 **Adding a new shell script to bin/:**

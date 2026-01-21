@@ -1,5 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "linear": {
+      "type": "remote",
+      "url": "https://mcp.linear.app/mcp"
+    }
+  },
+  "tools": {
+    "linear_*": false
+  },
   "provider": {
     "openai": {
       "models": {
@@ -21,6 +30,14 @@
     },
     "build-free": {
       "model": "opencode/grok-code"
+    },
+    "linear-agent": {
+      "description": "Manages Linear issues, projects, and workflow tasks",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5",
+      "tools": {
+        "linear_*": true
+      }
     }
   }
 }
