@@ -11,7 +11,7 @@ usage() {
     echo "  spawn <branch> -w Create new worktree and open session in new Ghostty window"
     echo "                    Worktree name: {repo}-{branch} (e.g., dotfiles-fix-login-bug)"
     echo "                    Session name: {repo}-{branch}"
-    echo "  destroy           Delete current worktree and tmux session, return to main repo"
+    echo "  destroy           Delete current worktree and tmux session, exit terminal"
     echo ""
     echo "Branch Commands:"
     echo "  <branch-name>     Switch to/create branch in current worktree and rename tmux session"
@@ -23,7 +23,7 @@ usage() {
     echo ""
     echo "Examples:"
     echo "  $0 spawn fix-login-bug   # Create worktree dotfiles-fix-login-bug, switch to tmux"
-    echo "  $0 destroy               # Delete current worktree, return to main repo"
+    echo "  $0 destroy               # Delete current worktree, exit terminal"
     echo "  $0 feature-new           # Switch to feature-new in current worktree"
     echo "  $0 feature-new -m        # Create from master/main instead of current branch"
     echo "  $0 --fix-session         # Fix current session name"
@@ -220,31 +220,14 @@ destroy_impl() {
     if command -v tmux >/dev/null 2>&1; then
         CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
         
-        if [ -n "$TMUX" ]; then
-            # We're in tmux - switch to main session before killing current one
-            MAIN_SESSION_NAME="${REPO_NAME}"
-            
-            # Create main session if it doesn't exist
-            if ! tmux has-session -t "$MAIN_SESSION_NAME" 2>/dev/null; then
-                echo "Creating main repository session '$MAIN_SESSION_NAME'..."
-                tmux new-session -d -s "$MAIN_SESSION_NAME" -c "$MAIN_REPO_ROOT"
-                tmux rename-window -t "$MAIN_SESSION_NAME:1" 'Main'
-            fi
-            
-            echo "Switching to main repository session '$MAIN_SESSION_NAME'..."
-            
-            # Switch first, then kill the old session if it exists
-            if [ -n "$CURRENT_SESSION" ] && [ "$CURRENT_SESSION" != "$MAIN_SESSION_NAME" ]; then
-                tmux switch-client -t "$MAIN_SESSION_NAME" \; kill-session -t "$CURRENT_SESSION"
-            else
-                tmux switch-client -t "$MAIN_SESSION_NAME"
-            fi
-        else
+        if [ -n "$TMUX" ] && [ -n "$CURRENT_SESSION" ]; then
+            # We're in tmux - kill the current session (terminal will exit)
+            echo "Killing tmux session '$CURRENT_SESSION'..."
+            tmux kill-session -t "$CURRENT_SESSION"
+        elif tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
             # Not in tmux, just kill the session if it exists
-            if tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
-                echo "Killing tmux session '$WORKTREE_NAME'..."
-                tmux kill-session -t "$WORKTREE_NAME"
-            fi
+            echo "Killing tmux session '$WORKTREE_NAME'..."
+            tmux kill-session -t "$WORKTREE_NAME"
         fi
     fi
 
