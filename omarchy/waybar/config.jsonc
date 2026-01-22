@@ -139,9 +139,6 @@
     "on-click": "nautilus ~/Dropbox",
     "tooltip": true
   },
-
-    "modules": ["custom/expand-icon", "tray"]
-  },
   "custom/expand-icon": {
     "format": "",
     "tooltip": false
