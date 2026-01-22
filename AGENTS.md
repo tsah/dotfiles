@@ -1,5 +1,12 @@
 # Agent Guidelines for dotfiles Repository
 
+## IMPORTANT: Edit Files in This Repository
+
+**All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/` directly.** The files here are symlinked to their destinations by `install-omarchy.sh`. For example:
+- Waybar config: edit `omarchy/waybar/config.jsonc` (NOT `~/.config/waybar/`)
+- Hyprland config: edit `omarchy/hypr/` (NOT `~/.config/hypr/`)
+- Neovim config: edit `nvim/` (NOT `~/.config/nvim/`)
+
 ## Repository Overview
 
 Personal dotfiles for Arch Linux with Hyprland (Omarchy), including configurations for:
