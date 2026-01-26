@@ -1,0 +1,135 @@
+#!/bin/bash
+# Cloud Agent Launcher - Launch Cursor background agents
+#
+# Flow:
+# 1. Select existing branch or create a new one (fzf)
+# 2. Type the task description
+# 3. Launch the cloud agent
+
+# Hardcoded repo path for now
+REPO_ROOT="$HOME/dev/work/tweezr"
+cd "$REPO_ROOT" || { echo "Failed to cd to $REPO_ROOT"; read -p "Press Enter..."; exit 1; }
+
+REPO_NAME=$(basename "$REPO_ROOT")
+CURRENT_BRANCH=$(git branch --show-current)
+
+# Step 1: Select or create branch
+echo "Repository: $REPO_NAME"
+echo "Current branch: $CURRENT_BRANCH"
+echo ""
+
+# Get all branches (local and remote, deduplicated)
+BRANCHES=$(git branch -a --format='%(refname:short)' 2>/dev/null | \
+    sed 's|^origin/||' | \
+    grep -v '^HEAD$' | \
+    sort -u)
+
+# Add current branch indicator
+BRANCH_LIST=$(echo "$BRANCHES" | while read -r branch; do
+    if [[ "$branch" == "$CURRENT_BRANCH" ]]; then
+        echo "* $branch (current)"
+    else
+        echo "  $branch"
+    fi
+done)
+
+# Show branch picker
+RESULT=$(echo "$BRANCH_LIST" | fzf \
+    --print-query \
+    --no-sort \
+    --border-label " Select branch in $REPO_NAME " \
+    --prompt '🌿  ' \
+    --header 'Enter: select branch | Ctrl-N: create new branch' \
+    --bind 'ctrl-n:become(echo "NEW:{q}")' \
+    --preview 'branch=$(echo {} | sed "s/^[* ]*//" | sed "s/ (current)$//"); 
+               [[ -n "$branch" ]] && git log --oneline -10 "$branch" 2>/dev/null || echo "New branch"') || true
+
+# Handle empty result (user cancelled)
+if [[ -z "$RESULT" ]]; then
+    exit 0
+fi
+
+# Parse result
+QUERY=$(echo "$RESULT" | head -1)
+SELECTED=$(echo "$RESULT" | tail -1)
+
+# Check if creating new branch
+if [[ "$QUERY" == NEW:* ]]; then
+    NEW_BRANCH_NAME="${QUERY#NEW:}"
+    if [[ -z "$NEW_BRANCH_NAME" ]]; then
+        echo "Error: No branch name provided" >&2
+        read -p "Press Enter to exit..."
+        exit 1
+    fi
+    # Clean up branch name
+    NEW_BRANCH_NAME=$(echo "$NEW_BRANCH_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]/-/g')
+    echo "Creating new branch: $NEW_BRANCH_NAME"
+    git checkout -b "$NEW_BRANCH_NAME"
+    SELECTED_BRANCH="$NEW_BRANCH_NAME"
+else
+    # Extract branch name from selection (remove leading * and (current) suffix)
+    SELECTED_BRANCH=$(echo "$SELECTED" | sed 's/^[* ]*//' | sed 's/ (current)$//')
+    
+    if [[ -z "$SELECTED_BRANCH" ]]; then
+        SELECTED_BRANCH="$QUERY"
+    fi
+    
+    # Switch to selected branch if different from current
+    if [[ "$SELECTED_BRANCH" != "$CURRENT_BRANCH" ]]; then
+        echo "Switching to branch: $SELECTED_BRANCH"
+        git checkout "$SELECTED_BRANCH"
+    fi
+fi
+
+# Verify we're not on master/main
+FINAL_BRANCH=$(git branch --show-current)
+if [[ "$FINAL_BRANCH" == "master" || "$FINAL_BRANCH" == "main" ]]; then
+    echo ""
+    echo "Error: Cannot launch cloud agent from master/main branch." >&2
+    echo "Please create a work branch first (Ctrl-N)." >&2
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+echo ""
+echo "Branch: $FINAL_BRANCH"
+echo ""
+
+# Step 2: Get task description using a simple prompt
+echo "Enter the task for the cloud agent:"
+echo "─────────────────────────────────────────────────────────────────────────"
+read -r -p "> " TASK
+
+if [[ -z "$TASK" ]]; then
+    echo "Error: No task provided" >&2
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+echo ""
+echo "─────────────────────────────────────────────────────────────────────────"
+echo ""
+echo "Launching cloud agent..."
+echo "  Repository: $REPO_NAME"
+echo "  Branch: $FINAL_BRANCH"
+echo "  Task: $TASK"
+echo ""
+
+# Launch the agent
+LAUNCH_SCRIPT="$REPO_ROOT/scripts/launch_cursor_agent.py"
+
+if [[ ! -f "$LAUNCH_SCRIPT" ]]; then
+    echo "Error: launch_cursor_agent.py not found at $LAUNCH_SCRIPT" >&2
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+if command -v uv &>/dev/null; then
+    uv run "$LAUNCH_SCRIPT" "$TASK" --model claude-4-sonnet-thinking
+else
+    python3 "$LAUNCH_SCRIPT" "$TASK" --model claude-4-sonnet-thinking
+fi
+
+echo ""
+echo "─────────────────────────────────────────────────────────────────────────"
+read -p "Press Enter to close..."
