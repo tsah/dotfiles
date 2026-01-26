@@ -61,7 +61,9 @@ spawn_impl() {
     REPO_NAME=$(basename "$MAIN_REPO_ROOT")
     REPO_PARENT=$(dirname "$MAIN_REPO_ROOT")
 
-    WORKTREE_NAME="${REPO_NAME}-${BRANCH_NAME}"
+    # Sanitize branch name for worktree directory (replace / with -)
+    SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '/' '-')
+    WORKTREE_NAME="${REPO_NAME}-${SAFE_BRANCH_NAME}"
     WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
 
     # Check if branch is already checked out in a worktree
