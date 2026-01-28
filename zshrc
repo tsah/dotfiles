@@ -142,3 +142,4 @@ if [ -f '/home/tsah/google-cloud-sdk/path.zsh.inc' ]; then . '/home/tsah/google-
 
 # The next line enables shell command completion for gcloud.
 if [ -f '/home/tsah/google-cloud-sdk/completion.zsh.inc' ]; then . '/home/tsah/google-cloud-sdk/completion.zsh.inc'; fi
+eval "$(atuin init zsh)"
