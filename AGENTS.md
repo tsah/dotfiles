@@ -277,28 +277,10 @@ dotfiles/
 ### Key Configuration
 
 **opencode.json** configures:
-- MCP servers (e.g., Linear integration)
+- MCP servers
 - Provider/model settings
 - Agent overrides (model, tools, permissions)
 - Global tool enable/disable
-
-**Limiting MCP to specific agents:**
-```json
-{
-  "mcp": {
-    "linear": { "type": "remote", "url": "https://mcp.linear.app/mcp" }
-  },
-  "tools": {
-    "linear_*": false
-  },
-  "agent": {
-    "linear-agent": {
-      "mode": "subagent",
-      "tools": { "linear_*": true }
-    }
-  }
-}
-```
 
 ### Omarchy Skill
 
