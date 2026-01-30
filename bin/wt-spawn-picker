@@ -4,7 +4,7 @@
 # Flow:
 # 1. Pick a git repository from sesh/zoxide list
 # 2. Type/select a branch name
-# 3. Spawn worktree + tmux session (attaches in current terminal)
+# 3. Spawn worktree and open in new Ghostty window
 
 # Step 1: Get git repositories from sesh/zoxide
 # Filter to only directories that are git repos
@@ -25,9 +25,10 @@ if [[ -z "$REPOS" ]]; then
     exit 1
 fi
 
-# Step 1: Select repository
+# Step 1: Select repository (must select from list, no arbitrary input)
 SELECTED_REPO=$(echo "$REPOS" | fzf \
     --no-sort \
+    --select-1 \
     --border-label ' Select Repository ' \
     --prompt '📁  ' \
     --header 'Select a git repository for worktree' \
@@ -35,6 +36,12 @@ SELECTED_REPO=$(echo "$REPOS" | fzf \
 
 if [[ -z "$SELECTED_REPO" ]]; then
     exit 0
+fi
+
+# Validate selection is from the list (prevent arbitrary input)
+if ! echo "$REPOS" | grep -qxF "$SELECTED_REPO"; then
+    echo "Error: Invalid selection. Please choose from the list." >&2
+    exit 1
 fi
 
 # Expand ~ to $HOME
@@ -89,5 +96,5 @@ BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[
 
 echo "Spawning worktree for branch '$BRANCH_NAME' in $REPO_NAME..."
 
-# Run wt spawn (attaches tmux in this terminal)
-exec ~/dotfiles/bin/wt spawn "$BRANCH_NAME"
+# Run wt spawn with --new-window to open in a new Ghostty window
+exec ~/dotfiles/bin/wt spawn "$BRANCH_NAME" --new-window

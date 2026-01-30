@@ -1,6 +1,9 @@
 #!/bin/sh
 # Worktree branch switcher with directory and tmux session renaming
 
+# Toggle for tmux integration (set to true for original behavior with tmux sessions)
+USE_TMUX=false
+
 usage() {
     echo "Usage: $0 spawn <branch> [--new-window|-w] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
@@ -127,7 +130,7 @@ spawn_impl() {
         zoxide add "$WORKTREE_PATH"
     fi
 
-    if command -v tmux >/dev/null 2>&1; then
+    if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
         SESSION_NAME="$WORKTREE_NAME"
 
         # Ensure the tmux session exists (attach/switch happens after).
@@ -158,7 +161,19 @@ spawn_impl() {
             tmux attach-session -t "$SESSION_NAME"
         fi
     else
-        echo "Tmux not available, staying in worktree directory..."
+        # Tmux-free mode
+        if [ "$NEW_WINDOW" = true ]; then
+            if ! command -v ghostty >/dev/null 2>&1; then
+                echo "Error: ghostty not found (required for --new-window)" >&2
+                exit 1
+            fi
+
+            echo "Opening worktree in new Ghostty window..."
+            ghostty --working-directory="$WORKTREE_PATH"
+            return 0
+        fi
+
+        echo "Changing to worktree directory..."
         cd "$WORKTREE_PATH" || exit 1
         exec "$SHELL"
     fi
@@ -218,8 +233,8 @@ destroy_impl() {
     
     echo "Worktree removed successfully"
 
-    # Now handle tmux session cleanup
-    if command -v tmux >/dev/null 2>&1; then
+    # Handle tmux session cleanup (only if USE_TMUX is enabled)
+    if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
         CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
         
         if [ -n "$TMUX" ] && [ -n "$CURRENT_SESSION" ]; then
@@ -300,8 +315,8 @@ if [ "$COMMAND" = "spawn" ]; then
         usage
         exit 1
     fi
-    if [ "$NEW_WINDOW" = true ] && ! command -v tmux >/dev/null 2>&1; then
-        echo "Error: --new-window requires tmux" >&2
+    if [ "$NEW_WINDOW" = true ] && ! command -v ghostty >/dev/null 2>&1; then
+        echo "Error: --new-window requires ghostty" >&2
         exit 1
     fi
     spawn_impl "$BRANCH_NAME" "$NEW_WINDOW"
@@ -356,6 +371,11 @@ DIR_NAME=$(basename "$WORKTREE_ROOT")
 
 # Handle fix-session mode
 if [ "$FIX_SESSION" = true ]; then
+    if [ "$USE_TMUX" != true ]; then
+        echo "Note: --fix-session is a tmux feature."
+        echo "Set USE_TMUX=true in ~/dotfiles/bin/wt to enable tmux integration."
+        exit 0
+    fi
     if ! command -v tmux >/dev/null 2>&1 || [ -z "$TMUX" ]; then
         echo "Error: Not in a tmux session or tmux not available"
         exit 1
@@ -464,8 +484,8 @@ fi
 
 echo "Successfully switched to branch '$BRANCH_NAME'"
 
-# Handle tmux session renaming
-if command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
+# Handle tmux session renaming (only if USE_TMUX is enabled)
+if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
     CURRENT_SESSION=$(tmux display-message -p '#S')
     NEW_SESSION_NAME="${DIR_NAME}@${BRANCH_NAME}"
     
@@ -489,16 +509,14 @@ if command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
     else
         echo "Tmux session name already matches"
     fi
-elif command -v tmux >/dev/null 2>&1; then
+elif [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
     echo "Not in a tmux session, skipping session rename"
-else
-    echo "Tmux not available, skipping session rename"
 fi
 
 echo ""
 echo "Branch switch complete!"
 echo "Branch: $BRANCH_NAME"
 echo "Directory: $(pwd)"
-if command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
+if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
     echo "Tmux session: $(tmux display-message -p '#S')"
 fi

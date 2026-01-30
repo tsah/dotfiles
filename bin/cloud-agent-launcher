@@ -1,8 +1,10 @@
 #!/bin/bash
 # Cloud Agent Launcher - Launch Cursor background agents
 #
+# Non-invasive: Does NOT switch local branches. Creates branches directly on remote.
+#
 # Flow:
-# 1. Select existing branch or create a new one (fzf)
+# 1. Select existing branch OR type a new branch name to create it (on remote)
 # 2. Type the task description
 # 3. Launch the cloud agent
 
@@ -13,92 +15,127 @@ cd "$REPO_ROOT" || { echo "Failed to cd to $REPO_ROOT"; read -p "Press Enter..."
 REPO_NAME=$(basename "$REPO_ROOT")
 CURRENT_BRANCH=$(git branch --show-current)
 
-# Step 1: Select or create branch
+# Fetch latest remote refs
+echo "Fetching latest from remote..."
+git fetch origin --quiet
+
+# Step 1: Select or create branch (no local switching)
 echo "Repository: $REPO_NAME"
-echo "Current branch: $CURRENT_BRANCH"
+echo "Local branch: $CURRENT_BRANCH (will not change)"
 echo ""
 
-# Get all branches (local and remote, deduplicated)
-BRANCHES=$(git branch -a --format='%(refname:short)' 2>/dev/null | \
+# Get remote branches only (what exists on GitHub)
+BRANCHES=$(git branch -r --format='%(refname:short)' 2>/dev/null | \
     sed 's|^origin/||' | \
     grep -v '^HEAD$' | \
     sort -u)
 
-# Add current branch indicator
-BRANCH_LIST=$(echo "$BRANCHES" | while read -r branch; do
-    if [[ "$branch" == "$CURRENT_BRANCH" ]]; then
-        echo "* $branch (current)"
-    else
-        echo "  $branch"
-    fi
-done)
-
 # Show branch picker
-RESULT=$(echo "$BRANCH_LIST" | fzf \
+# Exit code 0 = selected from list, Exit code 1 = no matches (typed new name)
+# Ctrl-N forces using typed text (for creating branch when something is highlighted)
+RESULT=$(echo "$BRANCHES" | fzf \
     --print-query \
     --no-sort \
-    --border-label " Select branch in $REPO_NAME " \
+    --border-label " Select remote branch in $REPO_NAME " \
     --prompt '🌿  ' \
-    --header 'Enter: select branch | Ctrl-N: create new branch' \
+    --header 'Enter: select • Ctrl-N: use typed text • Type new name to create on remote' \
     --bind 'ctrl-n:become(echo "NEW:{q}")' \
-    --preview 'branch=$(echo {} | sed "s/^[* ]*//" | sed "s/ (current)$//"); 
-               [[ -n "$branch" ]] && git log --oneline -10 "$branch" 2>/dev/null || echo "New branch"') || true
+    --preview 'branch="origin/{}"; 
+               [[ -n "{}" ]] && git log --oneline -10 "$branch" 2>/dev/null || echo "New branch (will be created from origin/main)"')
+FZF_EXIT=$?
 
-# Handle empty result (user cancelled)
-if [[ -z "$RESULT" ]]; then
+# Handle cancelled (Ctrl-C or Escape)
+if [[ $FZF_EXIT -eq 130 ]] || [[ -z "$RESULT" ]]; then
     exit 0
 fi
 
-# Parse result
+# Parse result: line 1 = query, line 2 = selected item
 QUERY=$(echo "$RESULT" | head -1)
 SELECTED=$(echo "$RESULT" | tail -1)
 
-# Check if creating new branch
-if [[ "$QUERY" == NEW:* ]]; then
-    NEW_BRANCH_NAME="${QUERY#NEW:}"
-    if [[ -z "$NEW_BRANCH_NAME" ]]; then
-        echo "Error: No branch name provided" >&2
-        read -p "Press Enter to exit..."
-        exit 1
-    fi
-    # Clean up branch name
-    NEW_BRANCH_NAME=$(echo "$NEW_BRANCH_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]/-/g')
-    echo "Creating new branch: $NEW_BRANCH_NAME"
-    git checkout -b "$NEW_BRANCH_NAME"
-    SELECTED_BRANCH="$NEW_BRANCH_NAME"
+# Determine the target branch and whether it needs to be created
+CREATE_NEW=false
+TARGET_BRANCH=""
+
+# Check if Ctrl-N was used (forces typed text)
+if [[ "$QUERY" == NEW:* ]] || [[ "$SELECTED" == NEW:* ]]; then
+    TARGET_BRANCH="${QUERY#NEW:}"
+    [[ "$SELECTED" == NEW:* ]] && TARGET_BRANCH="${SELECTED#NEW:}"
+    TARGET_BRANCH=$(echo "$TARGET_BRANCH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]/-/g')
+    CREATE_NEW=true
+elif [[ $FZF_EXIT -eq 0 ]] && [[ -n "$SELECTED" ]]; then
+    # Selected from list - use existing remote branch
+    TARGET_BRANCH="$SELECTED"
 else
-    # Extract branch name from selection (remove leading * and (current) suffix)
-    SELECTED_BRANCH=$(echo "$SELECTED" | sed 's/^[* ]*//' | sed 's/ (current)$//')
-    
-    if [[ -z "$SELECTED_BRANCH" ]]; then
-        SELECTED_BRANCH="$QUERY"
-    fi
-    
-    # Switch to selected branch if different from current
-    if [[ "$SELECTED_BRANCH" != "$CURRENT_BRANCH" ]]; then
-        echo "Switching to branch: $SELECTED_BRANCH"
-        git checkout "$SELECTED_BRANCH"
-    fi
+    # No matches - create new branch from typed query
+    TARGET_BRANCH=$(echo "$QUERY" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]/-/g')
+    CREATE_NEW=true
 fi
 
-# Verify we're not on master/main
-FINAL_BRANCH=$(git branch --show-current)
-if [[ "$FINAL_BRANCH" == "master" || "$FINAL_BRANCH" == "main" ]]; then
-    echo ""
-    echo "Error: Cannot launch cloud agent from master/main branch." >&2
-    echo "Please create a work branch first (Ctrl-N)." >&2
+if [[ -z "$TARGET_BRANCH" ]]; then
+    echo "Error: No branch name provided" >&2
     read -p "Press Enter to exit..."
     exit 1
 fi
 
+# Verify not master/main
+if [[ "$TARGET_BRANCH" == "master" || "$TARGET_BRANCH" == "main" ]]; then
+    echo ""
+    echo "Error: Cannot launch cloud agent on master/main branch." >&2
+    echo "Please type a new branch name to create one." >&2
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+# Create branch on remote if needed (without local checkout)
+if [[ "$CREATE_NEW" == true ]]; then
+    # Check if it already exists on remote
+    if git show-ref --verify --quiet "refs/remotes/origin/$TARGET_BRANCH"; then
+        echo "Branch '$TARGET_BRANCH' already exists on remote"
+    else
+        # Determine base branch
+        if git show-ref --verify --quiet refs/remotes/origin/main; then
+            BASE_REF="origin/main"
+        elif git show-ref --verify --quiet refs/remotes/origin/master; then
+            BASE_REF="origin/master"
+        else
+            echo "Error: Could not find origin/main or origin/master" >&2
+            read -p "Press Enter to exit..."
+            exit 1
+        fi
+        
+        echo "Creating branch '$TARGET_BRANCH' on remote from $BASE_REF..."
+        # Create branch on remote directly (no local checkout)
+        if ! git push origin "$BASE_REF:refs/heads/$TARGET_BRANCH"; then
+            echo "Error: Failed to create branch on remote" >&2
+            read -p "Press Enter to exit..."
+            exit 1
+        fi
+        echo "Branch created on remote"
+    fi
+fi
+
 echo ""
-echo "Branch: $FINAL_BRANCH"
+echo "Target branch: $TARGET_BRANCH (on remote)"
+echo "Local branch: $CURRENT_BRANCH (unchanged)"
 echo ""
 
-# Step 2: Get task description using a simple prompt
-echo "Enter the task for the cloud agent:"
-echo "─────────────────────────────────────────────────────────────────────────"
-read -r -p "> " TASK
+# Step 2: Get task description using $EDITOR
+TASK_FILE=$(mktemp --suffix=.md)
+trap "rm -f '$TASK_FILE'" EXIT
+
+cat > "$TASK_FILE" << 'EOF'
+
+# Enter the task for the cloud agent above this line.
+# Lines starting with # will be ignored.
+# Save and exit to continue, or leave empty to cancel.
+EOF
+
+# Open editor (fallback chain: $EDITOR -> vim -> nano)
+${EDITOR:-${VISUAL:-vim}} "$TASK_FILE"
+
+# Read task, stripping comments and empty lines
+TASK=$(grep -v '^#' "$TASK_FILE" | grep -v '^[[:space:]]*$' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
 
 if [[ -z "$TASK" ]]; then
     echo "Error: No task provided" >&2
@@ -111,7 +148,7 @@ echo "────────────────────────�
 echo ""
 echo "Launching cloud agent..."
 echo "  Repository: $REPO_NAME"
-echo "  Branch: $FINAL_BRANCH"
+echo "  Branch: $TARGET_BRANCH"
 echo "  Task: $TASK"
 echo ""
 
@@ -125,9 +162,9 @@ if [[ ! -f "$LAUNCH_SCRIPT" ]]; then
 fi
 
 if command -v uv &>/dev/null; then
-    uv run "$LAUNCH_SCRIPT" "$TASK" --model claude-4-sonnet-thinking
+    uv run "$LAUNCH_SCRIPT" "$TASK" --target-branch "$TARGET_BRANCH" --model claude-4-sonnet-thinking
 else
-    python3 "$LAUNCH_SCRIPT" "$TASK" --model claude-4-sonnet-thinking
+    python3 "$LAUNCH_SCRIPT" "$TASK" --target-branch "$TARGET_BRANCH" --model claude-4-sonnet-thinking
 fi
 
 echo ""

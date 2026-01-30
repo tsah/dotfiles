@@ -1,0 +1,32 @@
+#!/bin/bash
+# Simple zoxide picker that opens selected directory in new Ghostty window
+#
+# Used by Ctrl+Alt+O keybinding for quick directory navigation
+
+# Get directories from zoxide (sorted by frecency)
+DIRS=$(zoxide query -l 2>/dev/null)
+
+if [[ -z "$DIRS" ]]; then
+    echo "No directories in zoxide database" >&2
+    echo "Press any key to exit..."
+    read -n 1
+    exit 1
+fi
+
+# Pick directory with fzf
+SELECTED=$(echo "$DIRS" | fzf \
+    --no-sort \
+    --border-label ' Select Directory ' \
+    --prompt '📁  ' \
+    --header 'Select a directory to open in new window' \
+    --preview 'ls -la --color=always {} 2>/dev/null || echo "Cannot preview"')
+
+if [[ -z "$SELECTED" ]]; then
+    exit 0
+fi
+
+# Boost selection in zoxide ranking
+zoxide add "$SELECTED"
+
+# Open new Ghostty window in selected directory
+exec ghostty --working-directory="$SELECTED"
