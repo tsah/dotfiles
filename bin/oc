@@ -1,0 +1,55 @@
+#!/bin/bash
+# OpenCode wrapper with random port configuration (40000-50000)
+#
+# Usage:
+#   oc           Start new session
+#   oc -c        Continue most recent session for this directory
+#   oc [args]    Pass additional args to opencode
+
+# Check for -c/--continue flag and extract other args
+CONTINUE_SESSION=false
+HAS_PORT=false
+ARGS=()
+
+for arg in "$@"; do
+    case "$arg" in
+        -c|--continue)
+            CONTINUE_SESSION=true
+            ;;
+        --port|-p)
+            HAS_PORT=true
+            ARGS+=("$arg")
+            ;;
+        *)
+            ARGS+=("$arg")
+            ;;
+    esac
+done
+
+# Add random port if not already specified (40000-50000 range)
+if [[ "$HAS_PORT" == false ]]; then
+    PORT=$((RANDOM % 10000 + 40000))
+    ARGS+=("--port" "$PORT")
+fi
+
+if [[ "$CONTINUE_SESSION" == false ]]; then
+    exec opencode "${ARGS[@]}"
+fi
+
+CURRENT_DIR=$(pwd)
+
+# Get the most recent session for this directory by searching session files directly
+# Uses ripgrep for fast file search, then jq only on matching files
+SESSION_STORAGE="${HOME}/.local/share/opencode/storage/session"
+
+# Fast ripgrep to find files containing our directory, then jq to extract session ID
+SESSION_ID=$(rg -l --fixed-strings "\"directory\": \"$CURRENT_DIR\"" "$SESSION_STORAGE" 2>/dev/null | \
+    xargs -r jq -r '"\(.time.updated)\t\(.id)"' 2>/dev/null | \
+    sort -rn | head -1 | cut -f2)
+
+if [[ -n "$SESSION_ID" ]]; then
+    echo "Continuing session: $SESSION_ID"
+    exec opencode -s "$SESSION_ID" "${ARGS[@]}"
+else
+    exec opencode "${ARGS[@]}"
+fi
