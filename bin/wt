@@ -2,7 +2,7 @@
 # Worktree branch switcher with directory and tmux session renaming
 
 # Toggle for tmux integration (set to true for original behavior with tmux sessions)
-USE_TMUX=false
+USE_TMUX=true
 
 usage() {
     echo "Usage: $0 spawn <branch> [--new-window|-w] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
@@ -175,7 +175,7 @@ spawn_impl() {
 
         echo "Changing to worktree directory..."
         cd "$WORKTREE_PATH" || exit 1
-        exec "$SHELL"
+        exec "$DEFAULT_SHELL"
     fi
 }
 
@@ -238,9 +238,18 @@ destroy_impl() {
         CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
         
         if [ -n "$TMUX" ] && [ -n "$CURRENT_SESSION" ]; then
-            # We're in tmux - kill the current session (terminal will exit)
-            echo "Killing tmux session '$CURRENT_SESSION'..."
-            tmux kill-session -t "$CURRENT_SESSION"
+            # We're in tmux - switch to another session first, then kill this one
+            echo "Switching to another session..."
+            # Try to switch to previous session, or main repo session, or any other session
+            if tmux switch-client -p 2>/dev/null || \
+               tmux switch-client -t "$REPO_NAME" 2>/dev/null || \
+               tmux switch-client -n 2>/dev/null; then
+                echo "Switched to another session, killing '$CURRENT_SESSION'..."
+                tmux kill-session -t "$CURRENT_SESSION"
+            else
+                echo "Killing tmux session '$CURRENT_SESSION'..."
+                tmux kill-session -t "$CURRENT_SESSION"
+            fi
         elif tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
             # Not in tmux, just kill the session if it exists
             echo "Killing tmux session '$WORKTREE_NAME'..."

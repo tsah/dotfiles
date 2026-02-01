@@ -73,8 +73,9 @@ alias v=nvim
 alias ve="source .venv/bin/activate"
 alias l="ls -ls"
 alias lg=lazygit
-alias oc='opencode --port $((RANDOM % 10000 + 40000))'
 alias ocu="brew install sst/tap/opencode"
+alias occ="oc -c"  # Continue most recent session for current directory
+alias wtd="wt destroy"
 function s() {
   local selected name dir
   selected=$(sesh list --icons | fzf --ansi --no-sort \
