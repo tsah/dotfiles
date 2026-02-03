@@ -37,6 +37,10 @@ ln -sf ~/dotfiles/jj-config.toml ~/.config/jj/config.toml
 # Setup starship prompt configuration
 ln -sf ~/dotfiles/starship.toml ~/.config/starship.toml
 
+# Setup atuin (shell history) configuration
+mkdir -p ~/.config/atuin
+ln -sf ~/dotfiles/atuin-config.toml ~/.config/atuin/config.toml
+
 # Setup voxtype (dictation) configuration
 mkdir -p ~/.config/voxtype
 ln -sf ~/dotfiles/voxtype-config.toml ~/.config/voxtype/config.toml
