@@ -12,7 +12,8 @@
   },
   "agent": {
     "plan": {
-      "model": "anthropic/claude-opus-4-5-20251101"
+      "model": "anthropic/claude-opus-4-5-20251101",
+      "color": "#9B59B6"
     },
     "build": {
       "disable": true
@@ -20,22 +21,26 @@
     "build-opus": {
       "description": "Build agent using Claude Opus",
       "mode": "primary",
-      "model": "anthropic/claude-opus-4-5-20251101"
+      "model": "anthropic/claude-opus-4-5-20251101",
+      "color": "#3498DB"
     },
     "build-codex": {
       "description": "Build agent using GPT-5 Codex via Zen",
       "mode": "primary",
-      "model": "opencode/gpt-5.2-codex"
+      "model": "opencode/gpt-5.2-codex",
+      "color": "#F1C40F"
     },
     "build-oss": {
       "description": "Build agent using Kimi K2.5 via Zen",
       "mode": "primary",
-      "model": "opencode/kimi-k2.5"
+      "model": "opencode/kimi-k2.5",
+      "color": "#FFFFFF"
     },
     "build-fast": {
       "description": "Fast build agent using Claude Haiku",
       "mode": "primary",
-      "model": "anthropic/claude-haiku-4-5"
+      "model": "anthropic/claude-haiku-4-5",
+      "color": "#2ECC71"
     },
     "build-free": {
       "mode": "primary",
