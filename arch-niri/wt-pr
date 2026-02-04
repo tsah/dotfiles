@@ -2,11 +2,8 @@
 # Open PR page (if exists) or compare page for current branch
 #
 # Usage:
-#   wt-pr          - Open PR or compare page in browser
+#   wt-pr          - Open PR or compare page in chromium
 #   wt-pr --copy   - Copy URL to clipboard instead of opening
-#
-# If a PR exists for the current branch, opens the PR page.
-# Otherwise, opens the GitHub compare page (for creating a PR).
 
 set -e
 
@@ -54,27 +51,14 @@ if [ "$COPY_ONLY" = true ]; then
     if command -v wl-copy >/dev/null 2>&1; then
         echo "$URL" | wl-copy
         echo "URL copied to clipboard: $URL"
-    elif command -v xclip >/dev/null 2>&1; then
-        echo "$URL" | xclip -selection clipboard
-        echo "URL copied to clipboard: $URL"
     else
-        echo "Error: No clipboard tool found (wl-copy or xclip)" >&2
+        echo "Error: wl-copy not found" >&2
         echo "URL: $URL"
         exit 1
     fi
 else
     echo "Opening: $URL"
-    
-    # Open in browser
-    if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$URL" &>/dev/null &
-    elif command -v chromium >/dev/null 2>&1; then
-        chromium "$URL" &>/dev/null &
-    elif command -v firefox >/dev/null 2>&1; then
-        firefox "$URL" &>/dev/null &
-    else
-        echo "Error: No browser found" >&2
-        echo "URL: $URL"
-        exit 1
-    fi
+    # Use chromium directly, spawn new window
+    chromium --new-window "$URL" &>/dev/null &
+    disown
 fi

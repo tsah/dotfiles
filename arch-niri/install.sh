@@ -52,12 +52,14 @@ echo "Symlinking scripts to $NIRI_CONFIG_DIR..."
 NIRI_SCRIPTS=(
     "focus-or-spawn-ghostty.sh"
     "focus-or-spawn-chromium-work.sh"
+    "focus-or-spawn-chromium.sh"
     "browser-personal.sh"
     "launch-slack.sh"
     "launch-network.sh"
     "get-keyboard-layout.sh"
     "niri-start-worktree-workspaces.sh"
     "niri-workspace-switcher.sh"
+    "niri-wt-spawn.sh"
 )
 
 for script in "${NIRI_SCRIPTS[@]}"; do

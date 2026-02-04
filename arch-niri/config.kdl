@@ -301,7 +301,7 @@ spawn-at-startup "sudo" "systemctl" "start" "tlp"
 
 // Start worktree workspaces (creates named workspaces for existing worktrees)
 // Delayed to let other things initialize first
-spawn-at-startup "sh" "-c" "sleep 5 && ~/.config/niri/niri-start-worktree-workspaces.sh"
+spawn-at-startup "sh" "-c" "sleep 5 && /home/tsah/.config/niri/niri-start-worktree-workspaces.sh"
 
 // To run a shell command (with variables, pipes, etc.), use spawn-sh-at-startup:
 // spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
@@ -400,14 +400,14 @@ binds {
     Mod+Return hotkey-overlay-title="Terminal (new instance)" { spawn "uwsm" "app" "--" "ghostty"; }
     Mod+A hotkey-overlay-title="Audio mixer" { spawn "ghostty" "--class=Wiremix" "-e" "wiremix"; }
     Mod+T hotkey-overlay-title="Main Terminal" { spawn "/home/tsah/.config/niri/focus-or-spawn-ghostty.sh"; }
-    Mod+B hotkey-overlay-title="Work Browser" { spawn "/home/tsah/.config/niri/focus-or-spawn-chromium-work.sh"; }
-    Mod+S hotkey-overlay-title="Slack" { spawn "/home/tsah/dotfiles/niri/launch-slack.sh"; }
-    Mod+P hotkey-overlay-title="Personal browser" { spawn "/home/tsah/dotfiles/niri/browser-personal.sh"; }
+    Mod+B hotkey-overlay-title="Browser" { spawn "/home/tsah/.config/niri/focus-or-spawn-chromium.sh"; }
+    Mod+S hotkey-overlay-title="Slack" { spawn "/home/tsah/.config/niri/launch-slack.sh"; }
+    Mod+P hotkey-overlay-title="Personal browser" { spawn "/home/tsah/.config/niri/browser-personal.sh"; }
     Mod+Alt+B hotkey-overlay-title="Temporary browser" { spawn "chromium" "--temp-profile"; }
     Mod+U hotkey-overlay-title="Bluetooth" { spawn "blueberry"; }
-    Mod+N hotkey-overlay-title="Network settings" { spawn "/home/tsah/dotfiles/niri/launch-network.sh"; }
-    Mod+Space hotkey-overlay-title="App Launcher" { spawn "fuzzel"; }
-    Mod+Alt+V hotkey-overlay-title="Clipboard Manager" { spawn-sh "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"; }
+    Mod+N hotkey-overlay-title="Network settings" { spawn "/home/tsah/.config/niri/launch-network.sh"; }
+    Mod+Space hotkey-overlay-title="App Launcher" { spawn "walker"; }
+    Mod+Alt+V hotkey-overlay-title="Clipboard Manager" { spawn-sh "cliphist list | walker --dmenu | cliphist decode | wl-copy"; }
      Mod+Shift+L hotkey-overlay-title="Lock the Screen" { spawn "/home/tsah/dotfiles/bin/lock-screen"; }
      Mod+Shift+S hotkey-overlay-title="Suspend system" { spawn "systemctl" "suspend"; }
     Mod+Shift+C hotkey-overlay-title="Reload config" { spawn "niri" "msg" "action" "load-config-file"; }
@@ -446,8 +446,11 @@ binds {
     // or do a four-finger swipe up on a touchpad.
     Mod+O repeat=false { toggle-overview; }
 
-    // Workspace switcher (fuzzel picker for named workspaces)
-    Mod+G hotkey-overlay-title="Go to workspace" { spawn "~/.config/niri/niri-workspace-switcher.sh"; }
+    // Workspace switcher (walker picker for named workspaces)
+    Mod+G hotkey-overlay-title="Go to workspace" { spawn "/home/tsah/.config/niri/niri-workspace-switcher.sh"; }
+
+    // Spawn new worktree workspace
+    Mod+Y hotkey-overlay-title="Spawn worktree" { spawn "/home/tsah/.config/niri/niri-wt-spawn.sh"; }
 
     Mod+Q repeat=false { close-window; }
 

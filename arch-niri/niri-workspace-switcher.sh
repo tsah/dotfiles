@@ -1,28 +1,17 @@
 #!/bin/bash
-# Fuzzel-based picker for Niri workspaces
-#
-# Shows all workspaces with their names (or "Workspace N" for unnamed)
-# and allows quick switching via fuzzel.
-#
-# Usage: niri-workspace-switcher.sh
-# Typically bound to a key like Mod+G
+# fzf-based picker for Niri workspaces (runs in ghostty popup)
 
-set -e
-
-if [[ -z "$NIRI_SOCKET" ]]; then
-    notify-send "Error" "Not running under Niri"
-    exit 1
-fi
-
-# Get workspaces as JSON and format for display
-# Format: "name [output]" or "Workspace N [output]" for unnamed
-# We store the ID after a pipe character for extraction later
+# Get workspaces with output and idx for proper switching
+# Format: "* Name [output]|output|idx" or "  Name [output]|output|idx"
 WORKSPACES=$(niri msg --json workspaces | jq -r '
-    sort_by(.idx) |
+    sort_by(.output, .idx) |
     .[] | 
+    (if .is_focused then "*" else " " end) +
+    " " +
     (if .name then .name else "Workspace \(.idx)" end) + 
     " [\(.output // "unknown")]" +
-    "|\(.id)"
+    "|" + .output +
+    "|" + (.idx | tostring)
 ')
 
 if [[ -z "$WORKSPACES" ]]; then
@@ -30,24 +19,29 @@ if [[ -z "$WORKSPACES" ]]; then
     exit 1
 fi
 
-# Count workspaces for display
-WS_COUNT=$(echo "$WORKSPACES" | wc -l)
+# Escape for bash
+WORKSPACES_ESCAPED=$(printf '%s' "$WORKSPACES" | sed "s/'/'\\\\''/g")
 
-# Show picker (display part before |)
-# Use fuzzel in dmenu mode
-SELECTED=$(echo "$WORKSPACES" | cut -d'|' -f1 | fuzzel --dmenu --prompt="Workspace ($WS_COUNT): " --width=50)
+# Run in a small ghostty window with inline script
+ghostty --class=workspace-picker -e bash -c '
+WORKSPACES='"'$WORKSPACES_ESCAPED'"'
 
-if [[ -z "$SELECTED" ]]; then
-    # User cancelled
-    exit 0
+SELECTED=$(echo "$WORKSPACES" | cut -d"|" -f1 | fzf --prompt="Workspace> " --reverse --height=100%)
+
+if [[ -n "$SELECTED" ]]; then
+    # Find matching line and extract output and idx
+    while IFS= read -r line; do
+        display="${line%%|*}"
+        rest="${line#*|}"
+        output="${rest%%|*}"
+        idx="${rest##*|}"
+        
+        if [[ "$display" == "$SELECTED" ]]; then
+            # First focus the monitor, then the workspace index
+            niri msg action focus-monitor "$output"
+            niri msg action focus-workspace "$idx"
+            break
+        fi
+    done <<< "$WORKSPACES"
 fi
-
-# Find the ID for selected workspace by matching the display string
-WS_ID=$(echo "$WORKSPACES" | grep -F "${SELECTED}|" | head -1 | cut -d'|' -f2)
-
-if [[ -n "$WS_ID" ]]; then
-    niri msg action focus-workspace "$WS_ID"
-else
-    notify-send "Error" "Could not find workspace: $SELECTED"
-    exit 1
-fi
+'

@@ -2,24 +2,18 @@
 # Niri worktree manager - wraps wt with Niri workspace integration
 #
 # Usage:
-#   nwt spawn <branch>     - Create worktree + tmux session + name Niri workspace
-#   nwt spawn <branch> -w  - Same but in new Ghostty window
-#   nwt destroy            - Delete worktree + tmux session + clear workspace name
+#   nwt spawn <branch>     - Create worktree + tmux session + NEW Niri workspace
+#   nwt destroy            - Delete worktree + tmux session + workspace
 #   nwt <other>            - Pass through to wt
-#
-# This script adds Niri workspace management on top of the existing wt script.
-# Use 'wt' directly if you don't want Niri integration.
 
 set -e
 
-# Check if wt is available
 if ! command -v wt >/dev/null 2>&1; then
     echo "Error: 'wt' command not found. Make sure ~/dotfiles/bin is in your PATH" >&2
     exit 1
 fi
 
 get_workspace_name() {
-    # Get the workspace name that wt would use (repo-branch format)
     local branch="$1"
     
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -42,39 +36,107 @@ case "$1" in
         
         if [ -z "$BRANCH" ]; then
             echo "Error: spawn command requires a branch name" >&2
-            echo "Usage: nwt spawn <branch> [--new-window|-w]" >&2
+            echo "Usage: nwt spawn <branch>" >&2
             exit 1
         fi
         
-        # Get workspace name before calling wt (need to be in repo context)
         WS_NAME=$(get_workspace_name "$BRANCH")
         
-        # Call wt spawn (does worktree + tmux)
-        wt spawn "$@"
-        EXIT_CODE=$?
-        
-        if [ $EXIT_CODE -eq 0 ] && [ -n "$NIRI_SOCKET" ]; then
-            # Name the current Niri workspace
-            niri msg action set-workspace-name "$WS_NAME"
-            echo "Niri workspace named: $WS_NAME"
+        if [ -n "$NIRI_SOCKET" ]; then
+            # === NIRI MODE ===
+            
+            # Get repo info
+            WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
+            MAIN_REPO_ROOT=$(echo "$WORKTREE_LIST" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
+            REPO_NAME=$(basename "$MAIN_REPO_ROOT")
+            SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+            WORKTREE_PATH="$(dirname "$MAIN_REPO_ROOT")/${REPO_NAME}-${SAFE_BRANCH}"
+            
+            # 1. Create worktree if needed
+            if [ -d "$WORKTREE_PATH" ]; then
+                echo "Worktree already exists: $WORKTREE_PATH"
+            else
+                cd "$MAIN_REPO_ROOT"
+                
+                if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+                    echo "Creating worktree for existing branch: $BRANCH"
+                    git worktree add "$WORKTREE_PATH" "$BRANCH"
+                else
+                    if git show-ref --verify --quiet refs/remotes/origin/master; then
+                        BASE_REF="origin/master"
+                    elif git show-ref --verify --quiet refs/remotes/origin/main; then
+                        BASE_REF="origin/main"
+                    else
+                        echo "Error: Could not find origin/master or origin/main" >&2
+                        exit 1
+                    fi
+                    
+                    echo "Creating worktree with new branch: $BRANCH (from $BASE_REF)"
+                    git worktree add -b "$BRANCH" "$WORKTREE_PATH" "$BASE_REF"
+                    git config "branch.${BRANCH}.remote" origin
+                    git config "branch.${BRANCH}.merge" "refs/heads/${BRANCH}"
+                fi
+            fi
+            
+            # 2. Ensure tmux session exists
+            if ! tmux has-session -t "$WS_NAME" 2>/dev/null; then
+                echo "Creating tmux session: $WS_NAME"
+                tmux new-session -d -s "$WS_NAME" -c "$WORKTREE_PATH"
+            fi
+            
+            # 3. Check if workspace with this name already exists
+            EXISTING_WS=$(niri msg --json workspaces | jq -r ".[] | select(.name == \"$WS_NAME\") | .id")
+            
+            if [ -n "$EXISTING_WS" ]; then
+                echo "Workspace '$WS_NAME' already exists, focusing it..."
+                OUTPUT=$(niri msg --json workspaces | jq -r ".[] | select(.name == \"$WS_NAME\") | .output")
+                IDX=$(niri msg --json workspaces | jq -r ".[] | select(.name == \"$WS_NAME\") | .idx")
+                niri msg action focus-monitor "$OUTPUT"
+                niri msg action focus-workspace "$IDX"
+            else
+                # 4. Create NEW workspace by going to the very bottom (empty workspace)
+                echo "Creating Niri workspace: $WS_NAME"
+                
+                # Get current monitor
+                CURRENT_OUTPUT=$(niri msg --json workspaces | jq -r '.[] | select(.is_focused) | .output')
+                
+                # Find the highest workspace index on this monitor
+                MAX_IDX=$(niri msg --json workspaces | jq -r "[.[] | select(.output == \"$CURRENT_OUTPUT\") | .idx] | max")
+                
+                # Go to last workspace, then down to create new empty one
+                niri msg action focus-workspace "$MAX_IDX"
+                sleep 0.1
+                niri msg action focus-workspace-down
+                sleep 0.1
+                
+                # Name the new workspace
+                niri msg action set-workspace-name "$WS_NAME"
+                
+                # Spawn ghostty with tmux session
+                ghostty -e tmux attach-session -t "$WS_NAME" &
+                disown
+            fi
+            
+            # Register with zoxide
+            command -v zoxide >/dev/null 2>&1 && zoxide add "$WORKTREE_PATH"
+            
+            echo "Done! Workspace '$WS_NAME' ready."
+        else
+            # === NON-NIRI MODE ===
+            wt spawn "$@"
         fi
-        
-        exit $EXIT_CODE
         ;;
         
     destroy)
-        # If in Niri, unset workspace name first
         if [ -n "$NIRI_SOCKET" ]; then
             echo "Clearing Niri workspace name..."
             niri msg action unset-workspace-name || true
         fi
         
-        # Call wt destroy (does worktree + tmux cleanup)
         wt destroy
         ;;
         
     *)
-        # Pass through to wt for all other commands
         wt "$@"
         ;;
 esac
