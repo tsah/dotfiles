@@ -23,7 +23,7 @@ workspaces = false
 ## UI settings
 style = "compact"
 invert = false
-inline_height = 40
+inline_height = 15
 show_preview = true
 max_preview_height = 4
 show_help = true
@@ -35,7 +35,7 @@ exit_mode = "return-original"
 store_failed = true
 secrets_filter = true
 command_chaining = false
-enter_accept = false
+enter_accept = true
 
 ## Network settings
 network_timeout = 30
