@@ -60,6 +60,7 @@ NIRI_SCRIPTS=(
     "niri-start-worktree-workspaces.sh"
     "niri-workspace-switcher.sh"
     "niri-wt-spawn.sh"
+    "nwt-destroy-by-name.sh"
 )
 
 for script in "${NIRI_SCRIPTS[@]}"; do

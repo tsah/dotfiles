@@ -403,7 +403,7 @@ binds {
     Mod+B hotkey-overlay-title="Browser" { spawn "/home/tsah/.config/niri/focus-or-spawn-chromium.sh"; }
     Mod+S hotkey-overlay-title="Slack" { spawn "/home/tsah/.config/niri/launch-slack.sh"; }
     Mod+P hotkey-overlay-title="Personal browser" { spawn "/home/tsah/.config/niri/browser-personal.sh"; }
-    Mod+Alt+B hotkey-overlay-title="Temporary browser" { spawn "chromium" "--temp-profile"; }
+    Mod+Alt+B hotkey-overlay-title="Temporary browser" { spawn "chromium" "--temp-profile" "--class=chromium-temp"; }
     Mod+U hotkey-overlay-title="Bluetooth" { spawn "blueberry"; }
     Mod+N hotkey-overlay-title="Network settings" { spawn "/home/tsah/.config/niri/launch-network.sh"; }
     Mod+Space hotkey-overlay-title="App Launcher" { spawn "walker"; }
@@ -451,6 +451,9 @@ binds {
 
     // Spawn new worktree workspace
     Mod+Y hotkey-overlay-title="Spawn worktree" { spawn "/home/tsah/.config/niri/niri-wt-spawn.sh"; }
+    
+    // Destroy current worktree workspace
+    Mod+Shift+Y hotkey-overlay-title="Destroy worktree" { spawn "nwt" "destroy"; }
 
     Mod+Q repeat=false { close-window; }
 
