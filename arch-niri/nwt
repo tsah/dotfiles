@@ -1,0 +1,80 @@
+#!/bin/bash
+# Niri worktree manager - wraps wt with Niri workspace integration
+#
+# Usage:
+#   nwt spawn <branch>     - Create worktree + tmux session + name Niri workspace
+#   nwt spawn <branch> -w  - Same but in new Ghostty window
+#   nwt destroy            - Delete worktree + tmux session + clear workspace name
+#   nwt <other>            - Pass through to wt
+#
+# This script adds Niri workspace management on top of the existing wt script.
+# Use 'wt' directly if you don't want Niri integration.
+
+set -e
+
+# Check if wt is available
+if ! command -v wt >/dev/null 2>&1; then
+    echo "Error: 'wt' command not found. Make sure ~/dotfiles/bin is in your PATH" >&2
+    exit 1
+fi
+
+get_workspace_name() {
+    # Get the workspace name that wt would use (repo-branch format)
+    local branch="$1"
+    
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        return 1
+    fi
+    
+    local worktree_list repo_root repo_name safe_branch
+    worktree_list=$(git worktree list --porcelain 2>/dev/null)
+    repo_root=$(echo "$worktree_list" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
+    repo_name=$(basename "$repo_root")
+    safe_branch=$(echo "$branch" | tr '/' '-')
+    
+    echo "${repo_name}-${safe_branch}"
+}
+
+case "$1" in
+    spawn)
+        shift
+        BRANCH="$1"
+        
+        if [ -z "$BRANCH" ]; then
+            echo "Error: spawn command requires a branch name" >&2
+            echo "Usage: nwt spawn <branch> [--new-window|-w]" >&2
+            exit 1
+        fi
+        
+        # Get workspace name before calling wt (need to be in repo context)
+        WS_NAME=$(get_workspace_name "$BRANCH")
+        
+        # Call wt spawn (does worktree + tmux)
+        wt spawn "$@"
+        EXIT_CODE=$?
+        
+        if [ $EXIT_CODE -eq 0 ] && [ -n "$NIRI_SOCKET" ]; then
+            # Name the current Niri workspace
+            niri msg action set-workspace-name "$WS_NAME"
+            echo "Niri workspace named: $WS_NAME"
+        fi
+        
+        exit $EXIT_CODE
+        ;;
+        
+    destroy)
+        # If in Niri, unset workspace name first
+        if [ -n "$NIRI_SOCKET" ]; then
+            echo "Clearing Niri workspace name..."
+            niri msg action unset-workspace-name || true
+        fi
+        
+        # Call wt destroy (does worktree + tmux cleanup)
+        wt destroy
+        ;;
+        
+    *)
+        # Pass through to wt for all other commands
+        wt "$@"
+        ;;
+esac

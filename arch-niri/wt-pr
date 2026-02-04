@@ -1,0 +1,80 @@
+#!/bin/bash
+# Open PR page (if exists) or compare page for current branch
+#
+# Usage:
+#   wt-pr          - Open PR or compare page in browser
+#   wt-pr --copy   - Copy URL to clipboard instead of opening
+#
+# If a PR exists for the current branch, opens the PR page.
+# Otherwise, opens the GitHub compare page (for creating a PR).
+
+set -e
+
+COPY_ONLY=false
+if [ "$1" = "--copy" ] || [ "$1" = "-c" ]; then
+    COPY_ONLY=true
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: Not in a git repository" >&2
+    exit 1
+fi
+
+BRANCH=$(git branch --show-current)
+
+if [ -z "$BRANCH" ]; then
+    echo "Error: Could not determine current branch (detached HEAD?)" >&2
+    exit 1
+fi
+
+# Get remote URL and convert to HTTPS format
+REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+
+if [ -z "$REMOTE_URL" ]; then
+    echo "Error: Could not determine remote URL" >&2
+    exit 1
+fi
+
+# Convert git@ URL to https://
+REMOTE_URL=$(echo "$REMOTE_URL" | sed 's/\.git$//' | sed 's|git@github.com:|https://github.com/|')
+
+# Check if PR exists for this branch
+PR_URL=$(gh pr view --json url -q '.url' 2>/dev/null || true)
+
+if [ -n "$PR_URL" ]; then
+    echo "PR found: $PR_URL"
+    URL="$PR_URL"
+else
+    echo "No PR found for branch: $BRANCH"
+    echo "Opening compare page..."
+    URL="${REMOTE_URL}/compare/${BRANCH}?expand=1"
+fi
+
+if [ "$COPY_ONLY" = true ]; then
+    if command -v wl-copy >/dev/null 2>&1; then
+        echo "$URL" | wl-copy
+        echo "URL copied to clipboard: $URL"
+    elif command -v xclip >/dev/null 2>&1; then
+        echo "$URL" | xclip -selection clipboard
+        echo "URL copied to clipboard: $URL"
+    else
+        echo "Error: No clipboard tool found (wl-copy or xclip)" >&2
+        echo "URL: $URL"
+        exit 1
+    fi
+else
+    echo "Opening: $URL"
+    
+    # Open in browser
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$URL" &>/dev/null &
+    elif command -v chromium >/dev/null 2>&1; then
+        chromium "$URL" &>/dev/null &
+    elif command -v firefox >/dev/null 2>&1; then
+        firefox "$URL" &>/dev/null &
+    else
+        echo "Error: No browser found" >&2
+        echo "URL: $URL"
+        exit 1
+    fi
+fi

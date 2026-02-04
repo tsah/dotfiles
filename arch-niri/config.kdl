@@ -299,6 +299,10 @@ spawn-at-startup "swayidle" "-w" "timeout" "600" "/home/tsah/dotfiles/bin/lock-s
 // Start TLP for advanced power management
 spawn-at-startup "sudo" "systemctl" "start" "tlp"
 
+// Start worktree workspaces (creates named workspaces for existing worktrees)
+// Delayed to let other things initialize first
+spawn-at-startup "sh" "-c" "sleep 5 && ~/.config/niri/niri-start-worktree-workspaces.sh"
+
 // To run a shell command (with variables, pipes, etc.), use spawn-sh-at-startup:
 // spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
 
@@ -441,6 +445,9 @@ binds {
     // You can also move the mouse into the top-left hot corner,
     // or do a four-finger swipe up on a touchpad.
     Mod+O repeat=false { toggle-overview; }
+
+    // Workspace switcher (fuzzel picker for named workspaces)
+    Mod+G hotkey-overlay-title="Go to workspace" { spawn "~/.config/niri/niri-workspace-switcher.sh"; }
 
     Mod+Q repeat=false { close-window; }
 
