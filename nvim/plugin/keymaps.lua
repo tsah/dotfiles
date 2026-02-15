@@ -93,11 +93,10 @@ keymap('n', '<leader>aw', function() require('trevj').format_at_cursor() end, { 
 
 keymap({ 'n', 'x', 'o' }, 's', function() require('flash').jump() end, { desc = "Flash jump" })
 
-keymap('v', '<leader>oi', function() require('opencode').prompt("Implement @selection", {submit = true}) end, { desc = 'Implement selection' })
-keymap('n', '<leader>oa', function() require('opencode').ask('@cursor: ', { submit = true }) end, { desc = 'Ask about cursor' })
-keymap('v', '<leader>oa', function() require('opencode').ask('@selection: ', { submit = true }) end, { desc = 'Ask about selection' })
+keymap('v', '<leader>oi', function() require('opencode').prompt("Implement @this", {submit = true}) end, { desc = 'Implement selection' })
+keymap({ 'n', 'v' }, '<leader>oa', function() require('opencode').ask('@this: ', { submit = true }) end, { desc = 'Ask about cursor/selection' })
 keymap('n', '<leader>o+', function() require('opencode').prompt('@buffer', { append = true }) end, { desc = 'Add buffer to prompt' })
-keymap('v', '<leader>o+', function() require('opencode').prompt('@selection', { append = true }) end, { desc = 'Add selection to prompt' })
-keymap('n', '<leader>oe', function() require('opencode').ask('Explain @cursor and its context', { submit = true }) end, { desc = 'Explain code at cursor' })
-keymap('n', '<leader>on', function() require('opencode').command('session_new') end, { desc = 'New opencode session' })
+keymap('v', '<leader>o+', function() require('opencode').prompt('@this', { append = true }) end, { desc = 'Add selection to prompt' })
+keymap('n', '<leader>oe', function() require('opencode').ask('Explain @this and its context', { submit = true }) end, { desc = 'Explain code at cursor' })
+keymap('n', '<leader>on', function() require('opencode').command('session.new') end, { desc = 'New opencode session' })
 keymap({ 'n', 'v' }, '<leader>os', function() require('opencode').select() end, { desc = 'Select opencode prompt' })
