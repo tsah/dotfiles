@@ -261,7 +261,7 @@ print_versions() {
     log ""
     log "Installed tool versions:"
 
-    for cmd in fish zsh tmux nvim rg fd delta lazygit starship zoxide atuin jj sesh; do
+    for cmd in fish zsh tmux nvim rg fd delta lazygit starship zoxide atuin jj sesh gh uv; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf '  - %s: %s\n' "$cmd" "$("$cmd" --version 2>/dev/null | head -1)"
         else
@@ -284,6 +284,8 @@ ARCH="$(uname -m)"
 
 case "$ARCH" in
     aarch64|arm64)
+        GH_SUFFIX="linux_arm64.tar.gz"
+        UV_SUFFIX="aarch64-unknown-linux-gnu.tar.gz"
         FISH_SUFFIX="linux-aarch64.tar.xz"
         NEOVIM_SUFFIX="nvim-linux-arm64.tar.gz"
         FZF_SUFFIX="linux_arm64.tar.gz"
@@ -298,6 +300,8 @@ case "$ARCH" in
         SESH_SUFFIX="sesh_Linux_arm64.tar.gz"
         ;;
     x86_64|amd64)
+        GH_SUFFIX="linux_amd64.tar.gz"
+        UV_SUFFIX="x86_64-unknown-linux-gnu.tar.gz"
         FISH_SUFFIX="linux-x86_64.tar.xz"
         NEOVIM_SUFFIX="nvim-linux-x86_64.tar.gz"
         FZF_SUFFIX="linux_amd64.tar.gz"
@@ -329,6 +333,8 @@ install_binary_from_tar "ajeetdsouza/zoxide" "$ZOXIDE_SUFFIX" "zoxide"
 install_binary_from_tar "atuinsh/atuin" "$ATUIN_SUFFIX" "atuin"
 install_binary_from_tar "martinvonz/jj" "$JJ_SUFFIX" "jj"
 install_binary_from_tar "joshmedeski/sesh" "$SESH_SUFFIX" "sesh"
+install_binary_from_tar "cli/cli" "$GH_SUFFIX" "gh"
+install_binary_from_tar "astral-sh/uv" "$UV_SUFFIX" "uv"
 install_ghostty_terminfo
 
 install_opencode
