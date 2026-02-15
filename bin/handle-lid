@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# handle-lid - Smart laptop lid handling for Hyprland
+# Handles lid close/open events and manual toggle
+#
+# Usage: handle-lid <action>
+# Actions:
+#   close   - Called when lid closes (automatic via switch binding)
+#   open    - Called when lid opens (automatic via switch binding)
+#   toggle  - Manual toggle of laptop screen (keybind)
+#   resume  - Called after sleep/suspend (via hypridle)
+
+ACTION="$1"
+LAPTOP_MONITOR="eDP-1"
+LAPTOP_CONFIG="1920x1200@60,1920x0,1.25"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') handle-lid: $*" >> /tmp/handle-lid.log
+}
+
+# Get count of active external monitors (not eDP-1, not disabled)
+get_external_monitor_count() {
+    hyprctl monitors -j | jq '[.[] | select(.name != "eDP-1")] | length'
+}
+
+# Check if laptop monitor is currently enabled
+is_laptop_enabled() {
+    hyprctl monitors -j | jq -e '.[] | select(.name == "eDP-1")' > /dev/null 2>&1
+}
+
+# Enable laptop monitor
+enable_laptop() {
+    log "Enabling laptop monitor"
+    hyprctl keyword monitor "$LAPTOP_MONITOR,$LAPTOP_CONFIG"
+    hyprctl dispatch dpms on
+    # Restart portal for screen sharing to work properly
+    (sleep 0.5 && killall xdg-desktop-portal-hyprland 2>/dev/null) &
+}
+
+# Disable laptop monitor
+disable_laptop() {
+    log "Disabling laptop monitor"
+    hyprctl keyword monitor "$LAPTOP_MONITOR,disable"
+    # Restart portal for screen sharing to work properly
+    (sleep 0.5 && killall xdg-desktop-portal-hyprland 2>/dev/null) &
+}
+
+case "$ACTION" in
+    close)
+        log "Lid closed"
+        EXTERNAL_COUNT=$(get_external_monitor_count)
+        if [[ "$EXTERNAL_COUNT" -gt 0 ]]; then
+            log "External monitor(s) connected ($EXTERNAL_COUNT), disabling laptop screen"
+            disable_laptop
+        else
+            log "No external monitor, turning DPMS off"
+            hyprctl dispatch dpms off
+        fi
+        ;;
+        
+    open)
+        log "Lid opened"
+        # Always ensure DPMS is on
+        hyprctl dispatch dpms on
+        # Re-enable laptop screen if it was disabled
+        if ! is_laptop_enabled; then
+            enable_laptop
+        fi
+        ;;
+        
+    toggle)
+        log "Manual toggle requested"
+        # Always ensure DPMS is on first (emergency recovery)
+        hyprctl dispatch dpms on
+        
+        if is_laptop_enabled; then
+            EXTERNAL_COUNT=$(get_external_monitor_count)
+            if [[ "$EXTERNAL_COUNT" -gt 0 ]]; then
+                disable_laptop
+                notify-send "Display Toggle" "Laptop screen disabled" -i display -t 1000 2>/dev/null
+            else
+                log "Cannot disable laptop - no external monitor"
+                notify-send "Display Toggle" "Cannot disable - no external monitor" -i display -t 1000 2>/dev/null
+            fi
+        else
+            enable_laptop
+            notify-send "Display Toggle" "Laptop screen enabled" -i display -t 1000 2>/dev/null
+        fi
+        ;;
+        
+    resume)
+        log "Resuming from sleep"
+        # Always turn DPMS on
+        hyprctl dispatch dpms on
+        
+        # Check if any monitors are active
+        ACTIVE_COUNT=$(hyprctl monitors -j | jq 'length')
+        if [[ "$ACTIVE_COUNT" -eq 0 ]]; then
+            log "No active monitors after resume, enabling laptop screen"
+            enable_laptop
+        fi
+        
+        # If laptop lid is open but eDP-1 is disabled, re-enable it
+        # (handles case where external monitor was unplugged during suspend)
+        LID_STATE=$(cat /proc/acpi/button/lid/LID0/state 2>/dev/null | awk '{print $2}')
+        if [[ "$LID_STATE" == "open" ]] && ! is_laptop_enabled; then
+            log "Lid is open but laptop screen disabled, enabling"
+            enable_laptop
+        fi
+        
+        # Restore brightness
+        brightnessctl -r 2>/dev/null
+        ;;
+        
+    *)
+        echo "Usage: handle-lid <close|open|toggle|resume>"
+        exit 1
+        ;;
+esac

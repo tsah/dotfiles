@@ -1,13 +1,11 @@
 #!/bin/bash
-# Launch or focus default Chrome browser (work profile)
+# Launch Zen Browser with Main (work) profile
 
-WINDOW_CLASS="chromium"
-
-# Check if default chromium window already exists
-if hyprctl clients | grep -q "class: ${WINDOW_CLASS}$"; then
-    # Focus existing window
-    hyprctl dispatch focuswindow "class:${WINDOW_CLASS}"
-else
-    # Launch default chromium instance
-    exec uwsm app -- chromium "$@"
+if command -v lspci >/dev/null 2>&1 && lspci | grep -iE 'vga|3d|display' | grep -qi 'amd'; then
+    export LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-radeonsi}"
+    export VDPAU_DRIVER="${VDPAU_DRIVER:-radeonsi}"
 fi
+
+export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
+
+exec /opt/zen-browser-bin/zen-bin --profile "$HOME/.zen/2cmd8whu.Default (release)" "$@"
