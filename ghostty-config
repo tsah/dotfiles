@@ -17,7 +17,7 @@ keybind = alt+7=text:\x1b7
 keybind = alt+8=text:\x1b8
 keybind = alt+9=text:\x1b9
 
-command = zsh
+command = fish
 
 # Enable shell integration for dynamic tab titles  
 shell-integration = detect

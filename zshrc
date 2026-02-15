@@ -1,7 +1,37 @@
+IS_REMOTE_SSH=false
+if [[ -n "$SSH_CONNECTION" || -n "$SSH_TTY" ]]; then
+  IS_REMOTE_SSH=true
+fi
+
+if [[ "$IS_REMOTE_SSH" == true ]]; then
+  bindkey -e
+  export KEYTIMEOUT=40
+  setopt no_flow_control
+  stty -ixon -ixoff 2>/dev/null || true
+  zle_bracketed_paste=()
+
+  alias v=nvim
+  alias ve="source .venv/bin/activate"
+  alias l="ls -ls"
+  alias lg=lazygit
+
+  source ~/.env
+  export PATH="$HOME/bin:$HOME/dotfiles/bin:$PATH"
+  export PATH="$HOME/.opencode/bin:$PATH"
+  export PATH="$HOME/.bun/bin:$PATH"
+  export PATH="$HOME/.cargo/bin:$PATH"
+  export EDITOR=nvim
+  export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
+  PROMPT='%F{cyan}%~%f %# '
+  return
+fi
+
 # Created by Zap installer
 [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/zap/zap.zsh" ] && source "${XDG_DATA_HOME:-$HOME/.local/share}/zap/zap.zsh"
+
 plug "zsh-users/zsh-autosuggestions"
 plug "zap-zsh/supercharge"
+
 plug "zsh-users/zsh-syntax-highlighting"
 
 # Load and initialise completion system
@@ -35,13 +65,15 @@ zle-line-init() {
 zle -N zle-line-init
 echo -ne '\e[6 q'
 
-function vi-yank-xclip {
-  zle vi-yank
-  echo "$CUTBUFFER" | wl-copy
-}
+if command -v wl-copy >/dev/null 2>&1; then
+  function vi-yank-xclip {
+    zle vi-yank
+    echo "$CUTBUFFER" | wl-copy
+  }
 
-zle -N vi-yank-xclip
-bindkey -M vicmd 'y' vi-yank-xclip
+  zle -N vi-yank-xclip
+  bindkey -M vicmd 'y' vi-yank-xclip
+fi
 
 autoload edit-command-line
 zle -N edit-command-line
@@ -143,4 +175,4 @@ if [ -f '/home/tsah/google-cloud-sdk/path.zsh.inc' ]; then . '/home/tsah/google-
 
 # The next line enables shell command completion for gcloud.
 if [ -f '/home/tsah/google-cloud-sdk/completion.zsh.inc' ]; then . '/home/tsah/google-cloud-sdk/completion.zsh.inc'; fi
-eval "$(atuin init zsh)"
+eval "$(atuin init zsh --disable-up-arrow)"

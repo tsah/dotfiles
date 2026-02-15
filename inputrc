@@ -1,0 +1,23 @@
+set editing-mode vi
+set keyseq-timeout 80
+set show-mode-in-prompt on
+set vi-ins-mode-string \1\e[6 q\2
+set vi-cmd-mode-string \1\e[2 q\2
+set bell-style none
+
+set keymap vi-insert
+"jk": vi-movement-mode
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+"\C-a": beginning-of-line
+"\C-e": end-of-line
+"\e[1~": beginning-of-line
+"\e[4~": end-of-line
+"\e[H": beginning-of-line
+"\ef": forward-word
+"\eb": backward-word
+"\e[1;3C": forward-word
+"\e[1;3D": backward-word
+
+set keymap vi-command
+"v": edit-and-execute-command

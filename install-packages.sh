@@ -22,6 +22,7 @@ fi
 
 echo "📦 Installing core packages from official repos..."
 sudo pacman -S --needed \
+    fish \
     zsh \
     iwd \
     cliphist \
@@ -35,7 +36,9 @@ sudo pacman -S --needed \
     blueberry \
     brightnessctl \
     playerctl \
-    pipewire-pulse
+    pipewire-pulse \
+    libva-utils \
+    vdpauinfo
 
 echo "🔧 Enabling iwd service..."
 sudo systemctl enable --now iwd
@@ -48,17 +51,9 @@ yay -S --needed \
     wiremix \
     uwsm
 
-echo "📦 Installing Zap (Zsh plugin manager)..."
-if ! command -v zap &> /dev/null; then
-    zsh <(curl -s https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh)
-    echo "✅ Zap installed"
-else
-    echo "✅ Zap already installed"
-fi
-
 echo "📦 Installing OpenCode (SST Claude CLI)..."
 if ! command -v opencode &> /dev/null; then
-    curl -sSL https://install.opencode.dev | bash
+    curl -sSL https://opencode.ai/install | bash
     echo "✅ OpenCode installed"
 else
     echo "✅ OpenCode already installed"
@@ -83,10 +78,10 @@ echo ""
 echo "✅ Core package installation complete!"
 echo ""
 echo "📋 Installed packages:"
+echo "   • fish - Fish shell"
 echo "   • zsh - Z shell"
 echo "   • iwd - Wireless daemon"
 echo "   • neovim-git - Neovim prerelease"
-echo "   • zap - Zsh plugin manager"
 echo "   • cliphist - Clipboard history manager"
 echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
@@ -103,6 +98,8 @@ echo "   • blueberry - Bluetooth manager"
 echo "   • brightnessctl - Brightness control"
 echo "   • playerctl - Media control"
 echo "   • pipewire-pulse - Audio control"
+echo "   • libva-utils - VA-API diagnostics (vainfo)"
+echo "   • vdpauinfo - VDPAU diagnostics"
 echo "   • hyprlock - Screen locker"
 echo "   • wiremix - Audio mixer"
 echo "   • uwsm - Universal Wayland Session Manager"

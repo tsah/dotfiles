@@ -4,10 +4,37 @@ ln -sf ~/dotfiles/nvim ~/.config/nvim
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
   git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 fi
+if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then
+  "$HOME/.tmux/plugins/tpm/bin/install_plugins" >/dev/null 2>&1 || true
+fi
 ln -sf ~/dotfiles/zshrc ~/.zshrc
+ln -sf ~/dotfiles/bashrc ~/.bashrc
+ln -sf ~/dotfiles/inputrc ~/.inputrc
 ln -sf ~/dotfiles/.zprofile ~/.zprofile
+mkdir -p ~/.config/fish
+ln -sf ~/dotfiles/fish/config.fish ~/.config/fish/config.fish
 ln -sf ~/dotfiles/.gitconfig ~/.gitconfig
 ln -sf ~/dotfiles/.tmux.conf ~/.tmux.conf
+
+if command -v fish >/dev/null 2>&1; then
+  FISH_PATH="$(command -v fish)"
+  CURRENT_SHELL="${SHELL:-}"
+  if command -v getent >/dev/null 2>&1; then
+    CURRENT_SHELL="$(getent passwd "$USER" | cut -d: -f7 2>/dev/null || printf '%s' "$CURRENT_SHELL")"
+  fi
+  if [ -n "$CURRENT_SHELL" ] && [ "$CURRENT_SHELL" != "$FISH_PATH" ]; then
+    chsh -s "$FISH_PATH" "$USER" || true
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user set-environment SHELL="$FISH_PATH" 2>/dev/null || true
+  fi
+
+  if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment --systemd SHELL="$FISH_PATH" 2>/dev/null || true
+  fi
+fi
+
 mkdir -p ~/.config/ghostty
 ln -sf ~/dotfiles/ghostty-config ~/.config/ghostty/config
 

@@ -4,7 +4,13 @@
 add_newline = true
 command_timeout = 200
 
-format = "$directory${custom.git_info}$character"
+format = "${custom.ssh_context}$directory${custom.git_info}$character"
+
+[custom.ssh_context]
+command = 'printf "%s@%s" "$USER" "$(hostname)"'
+when = '[[ -n "$SSH_CONNECTION" ]]'
+format = "[$output](bold cyan) "
+shell = ["bash", "--noprofile", "--norc"]
 
 ## ------------------------------------------------------------------------------------------------
 ## ---- Character (prompt symbol)
