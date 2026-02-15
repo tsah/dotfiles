@@ -1,0 +1,44 @@
+#!/bin/bash
+
+set -euo pipefail
+
+notify_error() {
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send -a "paste-clipboard" "$1" -u critical -t 3000
+  elif command -v hyprctl >/dev/null 2>&1; then
+    hyprctl notify 3 3000 "rgb(ff4444)" "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+read_wayland_text() {
+  local selection_flag="${1:-}"
+  local types
+
+  types=$(wl-paste $selection_flag --list-types 2>/dev/null || true)
+  if [[ "$types" == *"text/plain"* || "$types" == *"UTF8_STRING"* || "$types" == *"STRING"* || "$types" == *"TEXT"* ]]; then
+    wl-paste $selection_flag -n --type text/plain 2>/dev/null || wl-paste $selection_flag -n --type text/plain\;charset=utf-8 2>/dev/null || true
+  fi
+}
+
+if ! command -v wl-paste >/dev/null 2>&1; then
+  notify_error "wl-paste is not installed"
+  exit 1
+fi
+
+if ! command -v wtype >/dev/null 2>&1; then
+  notify_error "wtype is not installed"
+  exit 1
+fi
+
+clipboard_text=$(read_wayland_text)
+if [[ -z "$clipboard_text" ]]; then
+  clipboard_text=$(read_wayland_text --primary)
+fi
+
+if [[ -z "$clipboard_text" ]]; then
+  notify_error "Clipboard has no text"
+  exit 1
+fi
+
+sleep 0.05
+wtype "$clipboard_text"

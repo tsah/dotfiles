@@ -5,13 +5,20 @@ set -euo pipefail
 target_pane="${1:-}"
 clipboard_text=""
 
+read_wayland_text() {
+  local selection_flag="${1:-}"
+  local types
+  types=$(wl-paste $selection_flag --list-types 2>/dev/null || true)
+
+  if [[ "$types" == *"text/plain"* || "$types" == *"UTF8_STRING"* || "$types" == *"STRING"* || "$types" == *"TEXT"* ]]; then
+    wl-paste $selection_flag -n --type text/plain 2>/dev/null || wl-paste $selection_flag -n --type text/plain\;charset=utf-8 2>/dev/null || true
+  fi
+}
+
 if command -v wl-paste >/dev/null 2>&1; then
-  clipboard_types=$(wl-paste --list-types 2>/dev/null || true)
-  if [[ "$clipboard_types" == *"text/plain"* || "$clipboard_types" == *"UTF8_STRING"* || "$clipboard_types" == *"STRING"* || "$clipboard_types" == *"TEXT"* ]]; then
-    clipboard_text=$(wl-paste -n --type text/plain 2>/dev/null || true)
-    if [[ -z "$clipboard_text" ]]; then
-      clipboard_text=$(wl-paste -n --type text/plain\;charset=utf-8 2>/dev/null || true)
-    fi
+  clipboard_text=$(read_wayland_text)
+  if [[ -z "$clipboard_text" ]]; then
+    clipboard_text=$(read_wayland_text --primary)
   fi
 elif command -v xclip >/dev/null 2>&1; then
   clipboard_text=$(xclip -selection clipboard -out 2>/dev/null || true)
@@ -24,6 +31,13 @@ if [[ -z "$clipboard_text" ]]; then
   exit 1
 fi
 
+if command -v wtype >/dev/null 2>&1 && [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+  if wtype "$clipboard_text" >/dev/null 2>&1; then
+    tmux display-message "Typed ${#clipboard_text} chars from clipboard"
+    exit 0
+  fi
+fi
+
 printf "%s" "$clipboard_text" | tmux load-buffer -
 
 if [[ -n "$target_pane" ]]; then
@@ -31,3 +45,5 @@ if [[ -n "$target_pane" ]]; then
 else
   tmux paste-buffer -p
 fi
+
+tmux display-message "Pasted ${#clipboard_text} chars from clipboard"

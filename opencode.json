@@ -10,9 +10,6 @@
   "tools": {
     "linear_*": false
   },
-  "keybinds": {
-    "input_paste": "ctrl+v,ctrl+shift+v,shift+insert"
-  },
   "agent": {
     "plan": {
       "model": "anthropic/claude-opus-4-6",
