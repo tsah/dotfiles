@@ -1,0 +1,238 @@
+#!/bin/bash
+
+set -euo pipefail
+
+[[ -f ~/.config/user-dirs.dirs ]] && source ~/.config/user-dirs.dirs
+
+OUTPUT_DIR="${OMARCHY_SCREENSHOT_DIR:-${XDG_PICTURES_DIR:-$HOME/Pictures}}"
+REMOTE_TARGET_DEFAULT="dev:/tmp/"
+REMOTE_TARGET="${SCREENSHOT_REMOTE_TARGET:-$REMOTE_TARGET_DEFAULT}"
+NOTIFY_APP="screenshot-share"
+
+notify_user() {
+  local level="$1"
+  local title="$2"
+  local body="${3:-}"
+  local timeout="${4:-5000}"
+  local sent=1
+
+  if command -v notify-send >/dev/null 2>&1; then
+    if [[ -n "$body" ]]; then
+      if [[ "$level" == "error" ]]; then
+        notify-send -a "$NOTIFY_APP" "$title" "$body" -u critical -t "$timeout" >/dev/null 2>&1 && sent=0
+      else
+        notify-send -a "$NOTIFY_APP" "$title" "$body" -t "$timeout" >/dev/null 2>&1 && sent=0
+      fi
+    else
+      if [[ "$level" == "error" ]]; then
+        notify-send -a "$NOTIFY_APP" "$title" -u critical -t "$timeout" >/dev/null 2>&1 && sent=0
+      else
+        notify-send -a "$NOTIFY_APP" "$title" -t "$timeout" >/dev/null 2>&1 && sent=0
+      fi
+    fi
+  fi
+
+  if (( sent != 0 )) && command -v hyprctl >/dev/null 2>&1; then
+    local icon=1
+    local color="0"
+
+    case "$level" in
+    success)
+      icon=5
+      color="rgb(88cc88)"
+      ;;
+    error)
+      icon=3
+      color="rgb(ff4444)"
+      ;;
+    *)
+      icon=1
+      color="0"
+      ;;
+    esac
+
+    local message="$title"
+    [[ -n "$body" ]] && message="$title: $body"
+    hyprctl notify "$icon" "$timeout" "$color" "$message" >/dev/null 2>&1 || true
+  fi
+}
+
+if [[ ! -d "$OUTPUT_DIR" ]]; then
+  notify_user error "Screenshot directory does not exist" "$OUTPUT_DIR" 3000
+  exit 1
+fi
+
+pkill slurp >/dev/null 2>&1 && exit 0
+
+MODE="${1:-smart}"
+OUTPUT_FILE="$OUTPUT_DIR/screenshot-$(date +'%Y-%m-%d_%H-%M-%S').png"
+
+get_rectangles() {
+  local active_workspace
+  active_workspace=$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .activeWorkspace.id')
+  hyprctl monitors -j | jq -r --arg ws "$active_workspace" '.[] | select(.activeWorkspace.id == ($ws | tonumber)) | "\(.x),\(.y) \((.width / .scale) | floor)x\((.height / .scale) | floor)"'
+  hyprctl clients -j | jq -r --arg ws "$active_workspace" '.[] | select(.workspace.id == ($ws | tonumber)) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"'
+}
+
+select_area() {
+  local mode="$1"
+  local selection=""
+
+  case "$mode" in
+  region)
+    wayfreeze & local pid=$!
+    sleep .1
+    selection=$(slurp 2>/dev/null || true)
+    kill "$pid" 2>/dev/null || true
+    ;;
+  windows)
+    wayfreeze & local pid=$!
+    sleep .1
+    selection=$(get_rectangles | slurp -r 2>/dev/null || true)
+    kill "$pid" 2>/dev/null || true
+    ;;
+  fullscreen)
+    selection=$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | "\(.x),\(.y) \((.width / .scale) | floor)x\((.height / .scale) | floor)"')
+    ;;
+  smart|*)
+    local rectangles
+    rectangles=$(get_rectangles)
+
+    wayfreeze & local pid=$!
+    sleep .1
+    selection=$(printf "%s" "$rectangles" | slurp 2>/dev/null || true)
+    kill "$pid" 2>/dev/null || true
+
+    if [[ "$selection" =~ ^([0-9]+),([0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
+      if (( ${BASH_REMATCH[3]} * ${BASH_REMATCH[4]} < 20 )); then
+        local click_x="${BASH_REMATCH[1]}"
+        local click_y="${BASH_REMATCH[2]}"
+
+        while IFS= read -r rect; do
+          if [[ "$rect" =~ ^([0-9]+),([0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
+            local rect_x="${BASH_REMATCH[1]}"
+            local rect_y="${BASH_REMATCH[2]}"
+            local rect_width="${BASH_REMATCH[3]}"
+            local rect_height="${BASH_REMATCH[4]}"
+
+            if (( click_x >= rect_x && click_x < rect_x + rect_width && click_y >= rect_y && click_y < rect_y + rect_height )); then
+              selection="${rect_x},${rect_y} ${rect_width}x${rect_height}"
+              break
+            fi
+          fi
+        done <<<"$rectangles"
+      fi
+    fi
+    ;;
+  esac
+
+  printf "%s" "$selection"
+}
+
+pick_destination() {
+  local menu_items
+  menu_items=$(printf "clipboard\nlocal\nremote\n")
+
+  if command -v walker >/dev/null 2>&1; then
+    printf "%s" "$menu_items" | walker --dmenu --width 340 --minheight 180 --maxheight 180 --placeholder "Screenshot destination"
+  elif command -v fuzzel >/dev/null 2>&1; then
+    printf "%s" "$menu_items" | fuzzel --dmenu --prompt "Screenshot destination"
+  elif command -v wofi >/dev/null 2>&1; then
+    printf "%s" "$menu_items" | wofi --dmenu --prompt "Screenshot destination"
+  else
+    printf "%s" "clipboard"
+  fi
+}
+
+normalize_destination() {
+  local raw="$1"
+  local cleaned
+
+  cleaned=$(printf "%s" "$raw" | tr -d '\r' | xargs)
+  cleaned=${cleaned,,}
+
+  case "$cleaned" in
+  0) cleaned="clipboard" ;;
+  1) cleaned="local" ;;
+  2) cleaned="remote" ;;
+  esac
+
+  printf "%s" "$cleaned"
+}
+
+upload_remote() {
+  local file_path="$1"
+  local target="$REMOTE_TARGET"
+
+  if [[ -z "$target" ]]; then
+    notify_user error "Remote target not configured" "Set SCREENSHOT_REMOTE_TARGET to user@host:/path/"
+    return 1
+  fi
+
+  local destination="$target"
+  if [[ "$target" == */ ]]; then
+    destination="${target}$(basename "$file_path")"
+  fi
+
+  if scp -q "$file_path" "$destination"; then
+    if command -v wl-copy >/dev/null 2>&1; then
+      if printf "%s" "$destination" | wl-copy --type text/plain; then
+        notify_user success "Screenshot uploaded" "$destination (path copied)"
+      else
+        notify_user success "Screenshot uploaded" "$destination"
+        notify_user error "Clipboard copy failed" "Could not copy remote path"
+      fi
+    else
+      notify_user success "Screenshot uploaded" "$destination"
+    fi
+  else
+    notify_user error "Screenshot upload failed" "$destination"
+    return 1
+  fi
+}
+
+SELECTION=$(select_area "$MODE")
+[[ -z "$SELECTION" ]] && exit 0
+
+if command -v satty >/dev/null 2>&1; then
+  grim -g "$SELECTION" - | satty --filename - --output-filename "$OUTPUT_FILE" --early-exit --actions-on-enter save-to-file
+else
+  grim -g "$SELECTION" "$OUTPUT_FILE"
+fi
+
+[[ ! -f "$OUTPUT_FILE" ]] && exit 0
+
+DESTINATION_RAW=$(pick_destination || true)
+DESTINATION=$(normalize_destination "$DESTINATION_RAW")
+case "$DESTINATION" in
+clipboard)
+  if command -v wl-copy >/dev/null 2>&1; then
+    wl-copy <"$OUTPUT_FILE"
+    notify_user success "Screenshot copied" "Copied image to clipboard"
+  else
+    notify_user error "wl-copy not available" "Screenshot kept locally at $OUTPUT_FILE"
+  fi
+  ;;
+local)
+  if command -v wl-copy >/dev/null 2>&1; then
+    if printf "%s" "$OUTPUT_FILE" | wl-copy --type text/plain; then
+      notify_user success "Screenshot saved" "$OUTPUT_FILE (path copied)"
+    else
+      notify_user success "Screenshot saved" "$OUTPUT_FILE"
+      notify_user error "Clipboard copy failed" "Could not copy local path"
+    fi
+  else
+    notify_user success "Screenshot saved" "$OUTPUT_FILE"
+  fi
+  ;;
+remote)
+  upload_remote "$OUTPUT_FILE"
+  ;;
+"")
+  exit 0
+  ;;
+*)
+  notify_user error "Unknown destination" "$DESTINATION_RAW"
+  exit 1
+  ;;
+esac

@@ -1,0 +1,33 @@
+#!/bin/bash
+
+set -euo pipefail
+
+target_pane="${1:-}"
+clipboard_text=""
+
+if command -v wl-paste >/dev/null 2>&1; then
+  clipboard_types=$(wl-paste --list-types 2>/dev/null || true)
+  if [[ "$clipboard_types" == *"text/plain"* || "$clipboard_types" == *"UTF8_STRING"* || "$clipboard_types" == *"STRING"* || "$clipboard_types" == *"TEXT"* ]]; then
+    clipboard_text=$(wl-paste -n --type text/plain 2>/dev/null || true)
+    if [[ -z "$clipboard_text" ]]; then
+      clipboard_text=$(wl-paste -n --type text/plain\;charset=utf-8 2>/dev/null || true)
+    fi
+  fi
+elif command -v xclip >/dev/null 2>&1; then
+  clipboard_text=$(xclip -selection clipboard -out 2>/dev/null || true)
+elif command -v xsel >/dev/null 2>&1; then
+  clipboard_text=$(xsel --clipboard --output 2>/dev/null || true)
+fi
+
+if [[ -z "$clipboard_text" ]]; then
+  tmux display-message "Clipboard has no text to paste"
+  exit 1
+fi
+
+printf "%s" "$clipboard_text" | tmux load-buffer -
+
+if [[ -n "$target_pane" ]]; then
+  tmux paste-buffer -p -t "$target_pane"
+else
+  tmux paste-buffer -p
+fi
