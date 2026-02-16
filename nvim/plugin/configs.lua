@@ -37,4 +37,7 @@ vim.cmd.filetype("plugin indent on")
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
 
-require('vim._extui').enable({})
+local has_extui, extui = pcall(require, 'vim._extui')
+if has_extui then
+    extui.enable({})
+end

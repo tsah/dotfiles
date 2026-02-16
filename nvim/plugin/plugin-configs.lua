@@ -11,7 +11,10 @@ require('gitsigns').setup({ signcolumn = true })
 
 require('blink.cmp').setup({
     fuzzy = {
-        implementation = 'prefer_rust_with_warning',
+        implementation = 'prefer_rust',
+        prebuilt_binaries = {
+            force_version = 'v1.7.0',
+        },
         sorts = { 'score', 'sort_text', 'label' }
     },
     signature = {
@@ -133,13 +136,52 @@ require('yazi').setup({
     },
 })
 
-require('nvim-treesitter.configs').setup({
-    ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python" },
-    auto_install = true,
-    highlight = {
-        enable = true,
-    },
-})
+local ts_languages = { "lua", "vim", "vimdoc", "javascript", "typescript", "python" }
+local has_ts_configs, ts_configs = pcall(require, 'nvim-treesitter.configs')
+
+if has_ts_configs then
+    ts_configs.setup({
+        ensure_installed = ts_languages,
+        auto_install = true,
+        highlight = {
+            enable = true,
+        },
+    })
+else
+    local has_ts, ts = pcall(require, 'nvim-treesitter')
+    if has_ts then
+        ts.setup({})
+
+        if #vim.api.nvim_list_uis() > 0 then
+            local installed = ts.get_installed()
+            local missing = {}
+
+            for _, language in ipairs(ts_languages) do
+                local is_installed = false
+                for _, installed_language in ipairs(installed) do
+                    if installed_language == language then
+                        is_installed = true
+                        break
+                    end
+                end
+
+                if not is_installed then
+                    table.insert(missing, language)
+                end
+            end
+
+            if #missing > 0 then
+                ts.install(missing)
+            end
+        end
+
+        vim.api.nvim_create_autocmd('FileType', {
+            callback = function(args)
+                pcall(vim.treesitter.start, args.buf)
+            end,
+        })
+    end
+end
 
 require('treesitter-context').setup({
     enable = true,

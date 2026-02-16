@@ -26,6 +26,8 @@ sudo pacman -S --needed \
     zsh \
     iwd \
     cliphist \
+    wl-clipboard \
+    xclip \
     wtype \
     lazygit \
     waybar \
@@ -83,6 +85,8 @@ echo "   • zsh - Z shell"
 echo "   • iwd - Wireless daemon"
 echo "   • neovim-git - Neovim prerelease"
 echo "   • cliphist - Clipboard history manager"
+echo "   • wl-clipboard - Wayland clipboard tools (wl-copy/wl-paste)"
+echo "   • xclip - X11 clipboard tools"
 echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
 echo "   • ghostty - Terminal emulator"

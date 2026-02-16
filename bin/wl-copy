@@ -1,0 +1,64 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Fallback wl-copy implementation for headless/SSH environments.
+#
+# - If we're on Wayland and a real wl-copy exists, delegate to it.
+# - Otherwise, copy stdin to the local terminal clipboard using OSC52.
+#   When running inside tmux, we use tmux's DCS passthrough wrapper.
+#
+# This is primarily to make tools like lazygit able to "copy to clipboard"
+# when running on a remote host over SSH.
+
+args=("$@")
+
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+  for real in /usr/bin/wl-copy /usr/local/bin/wl-copy /bin/wl-copy; do
+    if [[ -x "$real" ]]; then
+      exec "$real" "${args[@]}"
+    fi
+  done
+fi
+
+# Respect wl-copy's --primary flag for OSC52 selection when applicable.
+osc52_sel="c"
+for a in "${args[@]}"; do
+  case "$a" in
+    -p|--primary)
+      osc52_sel="p"
+      ;;
+  esac
+done
+
+# OSC52: base64(stdin) -> terminal escape sequence.
+if ! command -v base64 >/dev/null 2>&1; then
+  # No encoder available; consume stdin and succeed.
+  cat >/dev/null
+  exit 0
+fi
+
+out_fd="/dev/stdout"
+if ! [ -t 1 ]; then
+  if command -v tty >/dev/null 2>&1 && tty -s 2>/dev/null; then
+    out_fd="/dev/tty"
+  else
+    # No terminal to write OSC52 to; consume stdin and succeed.
+    cat >/dev/null
+    exit 0
+  fi
+fi
+
+b64=""
+if b64=$(base64 -w 0 2>/dev/null | tr -d '\n'); then
+  :
+else
+  b64=$(base64 2>/dev/null | tr -d '\n')
+fi
+
+if [[ -n "${TMUX:-}" ]]; then
+  # tmux filters OSC sequences by default; wrap in a DCS passthrough.
+  printf '\033Ptmux;\033\033]52;%s;%s\a\033\\' "$osc52_sel" "$b64" >"$out_fd"
+else
+  printf '\033]52;%s;%s\a' "$osc52_sel" "$b64" >"$out_fd"
+fi

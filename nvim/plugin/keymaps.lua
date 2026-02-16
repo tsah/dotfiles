@@ -1,5 +1,6 @@
 local keymap = vim.keymap.set
 local s = { silent = true }
+local opts = { noremap = true, silent = true }
 
 
 -- movement
@@ -48,7 +49,6 @@ keymap("n", "\\", "<cmd>Yazi<CR>", { desc = "Open Yazi file manager" })
 
 
 
-local opts = { noremap = true, silent = true }
 -- Definition navigation
 keymap("n", "gd", "<cmd>lua vim.lsp.buf.definition()<CR>", opts)     -- go to definition
 keymap("n", "gv", "<cmd>vsplit | wincmd l | lua vim.lsp.buf.definition()<CR>", opts) -- go to definition in vertical split
@@ -82,10 +82,28 @@ keymap("n", "<leader>R", '<cmd>FzfLua resume<CR>')
 -- Command mode navigation with Ctrl+j/k (wildmenu aware)
 keymap("c", "<C-j>", 'pumvisible() ? "\\<C-n>" : "\\<Down>"', { expr = true })
 keymap("c", "<C-k>", 'pumvisible() ? "\\<C-p>" : "\\<Up>"', { expr = true })
-keymap("n", "<leader>m", '<cmd>lua require("miniharp").toggle_file()<CR>')
-keymap("n", "<leader>hl", '<cmd>lua require("miniharp").show_list()<CR>')
-keymap("n", "<C-n>", require("miniharp").next)
-keymap("n", "<C-p>", require("miniharp").prev)
+
+local function with_miniharp(action)
+    return function()
+        local ok, miniharp = pcall(require, "miniharp")
+        if ok then
+            action(miniharp)
+        end
+    end
+end
+
+keymap("n", "<leader>m", with_miniharp(function(miniharp)
+    miniharp.toggle_file()
+end))
+keymap("n", "<leader>hl", with_miniharp(function(miniharp)
+    miniharp.show_list()
+end))
+keymap("n", "<C-n>", with_miniharp(function(miniharp)
+    miniharp.next()
+end))
+keymap("n", "<C-p>", with_miniharp(function(miniharp)
+    miniharp.prev()
+end))
 
 keymap('n', '<leader>aw', function() require('trevj').format_at_cursor() end, { noremap = true, silent = true })
 

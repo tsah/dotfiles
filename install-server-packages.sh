@@ -34,6 +34,7 @@ install_base_packages() {
             xz \
             python3 \
             jq \
+            xclip \
             procps-ng \
             util-linux-user
         return
@@ -55,6 +56,7 @@ install_base_packages() {
             xz-utils \
             python3 \
             jq \
+            xclip \
             procps \
             util-linux
         return
