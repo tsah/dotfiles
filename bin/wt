@@ -3,9 +3,10 @@
 
 # Toggle for tmux integration (set to true for original behavior with tmux sessions)
 USE_TMUX=true
+POST_SPAWN_RUN_COMMANDS=""
 
 usage() {
-    echo "Usage: $0 spawn <branch> [--new-window|-w] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
+    echo "Usage: $0 spawn <branch> [--new-window|-w] [--no-switch|-d] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
     echo "Task-oriented worktree manager: spawn worktrees per task, destroy when done."
     echo ""
@@ -14,6 +15,7 @@ usage() {
     echo "  spawn <branch> -w Create new worktree and open session in new Ghostty window"
     echo "                    Worktree name: {repo}-{branch} (e.g., dotfiles-fix-login-bug)"
     echo "                    Session name: {repo}-{branch}"
+    echo "                    Supports optional .wtconfig with copy/run directives"
     echo "  destroy           Delete current worktree and tmux session, exit terminal"
     echo ""
     echo "Branch Commands:"
@@ -22,6 +24,7 @@ usage() {
     echo "Options:"
     echo "  -m, --from-master Create new branch from master/main instead of current branch"
     echo "  -f, --fix-session Fix current session name to match expected format"
+    echo "  -d, --no-switch  Create/spawn worktree and tmux session without switching"
     echo "  -h, --help        Show this help message"
     echo ""
     echo "Examples:"
@@ -32,9 +35,93 @@ usage() {
     echo "  $0 --fix-session         # Fix current session name"
 }
 
+post_spawn_setup() {
+    WT_SETUP_MAIN_ROOT="$1"
+    WT_SETUP_WORKTREE_PATH="$2"
+    WT_SETUP_CONFIG="${WT_SETUP_MAIN_ROOT}/.wtconfig"
+
+    POST_SPAWN_RUN_COMMANDS=""
+
+    if [ ! -f "$WT_SETUP_CONFIG" ]; then
+        return 0
+    fi
+
+    echo "Applying post-spawn setup from $WT_SETUP_CONFIG"
+
+    while IFS= read -r WT_SETUP_RAW_LINE || [ -n "$WT_SETUP_RAW_LINE" ]; do
+        WT_SETUP_LINE="$WT_SETUP_RAW_LINE"
+        WT_SETUP_LINE=${WT_SETUP_LINE#"${WT_SETUP_LINE%%[![:space:]]*}"}
+        WT_SETUP_LINE=${WT_SETUP_LINE%"${WT_SETUP_LINE##*[![:space:]]}"}
+
+        case "$WT_SETUP_LINE" in
+            ''|\#*)
+                continue
+                ;;
+            copy[[:space:]]*)
+                WT_COPY_PATH=${WT_SETUP_LINE#copy}
+                WT_COPY_PATH=${WT_COPY_PATH#"${WT_COPY_PATH%%[![:space:]]*}"}
+                WT_COPY_PATH=${WT_COPY_PATH%"${WT_COPY_PATH##*[![:space:]]}"}
+
+                if [ -z "$WT_COPY_PATH" ]; then
+                    echo "Warning: Empty copy directive in $WT_SETUP_CONFIG"
+                    continue
+                fi
+
+                WT_COPY_SRC="${WT_SETUP_MAIN_ROOT}/${WT_COPY_PATH}"
+                WT_COPY_DEST="${WT_SETUP_WORKTREE_PATH}/${WT_COPY_PATH}"
+                WT_COPY_DEST_DIR=$(dirname "$WT_COPY_DEST")
+
+                if [ ! -e "$WT_COPY_SRC" ]; then
+                    echo "Warning: Setup file not found, skipping: $WT_COPY_PATH"
+                    continue
+                fi
+
+                if ! mkdir -p "$WT_COPY_DEST_DIR"; then
+                    echo "Error: Failed to create destination directory: $WT_COPY_DEST_DIR"
+                    return 1
+                fi
+
+                if cp "$WT_COPY_SRC" "$WT_COPY_DEST"; then
+                    echo "Copied setup file: $WT_COPY_PATH"
+                else
+                    echo "Error: Failed to copy setup file: $WT_COPY_PATH"
+                    return 1
+                fi
+                ;;
+            run[[:space:]]*)
+                WT_RUN_CMD=${WT_SETUP_LINE#run}
+                WT_RUN_CMD=${WT_RUN_CMD#"${WT_RUN_CMD%%[![:space:]]*}"}
+                WT_RUN_CMD=${WT_RUN_CMD%"${WT_RUN_CMD##*[![:space:]]}"}
+
+                if [ -z "$WT_RUN_CMD" ]; then
+                    echo "Warning: Empty run directive in $WT_SETUP_CONFIG"
+                    continue
+                fi
+
+                if [ -z "$POST_SPAWN_RUN_COMMANDS" ]; then
+                    POST_SPAWN_RUN_COMMANDS="$WT_RUN_CMD"
+                else
+                    POST_SPAWN_RUN_COMMANDS="${POST_SPAWN_RUN_COMMANDS} && ${WT_RUN_CMD}"
+                fi
+                ;;
+            *)
+                echo "Warning: Unknown directive in $WT_SETUP_CONFIG: $WT_SETUP_LINE"
+                ;;
+        esac
+    done < "$WT_SETUP_CONFIG"
+
+    if [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
+        echo "Queued post-spawn command chain from .wtconfig"
+    fi
+
+    return 0
+}
+
 spawn_impl() {
     BRANCH_NAME="$1"
     NEW_WINDOW="$2"
+    NO_SWITCH="$3"
+    WORKTREE_CREATED=false
 
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo "Error: Not in a git repository"
@@ -95,6 +182,7 @@ spawn_impl() {
             exit 1
         fi
         echo "Worktree created successfully"
+        WORKTREE_CREATED=true
     else
         # Branch doesn't exist - create new branch from default
         # Determine the default branch (origin/master or origin/main)
@@ -123,6 +211,13 @@ spawn_impl() {
         git config "branch.${BRANCH_NAME}.remote" origin
         git config "branch.${BRANCH_NAME}.merge" "refs/heads/${BRANCH_NAME}"
         echo "Worktree created successfully (upstream configured for git push)"
+        WORKTREE_CREATED=true
+    fi
+
+    if [ "$WORKTREE_CREATED" = true ]; then
+        if ! post_spawn_setup "$MAIN_REPO_ROOT" "$WORKTREE_PATH"; then
+            exit 1
+        fi
     fi
 
     # Register worktree path with zoxide so it appears in sesh
@@ -142,6 +237,13 @@ spawn_impl() {
             tmux rename-window -t "$SESSION_NAME:1" 'Main'
         fi
 
+        if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
+            echo "Running post-spawn commands in tmux session..."
+            if ! tmux send-keys -t "$SESSION_NAME" "cd \"$WORKTREE_PATH\" && $POST_SPAWN_RUN_COMMANDS" Enter; then
+                echo "Warning: Failed to queue post-spawn commands in tmux session"
+            fi
+        fi
+
         if [ "$NEW_WINDOW" = true ]; then
             if ! command -v ghostty >/dev/null 2>&1; then
                 echo "Error: ghostty not found (required for --new-window)" >&2
@@ -150,6 +252,11 @@ spawn_impl() {
 
             echo "Opening tmux session '$SESSION_NAME' in new Ghostty window..."
             ghostty +new-window -e tmux attach -t "$SESSION_NAME"
+            return 0
+        fi
+
+        if [ "$NO_SWITCH" = true ]; then
+            echo "Tmux session '$SESSION_NAME' is ready (no switch)."
             return 0
         fi
 
@@ -171,6 +278,19 @@ spawn_impl() {
             echo "Opening worktree in new Ghostty window..."
             ghostty --working-directory="$WORKTREE_PATH"
             return 0
+        fi
+
+        if [ "$NO_SWITCH" = true ]; then
+            echo "Worktree ready at: $WORKTREE_PATH"
+            return 0
+        fi
+
+        if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
+            echo "Running post-spawn commands..."
+            if ! (cd "$WORKTREE_PATH" && sh -c "$POST_SPAWN_RUN_COMMANDS"); then
+                echo "Error: Post-spawn commands failed"
+                exit 1
+            fi
         fi
 
         echo "Changing to worktree directory..."
@@ -266,6 +386,7 @@ BRANCH_NAME=""
 FROM_MASTER=false
 FIX_SESSION=false
 NEW_WINDOW=false
+NO_SWITCH=false
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -283,6 +404,10 @@ while [ $# -gt 0 ]; do
             ;;
         -w|--new-window)
             NEW_WINDOW=true
+            shift
+            ;;
+        -d|--no-switch)
+            NO_SWITCH=true
             shift
             ;;
         -h|--help)
@@ -324,11 +449,16 @@ if [ "$COMMAND" = "spawn" ]; then
         usage
         exit 1
     fi
+    if [ "$NO_SWITCH" = true ] && [ "$NEW_WINDOW" = true ]; then
+        echo "Error: spawn command does not support --no-switch with --new-window"
+        usage
+        exit 1
+    fi
     if [ "$NEW_WINDOW" = true ] && ! command -v ghostty >/dev/null 2>&1; then
         echo "Error: --new-window requires ghostty" >&2
         exit 1
     fi
-    spawn_impl "$BRANCH_NAME" "$NEW_WINDOW"
+    spawn_impl "$BRANCH_NAME" "$NEW_WINDOW" "$NO_SWITCH"
     exit $?
 fi
 
@@ -339,6 +469,12 @@ fi
 
 if [ "$NEW_WINDOW" = true ]; then
     echo "Error: --new-window is only supported with 'spawn'"
+    usage
+    exit 1
+fi
+
+if [ "$NO_SWITCH" = true ]; then
+    echo "Error: --no-switch is only supported with 'spawn'"
     usage
     exit 1
 fi

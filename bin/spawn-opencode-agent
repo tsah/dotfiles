@@ -1,0 +1,113 @@
+#!/bin/bash
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 [--agent <agent-name>] <branch-name> <prompt...>"
+    echo ""
+    echo "Spawn an interactive opencode worker in a detached tmux session."
+    echo "The worker starts immediately with the provided prompt."
+}
+
+AGENT_NAME="${OPENCODE_SPAWN_AGENT:-}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a|--agent)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --agent requires a value" >&2
+                exit 1
+            fi
+            AGENT_NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Error: Unknown option: $1" >&2
+            usage
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -lt 2 ]]; then
+    echo "Error: branch name and prompt are required" >&2
+    usage
+    exit 1
+fi
+
+BRANCH_NAME="$1"
+shift
+INITIAL_PROMPT="$*"
+
+for required_cmd in git wt tmux oc; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+        echo "Error: Required command not found: $required_cmd" >&2
+        exit 1
+    fi
+done
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: Not in a git repository" >&2
+    exit 1
+fi
+
+WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
+MAIN_REPO_ROOT=$(printf '%s\n' "$WORKTREE_LIST" | awk '/^worktree / {print $2; exit}')
+
+if [[ -z "$MAIN_REPO_ROOT" ]]; then
+    echo "Error: Could not determine main repository root" >&2
+    exit 1
+fi
+
+REPO_NAME=$(basename "$MAIN_REPO_ROOT")
+REPO_PARENT=$(dirname "$MAIN_REPO_ROOT")
+SAFE_BRANCH_NAME=${BRANCH_NAME//\//-}
+WORKTREE_NAME="${REPO_NAME}-${SAFE_BRANCH_NAME}"
+WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
+SESSION_NAME="$WORKTREE_NAME"
+
+wt spawn "$BRANCH_NAME" --no-switch
+
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "Error: tmux session '$SESSION_NAME' was not created" >&2
+    exit 1
+fi
+
+WINDOW_BASE="opencode-agent"
+WINDOW_NAME="$WINDOW_BASE"
+WINDOW_INDEX=2
+
+while tmux list-windows -t "$SESSION_NAME" -F '#W' | grep -Fxq "$WINDOW_NAME"; do
+    WINDOW_NAME="${WINDOW_BASE}-${WINDOW_INDEX}"
+    WINDOW_INDEX=$((WINDOW_INDEX + 1))
+done
+
+if [[ -n "$AGENT_NAME" ]]; then
+    tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
+        bash -lc 'oc --agent "$1" --prompt "$2"' _ "$AGENT_NAME" "$INITIAL_PROMPT"
+else
+    tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
+        bash -lc 'oc --prompt "$1"' _ "$INITIAL_PROMPT"
+fi
+
+echo "Spawned opencode worker."
+echo "Session: $SESSION_NAME"
+echo "Window: $WINDOW_NAME"
+
+if [[ -n "$AGENT_NAME" ]]; then
+    echo "Agent: $AGENT_NAME"
+fi
+
+echo "Switch with Alt+k and select '$SESSION_NAME'."
+echo "Direct switch: tmux switch-client -t \"$SESSION_NAME\""
