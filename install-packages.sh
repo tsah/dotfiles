@@ -24,12 +24,14 @@ echo "📦 Installing core packages from official repos..."
 sudo pacman -S --needed \
     fish \
     zsh \
+    zsh-autosuggestions \
     iwd \
     cliphist \
     wl-clipboard \
     xclip \
     wtype \
     lazygit \
+    sqlite \
     waybar \
     mako \
     fuzzel \
@@ -82,6 +84,7 @@ echo ""
 echo "📋 Installed packages:"
 echo "   • fish - Fish shell"
 echo "   • zsh - Z shell"
+echo "   • zsh-autosuggestions - Fish-style command suggestions for Zsh"
 echo "   • iwd - Wireless daemon"
 echo "   • neovim-git - Neovim prerelease"
 echo "   • cliphist - Clipboard history manager"
@@ -89,6 +92,7 @@ echo "   • wl-clipboard - Wayland clipboard tools (wl-copy/wl-paste)"
 echo "   • xclip - X11 clipboard tools"
 echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
+echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
 echo "   • sesh - Session manager"
 echo "   • opencode - SST Claude CLI"

@@ -38,14 +38,46 @@ fi
 
 CURRENT_DIR=$(pwd)
 
-# Get the most recent session for this directory by searching session files directly
-# Uses ripgrep for fast file search, then jq only on matching files
-SESSION_STORAGE="${HOME}/.local/share/opencode/storage/session"
+# Get the most recent non-archived session for this directory from SQLite storage
+SESSION_ID=""
+OPENCODE_DB="${HOME}/.local/share/opencode/opencode.db"
 
-# Fast ripgrep to find files containing our directory, then jq to extract session ID
-SESSION_ID=$(rg -l --fixed-strings "\"directory\": \"$CURRENT_DIR\"" "$SESSION_STORAGE" 2>/dev/null | \
-    xargs -r jq -r '"\(.time.updated)\t\(.id)"' 2>/dev/null | \
-    sort -rn | head -1 | cut -f2)
+if [[ -f "$OPENCODE_DB" ]]; then
+    if command -v sqlite3 >/dev/null 2>&1; then
+        ESCAPED_DIR=${CURRENT_DIR//\'/\'\'}
+        SESSION_ID=$(sqlite3 -readonly "$OPENCODE_DB" \
+            "SELECT id FROM session
+             WHERE directory = '$ESCAPED_DIR'
+               AND time_archived IS NULL
+             ORDER BY time_updated DESC
+             LIMIT 1;" 2>/dev/null)
+    elif command -v python3 >/dev/null 2>&1; then
+        SESSION_ID=$(python3 - "$OPENCODE_DB" "$CURRENT_DIR" 2>/dev/null <<'PY'
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+directory = sys.argv[2]
+
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
+cur.execute(
+    """SELECT id
+       FROM session
+       WHERE directory = ?
+         AND time_archived IS NULL
+       ORDER BY time_updated DESC
+       LIMIT 1""",
+    (directory,),
+)
+row = cur.fetchone()
+
+if row:
+    print(row[0])
+PY
+)
+    fi
+fi
 
 if [[ -n "$SESSION_ID" ]]; then
     echo "Continuing session: $SESSION_ID"

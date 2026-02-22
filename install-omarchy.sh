@@ -1,6 +1,11 @@
 #!/bin/sh
 
 ln -sf ~/dotfiles/nvim ~/.config/nvim
+
+if command -v nvim >/dev/null 2>&1; then
+  nvim --headless "+MasonInstall bash-language-server gopls lua-language-server texlab rust-analyzer helm-ls basedpyright zls" +qa || true
+fi
+
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
   git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 fi
@@ -51,11 +56,18 @@ ln -sf ~/dotfiles/omarchy/waybar ~/.config/waybar
 
 # Setup opencode configuration
 mkdir -p ~/.config/opencode
+mkdir -p ~/dotfiles/opencode/agents
+mkdir -p ~/dotfiles/opencode/commands
 ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 rm -rf ~/.config/opencode/agents
 ln -sf ~/dotfiles/opencode/agents ~/.config/opencode/agents
 rm -rf ~/.config/opencode/commands
 ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
+
+# Setup Claude/OpenCode shared skills
+mkdir -p ~/.claude/skills
+rm -rf ~/.claude/skills/opencode-spawn
+ln -sf ~/dotfiles/claude/skills/opencode-spawn ~/.claude/skills/opencode-spawn
 
 # Setup jj (jujutsu) configuration
 mkdir -p ~/.config/jj

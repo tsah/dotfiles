@@ -34,9 +34,18 @@ install_base_packages() {
             xz \
             python3 \
             jq \
-            xclip \
+            sqlite \
             procps-ng \
             util-linux-user
+
+        for pkg in xclip zsh-autosuggestions; do
+            if sudo dnf list --available "$pkg" >/dev/null 2>&1 || sudo dnf list --installed "$pkg" >/dev/null 2>&1; then
+                sudo dnf install -y "$pkg"
+                continue
+            fi
+
+            log "Skipping optional package (${pkg}) - not available in enabled dnf repos (GitHub fallback will be used when available)."
+        done
         return
     fi
 
@@ -56,7 +65,9 @@ install_base_packages() {
             xz-utils \
             python3 \
             jq \
+            sqlite3 \
             xclip \
+            zsh-autosuggestions \
             procps \
             util-linux
         return
@@ -161,6 +172,24 @@ install_fish() {
     fi
 
     install_binary_from_tar "fish-shell/fish-shell" "$suffix" "fish"
+}
+
+install_zsh_autosuggestions() {
+    local plugin_dir="${HOME}/.zsh/plugins/zsh-autosuggestions"
+
+    if [ -f "${plugin_dir}/zsh-autosuggestions.zsh" ]; then
+        log "zsh-autosuggestions is already installed (${plugin_dir})."
+        return
+    fi
+
+    mkdir -p "${HOME}/.zsh/plugins"
+
+    log "Installing zsh-autosuggestions from GitHub..."
+    if git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "$plugin_dir"; then
+        return
+    fi
+
+    log "Skipping zsh-autosuggestions git install (clone failed)."
 }
 
 install_neovim() {
@@ -279,6 +308,7 @@ print_versions() {
 }
 
 install_base_packages
+install_zsh_autosuggestions
 
 NEOVIM_CHANNEL="${NEOVIM_CHANNEL:-nightly}"
 

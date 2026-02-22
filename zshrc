@@ -49,7 +49,33 @@ stty -ixon -ixoff 2>/dev/null || true
 autoload -Uz compinit
 mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
 compinit -d "${XDG_CACHE_HOME:-$HOME/.cache}/zsh/compdump"
+
 zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|=*' 'l:|=* r:|=*'
+zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+zstyle ':completion:*' completer _complete _match _approximate
+zstyle ':completion:*' rehash true
+setopt AUTO_MENU AUTO_LIST COMPLETE_IN_WORD ALWAYS_TO_END
+
+# ---- autosuggestions ----
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+ZSH_AUTOSUGGEST_USE_ASYNC=true
+
+for _autosuggest in \
+  "$HOME/.zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  "$HOME/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+do
+  if [[ -r "$_autosuggest" ]]; then
+    source "$_autosuggest"
+    break
+  fi
+done
+unset _autosuggest
 
 # ---- zoxide ----
 if command -v zoxide >/dev/null 2>&1; then
