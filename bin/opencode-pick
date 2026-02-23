@@ -1,0 +1,152 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if ! command -v opencode-status >/dev/null 2>&1; then
+    echo "opencode-status not found in PATH." >&2
+    exit 1
+fi
+
+build_picker_rows() {
+    local tmp_rows
+    tmp_rows=$(mktemp)
+    trap 'rm -f "$tmp_rows"' RETURN
+
+    opencode-status --tsv >"$tmp_rows"
+
+    python3 - "$tmp_rows" <<'PY'
+import shutil
+import subprocess
+import sys
+
+RESET = "\033[0m"
+COLORS = {
+    "directory": "\033[36m",
+    "title": "\033[90m",
+    "age": "\033[90m",
+    "generating": "\033[33m",
+    "tool running": "\033[33m",
+    "waiting question": "\033[36m",
+    "waiting permission": "\033[35m",
+    "done": "\033[32m",
+    "starting": "\033[34m",
+    "unknown": "\033[90m",
+}
+
+def colorize(text, key):
+    color = COLORS.get(key)
+    if not color:
+        return text
+    return f"{color}{text}{RESET}"
+
+def session_last_attached():
+    out = {}
+    try:
+        result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return out
+
+    if result.returncode != 0:
+        return out
+
+    for line in result.stdout.splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        name, ts = parts
+        try:
+            out[name] = int(ts)
+        except ValueError:
+            out[name] = 0
+    return out
+
+if len(sys.argv) < 2:
+    sys.exit(0)
+
+rows = []
+with open(sys.argv[1], "r", encoding="utf-8", errors="ignore") as f:
+    for raw in f:
+        raw = raw.rstrip("\n")
+        if not raw:
+            continue
+        parts = raw.split("\t")
+        if len(parts) < 7:
+            continue
+        directory, status, title, age, session, pane, pid = parts[:7]
+        rows.append((directory, status, title, age, session, pane, pid))
+
+if not rows:
+    sys.exit(0)
+
+last_seen = session_last_attached()
+
+def sort_key(row):
+    session = row[4]
+    ts = last_seen.get(session, 0)
+    return (-ts, row[0], row[6])
+
+rows.sort(key=sort_key)
+
+width = shutil.get_terminal_size((120, 20)).columns
+age_w = 4
+sep = 6
+status_w = max(12, min(18, max(len(r[1]) for r in rows)))
+remaining = max(20, width - status_w - age_w - sep)
+dir_w = max(20, min(int(remaining * 0.55), max(len(r[0]) for r in rows)))
+title_w = max(8, remaining - dir_w)
+
+def trunc(text, w):
+    if w <= 0:
+        return ""
+    if len(text) <= w:
+        return text
+    if w <= 3:
+        return text[:w]
+    return text[: w - 3] + "..."
+
+for directory, status, title, age, session, pane, pid in rows:
+    d = trunc(directory, dir_w)
+    s = trunc(status, status_w)
+    t = trunc(title, title_w)
+    a = trunc(age, age_w)
+
+    disp = (
+        f"{colorize(f'{d:<{dir_w}}', 'directory')}  "
+        f"{colorize(f'{s:<{status_w}}', status)}  "
+        f"{colorize(f'{t:<{title_w}}', 'title')}  "
+        f"{colorize(f'{a:>{age_w}}', 'age')}"
+    )
+    print("\t".join([disp, session, pane, pid]))
+PY
+}
+
+if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
+    SELECTED=$(build_picker_rows | fzf-tmux -p 95%,80% \
+        --ansi \
+        --no-sort \
+        --delimiter=$'\t' \
+        --with-nth=1 \
+        --header 'Enter: switch/attach to selected opencode session')
+elif command -v fzf >/dev/null 2>&1; then
+    SELECTED=$(build_picker_rows | fzf \
+        --ansi \
+        --no-sort \
+        --delimiter=$'\t' \
+        --with-nth=1 \
+        --header 'Enter: switch/attach to selected opencode session')
+else
+    echo "fzf (or fzf-tmux) is required." >&2
+    exit 1
+fi
+
+if [[ -z "${SELECTED:-}" ]]; then
+    exit 0
+fi
+
+IFS=$'\t' read -r _display SESSION_NAME PANE_TARGET _PID <<< "$SELECTED"
+opencode-attach-target "$SESSION_NAME" "$PANE_TARGET"

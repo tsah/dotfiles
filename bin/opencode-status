@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
+import argparse
 from collections import defaultdict
 from datetime import datetime
 
@@ -235,7 +237,71 @@ def session_id_from_cmdline(cmdline):
     return ""
 
 
+def tty_for_pid(pid):
+    try:
+        tty_path = os.readlink(f"/proc/{pid}/fd/0")
+    except OSError:
+        return ""
+
+    if tty_path.startswith("/dev/"):
+        return tty_path
+
+    return ""
+
+
+def process_start_ticks(pid):
+    stat = read_text(f"/proc/{pid}/stat")
+    if not stat:
+        return 0
+    try:
+        rest = stat.rsplit(") ", 1)[1].split()
+        return int(rest[19])
+    except (IndexError, ValueError):
+        return 0
+
+
+def tmux_tty_lookup():
+    lookup = {}
+    if not shutil.which("tmux"):
+        return lookup
+
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "list-panes",
+                "-a",
+                "-F",
+                "#{pane_tty}\t#{session_name}\t#{session_name}:#{window_index}.#{pane_index}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return lookup
+
+    if result.returncode != 0:
+        return lookup
+
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        pane_tty, session_name, pane_target = parts
+        lookup[pane_tty] = {
+            "session": session_name,
+            "pane": pane_target,
+        }
+
+    return lookup
+
+
 def main():
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("--tsv", action="store_true", help="output tab-separated rows")
+    args = parser.parse_args()
+
     pids = []
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
@@ -254,7 +320,8 @@ def main():
         except sqlite3.Error:
             conn = None
 
-    grouped = defaultdict(list)
+    instances = []
+    tty_lookup = tmux_tty_lookup()
 
     for pid in pids:
         cmdline = read_cmdline(pid)
@@ -267,40 +334,95 @@ def main():
             continue
 
         is_run_mode = len(cmdline) > 1 and cmdline[1] == "run"
+        session_name = ""
+        pane_target = ""
+        session_id = session_id_from_cmdline(cmdline)
 
-        status = "unknown"
+        tty = tty_for_pid(pid)
+        if tty and tty in tty_lookup:
+            session_name = tty_lookup[tty]["session"]
+            pane_target = tty_lookup[tty]["pane"]
+
+        instances.append(
+            {
+                "pid": pid,
+                "cwd": cwd,
+                "is_run_mode": is_run_mode,
+                "session_name": session_name,
+                "pane_target": pane_target,
+                "session_id": session_id,
+                "start_ticks": process_start_ticks(pid),
+            }
+        )
+
+    if conn is not None:
+        try:
+            by_cwd = defaultdict(list)
+            for inst in instances:
+                by_cwd[inst["cwd"]].append(inst)
+
+            for cwd, cwd_instances in by_cwd.items():
+                explicit_ids = {
+                    inst["session_id"]
+                    for inst in cwd_instances
+                    if inst["session_id"]
+                }
+
+                candidates = conn.execute(
+                    """
+                    SELECT id, title
+                    FROM session
+                    WHERE directory = ?
+                      AND time_archived IS NULL
+                    ORDER BY time_updated DESC
+                    """,
+                    (cwd,),
+                ).fetchall()
+
+                candidate_ids = [sid for sid, _ in candidates if sid not in explicit_ids]
+
+                unresolved = [inst for inst in cwd_instances if not inst["session_id"]]
+                unresolved.sort(key=lambda i: i["start_ticks"], reverse=True)
+
+                for idx, inst in enumerate(unresolved):
+                    if idx < len(candidate_ids):
+                        inst["session_id"] = candidate_ids[idx]
+                    elif candidates:
+                        inst["session_id"] = candidates[0][0]
+        except sqlite3.Error:
+            pass
+
+    if not instances:
+        print("No running interactive opencode instances.")
+        return
+
+    grouped = defaultdict(list)
+
+    session_meta_cache = {}
+    last_message_cache = {}
+    running_tool_cache = {}
+
+    for inst in instances:
+        pid = inst["pid"]
+        cwd = inst["cwd"]
+        session_id = inst["session_id"]
+        status = "starting"
         title = ""
         age = "-"
-        if conn is not None:
+
+        if conn is not None and session_id:
             try:
-                sid = session_id_from_cmdline(cmdline)
-                if sid:
-                    session_row = conn.execute(
-                        """
-                        SELECT id, title
-                        FROM session
-                        WHERE id = ?
-                        LIMIT 1
-                        """,
-                        (sid,),
-                    ).fetchone()
-                else:
-                    session_row = conn.execute(
-                        """
-                        SELECT id, title
-                        FROM session
-                        WHERE directory = ?
-                          AND time_archived IS NULL
-                        ORDER BY time_updated DESC
-                        LIMIT 1
-                        """,
-                        (cwd,),
+                if session_id not in session_meta_cache:
+                    session_meta_cache[session_id] = conn.execute(
+                        "SELECT title FROM session WHERE id = ? LIMIT 1",
+                        (session_id,),
                     ).fetchone()
 
-                if session_row:
-                    session_id = session_row[0]
-                    title = truncate_text(session_row[1])
-                    last_row = conn.execute(
+                title_row = session_meta_cache.get(session_id)
+                title = (title_row[0] if title_row else "") or ""
+
+                if session_id not in last_message_cache:
+                    last_message_cache[session_id] = conn.execute(
                         """
                         SELECT data, time_created
                         FROM message
@@ -310,10 +432,13 @@ def main():
                         """,
                         (session_id,),
                     ).fetchone()
-                    last_data = last_row[0] if last_row else ""
-                    last_time = last_row[1] if last_row else 0
 
-                    running_tool_row = conn.execute(
+                last_row = last_message_cache.get(session_id)
+                last_data = last_row[0] if last_row else ""
+                last_time = last_row[1] if last_row else 0
+
+                if session_id not in running_tool_cache:
+                    running_tool_cache[session_id] = conn.execute(
                         """
                         SELECT data
                         FROM part
@@ -325,25 +450,28 @@ def main():
                         """,
                         (session_id,),
                     ).fetchone()
-                    running_tool_data = running_tool_row[0] if running_tool_row else ""
 
-                    status, _detail = infer_status(last_data, running_tool_data, pid, is_run_mode)
-                    age = format_age(last_time)
-                else:
-                    status = "starting"
-                    title = ""
+                running_tool_row = running_tool_cache.get(session_id)
+                running_tool_data = running_tool_row[0] if running_tool_row else ""
+
+                status, _detail = infer_status(last_data, running_tool_data, pid, inst["is_run_mode"])
+                age = format_age(last_time)
             except sqlite3.Error:
                 status = "unknown"
-                title = ""
 
-        grouped[cwd].append((status, title, pid, age))
+        grouped[cwd].append(
+            (
+                status,
+                title,
+                pid,
+                age,
+                inst["session_name"],
+                inst["pane_target"],
+            )
+        )
 
     if conn is not None:
         conn.close()
-
-    if not grouped:
-        print("No running interactive opencode instances.")
-        return
 
     rows = []
     for cwd, entries in grouped.items():
@@ -352,7 +480,7 @@ def main():
         total = len(sorted_entries)
 
         for idx, entry in enumerate(sorted_entries, start=1):
-            status, title, _pid, age = entry
+            status, title, pid, age, session_name, pane_target = entry
             label = short_dir
             if total > 1:
                 label = f"{short_dir} ({idx})"
@@ -363,10 +491,25 @@ def main():
                     "status": status,
                     "title": title,
                     "age": age,
+                    "session": session_name,
+                    "pane": pane_target,
+                    "pid": pid,
                 }
             )
 
     rows.sort(key=lambda r: r["directory"])
+
+    if args.tsv:
+        for row in rows:
+            directory = row["directory"].replace("\t", " ")
+            status = row["status"].replace("\t", " ")
+            title = (row["title"] or "").replace("\t", " ").replace("\n", " ")
+            age = row["age"].replace("\t", " ")
+            session = (row["session"] or "").replace("\t", " ")
+            pane = (row["pane"] or "").replace("\t", " ")
+            pid = str(row["pid"])
+            print("\t".join([directory, status, title, age, session, pane, pid]))
+        return
 
     dir_width, status_width, title_width = compute_column_widths(rows)
 
