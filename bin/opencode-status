@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import shutil
+import sqlite3
+from collections import defaultdict
+from datetime import datetime
+
+
+DB_PATH = os.path.expanduser("~/.local/share/opencode/opencode.db")
+HOME = os.path.expanduser("~")
+
+
+RESET = "\033[0m"
+COLORS = {
+    "header": "\033[1;37m",
+    "directory": "\033[36m",
+    "title": "\033[90m",
+    "age": "\033[90m",
+    "generating": "\033[33m",
+    "tool running": "\033[33m",
+    "waiting question": "\033[36m",
+    "waiting permission": "\033[35m",
+    "done": "\033[32m",
+    "starting": "\033[34m",
+    "unknown": "\033[90m",
+}
+
+
+def read_text(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def read_cmdline(pid):
+    raw = read_text(f"/proc/{pid}/cmdline")
+    if not raw:
+        return []
+    parts = [p for p in raw.split("\x00") if p]
+    return parts
+
+
+def has_color():
+    return os.isatty(1) and os.environ.get("NO_COLOR") is None
+
+
+def colorize(text, key):
+    if not has_color():
+        return text
+    return f"{COLORS.get(key, '')}{text}{RESET}"
+
+
+def shorten_path(path):
+    if path == HOME:
+        return "~"
+    if path.startswith(HOME + "/"):
+        return "~" + path[len(HOME) :]
+    return path
+
+
+def child_count(pid):
+    count = 0
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            stat = read_text(f"/proc/{entry}/stat")
+            if not stat:
+                continue
+            parts = stat.split()
+            if len(parts) > 3 and parts[3] == pid:
+                count += 1
+        except OSError:
+            continue
+    return count
+
+
+def is_interactive_instance(cmdline):
+    if not cmdline:
+        return False
+
+    if "--stdio" in cmdline:
+        return False
+
+    if len(cmdline) > 1:
+        subcommands = {
+            "completion",
+            "acp",
+            "mcp",
+            "attach",
+            "run",
+            "debug",
+            "auth",
+            "agent",
+            "upgrade",
+            "uninstall",
+            "serve",
+            "web",
+            "models",
+            "stats",
+            "export",
+            "import",
+            "github",
+            "pr",
+            "session",
+            "db",
+            "x",
+        }
+        second = cmdline[1]
+        if second in subcommands:
+            return False
+        if second.endswith(".js"):
+            return False
+
+    return True
+
+
+def is_opencode_process(pid):
+    comm = read_text(f"/proc/{pid}/comm").strip()
+    return comm == "opencode"
+
+
+def infer_status(latest_message_data, latest_tool_part_data, pid, is_run_mode):
+    if latest_tool_part_data:
+        try:
+            tool_part = json.loads(latest_tool_part_data)
+            if (
+                tool_part.get("type") == "tool"
+                and (tool_part.get("state") or {}).get("status") == "running"
+            ):
+                tool_name = tool_part.get("tool", "tool")
+                if tool_name == "question":
+                    return "waiting question", "question prompt"
+
+                if child_count(pid) == 0:
+                    return "waiting permission", f"{tool_name}"
+
+                return "tool running", f"{tool_name}"
+        except json.JSONDecodeError:
+            pass
+
+    if not latest_message_data:
+        return "starting", ""
+
+    try:
+        payload = json.loads(latest_message_data)
+    except json.JSONDecodeError:
+        return "unknown", ""
+
+    role = payload.get("role")
+    time_obj = payload.get("time") or {}
+    completed = time_obj.get("completed")
+
+    if role == "user":
+        return "generating", "awaiting assistant"
+
+    if role == "assistant":
+        if completed:
+            if is_run_mode:
+                return "done", "run mode"
+            return "done", "awaiting next task"
+        return "generating", "assistant thinking"
+
+    return "unknown", ""
+
+
+def status_rank(status):
+    order = {
+        "waiting permission": 0,
+        "waiting question": 1,
+        "generating": 0,
+        "tool running": 2,
+        "starting": 3,
+        "done": 4,
+        "unknown": 5,
+    }
+    return order.get(status, 99)
+
+
+def format_age(epoch_ms):
+    if not epoch_ms:
+        return "-"
+    seconds = max(0, int((datetime.now().timestamp() * 1000 - epoch_ms) / 1000))
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes // 60
+    return f"{hours}h"
+
+
+def truncate_text(text, max_len=56):
+    if text is None:
+        return ""
+    text = str(text).strip().replace("\n", " ")
+    if max_len <= 0:
+        return ""
+    if len(text) <= max_len:
+        return text
+    if max_len <= 3:
+        return text[:max_len]
+    return text[: max_len - 3] + "..."
+
+
+def compute_column_widths(rows):
+    term_width = shutil.get_terminal_size((120, 20)).columns
+    status_width = max(6, *(len(r["status"]) for r in rows))
+    age_width = 3
+    separators = 6
+
+    remaining = term_width - status_width - age_width - separators
+    if remaining < 12:
+        remaining = 12
+
+    min_dir = 10
+    min_title = 0
+
+    max_dir_len = max(9, *(len(r["directory"]) for r in rows))
+    preferred_dir = min(max_dir_len, max(min_dir, int(remaining * 0.55)))
+    dir_width = max(min_dir, min(preferred_dir, remaining - min_title))
+    title_width = max(min_title, remaining - dir_width)
+
+    return dir_width, status_width, title_width
+
+
+def session_id_from_cmdline(cmdline):
+    for i, arg in enumerate(cmdline):
+        if arg in ("-s", "--session") and i + 1 < len(cmdline):
+            return cmdline[i + 1]
+    return ""
+
+
+def main():
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        if is_opencode_process(entry):
+            pids.append(entry)
+
+    if not pids:
+        print("No running opencode instances.")
+        return
+
+    conn = None
+    if os.path.isfile(DB_PATH):
+        try:
+            conn = sqlite3.connect(DB_PATH)
+        except sqlite3.Error:
+            conn = None
+
+    grouped = defaultdict(list)
+
+    for pid in pids:
+        cmdline = read_cmdline(pid)
+        if not is_interactive_instance(cmdline):
+            continue
+
+        try:
+            cwd = os.readlink(f"/proc/{pid}/cwd")
+        except OSError:
+            continue
+
+        is_run_mode = len(cmdline) > 1 and cmdline[1] == "run"
+
+        status = "unknown"
+        title = ""
+        age = "-"
+        if conn is not None:
+            try:
+                sid = session_id_from_cmdline(cmdline)
+                if sid:
+                    session_row = conn.execute(
+                        """
+                        SELECT id, title
+                        FROM session
+                        WHERE id = ?
+                        LIMIT 1
+                        """,
+                        (sid,),
+                    ).fetchone()
+                else:
+                    session_row = conn.execute(
+                        """
+                        SELECT id, title
+                        FROM session
+                        WHERE directory = ?
+                          AND time_archived IS NULL
+                        ORDER BY time_updated DESC
+                        LIMIT 1
+                        """,
+                        (cwd,),
+                    ).fetchone()
+
+                if session_row:
+                    session_id = session_row[0]
+                    title = truncate_text(session_row[1])
+                    last_row = conn.execute(
+                        """
+                        SELECT data, time_created
+                        FROM message
+                        WHERE session_id = ?
+                        ORDER BY time_created DESC
+                        LIMIT 1
+                        """,
+                        (session_id,),
+                    ).fetchone()
+                    last_data = last_row[0] if last_row else ""
+                    last_time = last_row[1] if last_row else 0
+
+                    running_tool_row = conn.execute(
+                        """
+                        SELECT data
+                        FROM part
+                        WHERE session_id = ?
+                          AND json_extract(data, '$.type') = 'tool'
+                          AND json_extract(data, '$.state.status') = 'running'
+                        ORDER BY time_created DESC
+                        LIMIT 1
+                        """,
+                        (session_id,),
+                    ).fetchone()
+                    running_tool_data = running_tool_row[0] if running_tool_row else ""
+
+                    status, _detail = infer_status(last_data, running_tool_data, pid, is_run_mode)
+                    age = format_age(last_time)
+                else:
+                    status = "starting"
+                    title = ""
+            except sqlite3.Error:
+                status = "unknown"
+                title = ""
+
+        grouped[cwd].append((status, title, pid, age))
+
+    if conn is not None:
+        conn.close()
+
+    if not grouped:
+        print("No running interactive opencode instances.")
+        return
+
+    rows = []
+    for cwd, entries in grouped.items():
+        short_dir = shorten_path(cwd)
+        sorted_entries = sorted(entries, key=lambda e: (status_rank(e[0]), int(e[2])))
+        total = len(sorted_entries)
+
+        for idx, entry in enumerate(sorted_entries, start=1):
+            status, title, _pid, age = entry
+            label = short_dir
+            if total > 1:
+                label = f"{short_dir} ({idx})"
+
+            rows.append(
+                {
+                    "directory": label,
+                    "status": status,
+                    "title": title,
+                    "age": age,
+                }
+            )
+
+    rows.sort(key=lambda r: r["directory"])
+
+    dir_width, status_width, title_width = compute_column_widths(rows)
+
+    for row in rows:
+        row["directory"] = truncate_text(row["directory"], dir_width)
+        row["title"] = truncate_text(row["title"], title_width)
+
+    header = (
+        f"{'DIRECTORY'.ljust(dir_width)}  "
+        f"{'STATUS'.ljust(status_width)}  "
+        f"{'TITLE'.ljust(title_width)}  "
+        f"AGE"
+    )
+    print(colorize(header, "header"))
+
+    for row in rows:
+        print(
+            f"{colorize(row['directory'].ljust(dir_width), 'directory')}  "
+            f"{colorize(row['status'].ljust(status_width), row['status'])}  "
+            f"{colorize(row['title'].ljust(title_width), 'title')}  "
+            f"{colorize(row['age'].rjust(3), 'age')}"
+        )
+
+
+if __name__ == "__main__":
+    main()

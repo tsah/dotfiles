@@ -33,6 +33,14 @@ spawn-opencode-agent --agent "<agent-name>" "<branch-name>" "<initial-prompt>"
 - Do not create worktrees manually (`git worktree add`).
 - For N independent delegated tasks, run exactly N spawn commands in parallel.
 - Run extra commands only if a spawn command fails.
+- The spawning agent must not do planning for the delegated task.
+
+## Delegation Boundary
+
+- The spawning agent is an orchestrator only.
+- Only pass requirements, context, constraints, and success criteria.
+- Do not include step-by-step implementation plans or execution breakdowns.
+- Let the spawned agent own planning, approach selection, and execution.
 
 ## Branch Naming
 
@@ -44,8 +52,14 @@ spawn-opencode-agent --agent "<agent-name>" "<branch-name>" "<initial-prompt>"
 
 Include:
 - concrete objective
+- relevant context (repo area, issue/ticket, known facts)
 - constraints from the user
-- expected output (summary, files changed, tests run)
+- definition of done / expected output (summary, files changed, tests run)
+
+Avoid:
+- implementation steps
+- task decomposition
+- micro-management of how to solve it
 
 ## Response Format
 
