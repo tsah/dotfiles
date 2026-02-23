@@ -21,12 +21,12 @@ import sys
 
 RESET = "\033[0m"
 COLORS = {
-    "directory": "\033[36m",
+    "directory": "\033[37m",
     "title": "\033[90m",
     "age": "\033[90m",
     "generating": "\033[33m",
     "tool running": "\033[33m",
-    "waiting question": "\033[36m",
+    "waiting question": "\033[34m",
     "waiting permission": "\033[35m",
     "done": "\033[32m",
     "starting": "\033[34m",
@@ -125,26 +125,36 @@ for directory, status, title, age, session, pane, pid in rows:
 PY
 }
 
+STATUS=0
+
 if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
+    set +e
     SELECTED=$(build_picker_rows | fzf-tmux -p 95%,80% \
         --ansi \
         --no-sort \
+        --color='header:5,prompt:4,info:8,border:8' \
         --delimiter=$'\t' \
         --with-nth=1 \
         --header 'Enter: switch/attach to selected opencode session')
+    STATUS=$?
+    set -e
 elif command -v fzf >/dev/null 2>&1; then
+    set +e
     SELECTED=$(build_picker_rows | fzf \
         --ansi \
         --no-sort \
+        --color='header:5,prompt:4,info:8,border:8' \
         --delimiter=$'\t' \
         --with-nth=1 \
         --header 'Enter: switch/attach to selected opencode session')
+    STATUS=$?
+    set -e
 else
     echo "fzf (or fzf-tmux) is required." >&2
     exit 1
 fi
 
-if [[ -z "${SELECTED:-}" ]]; then
+if [[ $STATUS -ne 0 || -z "${SELECTED:-}" ]]; then
     exit 0
 fi
 
