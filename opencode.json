@@ -26,9 +26,9 @@
       "color": "#3498DB"
     },
     "codex": {
-      "description": "Build agent using GPT-5 Codex via Zen",
+      "description": "Build agent using GPT-5 Codex",
       "mode": "primary",
-      "model": "opencode/gpt-5.3-codex",
+      "model": "openai/gpt-5.3-codex",
       "color": "#F1C40F"
     },
     "oss": {
