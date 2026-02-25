@@ -16,6 +16,7 @@ usage() {
     echo "                    Worktree name: {repo}-{branch} (e.g., dotfiles-fix-login-bug)"
     echo "                    Session name: {repo}-{branch}"
     echo "                    Supports optional .wtconfig with copy/run directives"
+    echo "                    Also supports copy-manual/run-manual and copy-auto/run-auto"
     echo "  destroy           Delete current worktree and tmux session, exit terminal"
     echo ""
     echo "Branch Commands:"
@@ -39,8 +40,13 @@ post_spawn_setup() {
     WT_SETUP_MAIN_ROOT="$1"
     WT_SETUP_WORKTREE_PATH="$2"
     WT_SETUP_CONFIG="${WT_SETUP_MAIN_ROOT}/.wtconfig"
+    WT_SETUP_MODE="${WT_SPAWN_MODE:-manual}"
 
     POST_SPAWN_RUN_COMMANDS=""
+
+    if [ "$WT_SETUP_MODE" != "auto" ]; then
+        WT_SETUP_MODE="manual"
+    fi
 
     if [ ! -f "$WT_SETUP_CONFIG" ]; then
         return 0
@@ -53,14 +59,39 @@ post_spawn_setup() {
         WT_SETUP_LINE=${WT_SETUP_LINE#"${WT_SETUP_LINE%%[![:space:]]*}"}
         WT_SETUP_LINE=${WT_SETUP_LINE%"${WT_SETUP_LINE##*[![:space:]]}"}
 
+        WT_SETUP_KEY=${WT_SETUP_LINE%%[[:space:]]*}
+        WT_SETUP_VALUE=${WT_SETUP_LINE#"$WT_SETUP_KEY"}
+        WT_SETUP_VALUE=${WT_SETUP_VALUE#"${WT_SETUP_VALUE%%[![:space:]]*}"}
+        WT_SETUP_VALUE=${WT_SETUP_VALUE%"${WT_SETUP_VALUE##*[![:space:]]}"}
+
+        WT_SETUP_APPLY=false
+
+        case "$WT_SETUP_KEY" in
+            copy|run)
+                WT_SETUP_APPLY=true
+                ;;
+            copy-manual|run-manual)
+                if [ "$WT_SETUP_MODE" = "manual" ]; then
+                    WT_SETUP_APPLY=true
+                fi
+                ;;
+            copy-auto|run-auto)
+                if [ "$WT_SETUP_MODE" = "auto" ]; then
+                    WT_SETUP_APPLY=true
+                fi
+                ;;
+        esac
+
         case "$WT_SETUP_LINE" in
             ''|\#*)
                 continue
                 ;;
-            copy[[:space:]]*)
-                WT_COPY_PATH=${WT_SETUP_LINE#copy}
-                WT_COPY_PATH=${WT_COPY_PATH#"${WT_COPY_PATH%%[![:space:]]*}"}
-                WT_COPY_PATH=${WT_COPY_PATH%"${WT_COPY_PATH##*[![:space:]]}"}
+            copy[[:space:]]*|copy-manual[[:space:]]*|copy-auto[[:space:]]*)
+                if [ "$WT_SETUP_APPLY" != "true" ]; then
+                    continue
+                fi
+
+                WT_COPY_PATH="$WT_SETUP_VALUE"
 
                 if [ -z "$WT_COPY_PATH" ]; then
                     echo "Warning: Empty copy directive in $WT_SETUP_CONFIG"
@@ -88,14 +119,25 @@ post_spawn_setup() {
                     return 1
                 fi
                 ;;
-            run[[:space:]]*)
-                WT_RUN_CMD=${WT_SETUP_LINE#run}
-                WT_RUN_CMD=${WT_RUN_CMD#"${WT_RUN_CMD%%[![:space:]]*}"}
-                WT_RUN_CMD=${WT_RUN_CMD%"${WT_RUN_CMD##*[![:space:]]}"}
+            run[[:space:]]*|run-manual[[:space:]]*|run-auto[[:space:]]*)
+                if [ "$WT_SETUP_APPLY" != "true" ]; then
+                    continue
+                fi
+
+                WT_RUN_CMD="$WT_SETUP_VALUE"
 
                 if [ -z "$WT_RUN_CMD" ]; then
                     echo "Warning: Empty run directive in $WT_SETUP_CONFIG"
                     continue
+                fi
+
+                if [ "${WT_SKIP_RUN_OC:-0}" = "1" ]; then
+                    case "$WT_RUN_CMD" in
+                        oc|oc\ *|opencode|opencode\ *)
+                            echo "Skipping interactive opencode launch from .wtconfig run directive"
+                            continue
+                            ;;
+                    esac
                 fi
 
                 if [ -z "$POST_SPAWN_RUN_COMMANDS" ]; then

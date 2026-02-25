@@ -77,7 +77,7 @@ WORKTREE_NAME="${REPO_NAME}-${SAFE_BRANCH_NAME}"
 WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
 SESSION_NAME="$WORKTREE_NAME"
 
-wt spawn "$BRANCH_NAME" --no-switch
+WT_SPAWN_MODE=auto WT_SKIP_RUN_OC=1 wt spawn "$BRANCH_NAME" --no-switch
 
 if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     echo "Error: tmux session '$SESSION_NAME' was not created" >&2

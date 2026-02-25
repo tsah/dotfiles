@@ -136,10 +136,12 @@ title_w = max(8, remaining - name_w)
 entries = []
 
 opencode_hides_tmux = set()
+opencode_dirs = set()
 for row in opencode_rows:
     if row["session"]:
         opencode_hides_tmux.add(row["session"])
     normalized = normalize_opencode_directory_label(row["directory"])
+    opencode_dirs.add(normalized)
     base = basename_label(normalized)
     if base:
         opencode_hides_tmux.add(base)
@@ -160,6 +162,7 @@ for raw in tmux_rows:
             "type": "sesh",
             "arg1": raw,
             "arg2": "tmux",
+            "sort_group": 1,
             "sort_ts": last_seen.get(label, 0),
             "sort_name": label,
         }
@@ -184,6 +187,7 @@ for row in opencode_rows:
             "type": "opencode",
             "arg1": session,
             "arg2": row["pane"],
+            "sort_group": 0,
             "sort_ts": last_seen.get(session, 0),
             "sort_name": row["directory"],
         }
@@ -191,6 +195,9 @@ for row in opencode_rows:
 
 for raw in zoxide_rows:
     label = parse_sesh_label(raw)
+    if normalize_opencode_directory_label(label) in opencode_dirs:
+        continue
+
     icon = colorize("", "dir")
     name = trunc(label, name_w)
     status = ""
@@ -202,12 +209,13 @@ for raw in zoxide_rows:
             "type": "sesh",
             "arg1": raw,
             "arg2": "zoxide",
+            "sort_group": 2,
             "sort_ts": 0,
             "sort_name": label,
         }
     )
 
-entries.sort(key=lambda e: (-e["sort_ts"], e["sort_name"]))
+entries.sort(key=lambda e: (e["sort_group"], -e["sort_ts"], e["sort_name"]))
 
 for e in entries:
     print("\t".join([e["display"], e["type"], e["arg1"], e["arg2"]]))
@@ -224,7 +232,7 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
         --delimiter=$'\t' \
         --with-nth=1 \
         --color='header:5,prompt:4,info:8,border:8' \
-        --header 'Enter: open selection | T=tmux session, O=opencode, D=directory')
+        --header 'Enter: open selection')
     PICKER_STATUS=$?
     set -e
 else
@@ -235,7 +243,7 @@ else
         --delimiter=$'\t' \
         --with-nth=1 \
         --color='header:5,prompt:4,info:8,border:8' \
-        --header 'Enter: open selection | T=tmux session, O=opencode, D=directory')
+        --header 'Enter: open selection')
     PICKER_STATUS=$?
     set -e
 fi

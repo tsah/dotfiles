@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import subprocess
 import argparse
+import time
 from collections import defaultdict
 from datetime import datetime
 
@@ -21,7 +22,6 @@ COLORS = {
     "title": "\033[90m",
     "age": "\033[90m",
     "generating": "\033[33m",
-    "tool running": "\033[33m",
     "waiting question": "\033[36m",
     "waiting permission": "\033[35m",
     "done": "\033[32m",
@@ -64,21 +64,52 @@ def shorten_path(path):
     return path
 
 
-def child_count(pid):
-    count = 0
+def get_opencode_pids():
+    pids = []
+
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "opencode"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pids.append(line)
+    except OSError:
+        pass
+
+    if pids:
+        return pids
+
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
-        try:
-            stat = read_text(f"/proc/{entry}/stat")
-            if not stat:
-                continue
-            parts = stat.split()
-            if len(parts) > 3 and parts[3] == pid:
-                count += 1
-        except OSError:
+        if is_opencode_process(entry):
+            pids.append(entry)
+
+    return pids
+
+
+def build_child_count_map():
+    counts = defaultdict(int)
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
             continue
-    return count
+        stat = read_text(f"/proc/{entry}/stat")
+        if not stat:
+            continue
+        try:
+            rest = stat.rsplit(") ", 1)[1].split()
+            ppid = rest[1]
+            if ppid.isdigit():
+                counts[ppid] += 1
+        except (IndexError, ValueError):
+            continue
+    return counts
 
 
 def is_interactive_instance(cmdline):
@@ -126,22 +157,28 @@ def is_opencode_process(pid):
     return comm == "opencode"
 
 
-def infer_status(latest_message_data, latest_tool_part_data, pid, is_run_mode):
+def infer_status(
+    latest_message_data,
+    latest_message_time,
+    latest_tool_part_data,
+    latest_tool_time,
+    pid_child_count,
+    is_run_mode,
+):
     if latest_tool_part_data:
         try:
             tool_part = json.loads(latest_tool_part_data)
             if (
                 tool_part.get("type") == "tool"
                 and (tool_part.get("state") or {}).get("status") == "running"
+                and latest_tool_time >= latest_message_time
             ):
                 tool_name = tool_part.get("tool", "tool")
                 if tool_name == "question":
                     return "waiting question", "question prompt"
 
-                if child_count(pid) == 0:
+                if pid_child_count == 0:
                     return "waiting permission", f"{tool_name}"
-
-                return "tool running", f"{tool_name}"
         except json.JSONDecodeError:
             pass
 
@@ -174,8 +211,7 @@ def status_rank(status):
     order = {
         "waiting permission": 0,
         "waiting question": 1,
-        "generating": 0,
-        "tool running": 2,
+        "generating": 2,
         "starting": 3,
         "done": 4,
         "unknown": 5,
@@ -300,14 +336,24 @@ def tmux_tty_lookup():
 def main():
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--tsv", action="store_true", help="output tab-separated rows")
+    parser.add_argument("--no-cache", action="store_true", help="disable short-lived TSV cache")
     args = parser.parse_args()
 
-    pids = []
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        if is_opencode_process(entry):
-            pids.append(entry)
+    cache_path = f"/tmp/opencode-status-{os.getuid()}.tsv"
+    cache_ttl_seconds = 2
+
+    if args.tsv and not args.no_cache:
+        try:
+            st = os.stat(cache_path)
+            if time.time() - st.st_mtime <= cache_ttl_seconds:
+                cached = read_text(cache_path)
+                if cached:
+                    print(cached, end="")
+                    return
+        except OSError:
+            pass
+
+    pids = get_opencode_pids()
 
     if not pids:
         print("No running opencode instances.")
@@ -322,6 +368,7 @@ def main():
 
     instances = []
     tty_lookup = tmux_tty_lookup()
+    child_counts = build_child_count_map()
 
     for pid in pids:
         cmdline = read_cmdline(pid)
@@ -400,7 +447,7 @@ def main():
 
     session_meta_cache = {}
     last_message_cache = {}
-    running_tool_cache = {}
+    latest_tool_cache = {}
 
     for inst in instances:
         pid = inst["pid"]
@@ -437,24 +484,31 @@ def main():
                 last_data = last_row[0] if last_row else ""
                 last_time = last_row[1] if last_row else 0
 
-                if session_id not in running_tool_cache:
-                    running_tool_cache[session_id] = conn.execute(
+                if session_id not in latest_tool_cache:
+                    latest_tool_cache[session_id] = conn.execute(
                         """
-                        SELECT data
+                        SELECT data, time_created
                         FROM part
                         WHERE session_id = ?
                           AND json_extract(data, '$.type') = 'tool'
-                          AND json_extract(data, '$.state.status') = 'running'
                         ORDER BY time_created DESC
                         LIMIT 1
                         """,
                         (session_id,),
                     ).fetchone()
 
-                running_tool_row = running_tool_cache.get(session_id)
-                running_tool_data = running_tool_row[0] if running_tool_row else ""
+                latest_tool_row = latest_tool_cache.get(session_id)
+                latest_tool_data = latest_tool_row[0] if latest_tool_row else ""
+                latest_tool_time = latest_tool_row[1] if latest_tool_row else 0
 
-                status, _detail = infer_status(last_data, running_tool_data, pid, inst["is_run_mode"])
+                status, _detail = infer_status(
+                    last_data,
+                    last_time,
+                    latest_tool_data,
+                    latest_tool_time,
+                    child_counts.get(str(pid), 0),
+                    inst["is_run_mode"],
+                )
                 age = format_age(last_time)
             except sqlite3.Error:
                 status = "unknown"
@@ -500,6 +554,7 @@ def main():
     rows.sort(key=lambda r: r["directory"])
 
     if args.tsv:
+        lines = []
         for row in rows:
             directory = row["directory"].replace("\t", " ")
             status = row["status"].replace("\t", " ")
@@ -508,7 +563,19 @@ def main():
             session = (row["session"] or "").replace("\t", " ")
             pane = (row["pane"] or "").replace("\t", " ")
             pid = str(row["pid"])
-            print("\t".join([directory, status, title, age, session, pane, pid]))
+            lines.append("\t".join([directory, status, title, age, session, pane, pid]))
+
+        output = "\n".join(lines)
+        if output:
+            output += "\n"
+        print(output, end="")
+
+        if not args.no_cache:
+            try:
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    f.write(output)
+            except OSError:
+                pass
         return
 
     dir_width, status_width, title_width = compute_column_widths(rows)
