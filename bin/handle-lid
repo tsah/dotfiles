@@ -47,7 +47,19 @@ disable_laptop() {
 
 case "$ACTION" in
     close)
-        log "Lid closed"
+        log "Lid close event received"
+        # Wait briefly and verify lid is actually closed.
+        # On resume from suspend, Hyprland fires spurious lid close/open events
+        # simultaneously. Without this check, the close handler races with the
+        # resume/open handlers and its "dpms off" can execute last, leaving a
+        # black screen.
+        sleep 0.5
+        LID_STATE=$(cat /proc/acpi/button/lid/LID0/state 2>/dev/null | awk '{print $2}')
+        if [[ "$LID_STATE" != "closed" ]]; then
+            log "Lid is actually '$LID_STATE', ignoring spurious close event"
+            exit 0
+        fi
+        log "Lid confirmed closed"
         EXTERNAL_COUNT=$(get_external_monitor_count)
         if [[ "$EXTERNAL_COUNT" -gt 0 ]]; then
             log "External monitor(s) connected ($EXTERNAL_COUNT), disabling laptop screen"
@@ -90,11 +102,16 @@ case "$ACTION" in
         
     resume)
         log "Resuming from sleep"
+        # Wait for Hyprland to fully reinitialize monitors after suspend.
+        # Without this, hyprctl commands may return stale/incomplete data.
+        sleep 1
+        
         # Always turn DPMS on
         hyprctl dispatch dpms on
         
         # Check if any monitors are active
         ACTIVE_COUNT=$(hyprctl monitors -j | jq 'length')
+        log "Active monitors after resume: $ACTIVE_COUNT"
         if [[ "$ACTIVE_COUNT" -eq 0 ]]; then
             log "No active monitors after resume, enabling laptop screen"
             enable_laptop
@@ -103,6 +120,7 @@ case "$ACTION" in
         # If laptop lid is open but eDP-1 is disabled, re-enable it
         # (handles case where external monitor was unplugged during suspend)
         LID_STATE=$(cat /proc/acpi/button/lid/LID0/state 2>/dev/null | awk '{print $2}')
+        log "Lid state on resume: $LID_STATE, laptop enabled: $(is_laptop_enabled && echo yes || echo no)"
         if [[ "$LID_STATE" == "open" ]] && ! is_laptop_enabled; then
             log "Lid is open but laptop screen disabled, enabling"
             enable_laptop
