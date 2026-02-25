@@ -84,6 +84,10 @@ def basename_label(text):
     return label
 
 
+def shorten_path(text):
+    return text.replace("~/dev/work/", "w/")
+
+
 def trunc(text, width):
     if width <= 0:
         return ""
@@ -110,6 +114,10 @@ if shutil.which("opencode-status"):
         if len(parts) < 7:
             continue
         directory, status, title, age, session, pane, pid = parts[:7]
+        if not session:
+            continue
+        if directory.endswith("(deleted)"):
+            continue
         opencode_rows.append(
             {
                 "directory": directory,
@@ -121,6 +129,11 @@ if shutil.which("opencode-status"):
                 "pid": pid,
             }
         )
+
+    deduped = {}
+    for row in opencode_rows:
+        deduped[row["session"]] = row
+    opencode_rows = list(deduped.values())
 
 last_seen = session_last_attached()
 
@@ -152,7 +165,7 @@ for raw in tmux_rows:
         continue
 
     icon = colorize("", "tmux")
-    name = trunc(label, name_w)
+    name = trunc(shorten_path(label), name_w)
     status = ""
     title = ""
     age = ""
@@ -171,7 +184,7 @@ for raw in tmux_rows:
 for row in opencode_rows:
     session = row["session"] or ""
     icon = colorize("󱚟", "opencode")
-    name = trunc(row["directory"], name_w)
+    name = trunc(shorten_path(row["directory"]), name_w)
     status_text = trunc(row["status"], status_w)
     title = trunc(row["title"], title_w)
     age = trunc(row["age"], age_w)
@@ -199,7 +212,7 @@ for raw in zoxide_rows:
         continue
 
     icon = colorize("", "dir")
-    name = trunc(label, name_w)
+    name = trunc(shorten_path(label), name_w)
     status = ""
     title = ""
     age = ""
