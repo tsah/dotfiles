@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -euo pipefail
+
+WORKSPACE_SETTLE_DELAY="${WORKSPACE_SETTLE_DELAY:-0.2}"
+APP_LAUNCH_DELAY="${APP_LAUNCH_DELAY:-0.5}"
+DOTFILES_DIR="${HOME}/dotfiles"
+
+switch_workspace() {
+    local workspace="$1"
+
+    hyprctl dispatch workspace "$workspace" >/dev/null
+    sleep "$WORKSPACE_SETTLE_DELAY"
+}
+
+launch_on_workspace() {
+    local workspace="$1"
+    local command="$2"
+
+    switch_workspace "$workspace"
+    hyprctl dispatch exec "$command" >/dev/null
+    sleep "$APP_LAUNCH_DELAY"
+}
+
+if ! command -v hyprctl >/dev/null 2>&1; then
+    echo "Error: hyprctl is required" >&2
+    exit 1
+fi
+
+launch_on_workspace 1 "uwsm-app -- ghostty"
+launch_on_workspace 1 "uwsm-app -- ghostty -e tmux new-session"
+launch_on_workspace 2 "uwsm-app -- ${DOTFILES_DIR}/bin/browser-work"
+launch_on_workspace 3 "${DOTFILES_DIR}/omarchy/hypr/launch-slack-group"
+launch_on_workspace 4 "uwsm-app -- ${DOTFILES_DIR}/bin/browser-personal"
+launch_on_workspace 5 "uwsm-app -- ghostty -e bash -c 'cd ${HOME}/Dropbox/tsahs-vault/Work && nvim'"
+
+switch_workspace 1

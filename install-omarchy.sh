@@ -50,6 +50,9 @@ ln -sf ~/dotfiles/omarchy/hypr ~/.config/hypr
 rm -rf ~/.config/waybar
 ln -sf ~/dotfiles/omarchy/waybar ~/.config/waybar
 
+mkdir -p ~/.config/omarchy/extensions
+ln -sf ~/dotfiles/omarchy/extensions/menu.sh ~/.config/omarchy/extensions/menu.sh
+
 # Setup omarchy branding
 # mkdir -p ~/.config/omarchy/branding
 # ln -sf ~/dotfiles/screensaver.txt ~/.config/omarchy/branding/screensaver.txt
