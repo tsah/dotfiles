@@ -29,3 +29,6 @@ scrollback-limit = 10000
 # Integration with Neovim for scrollback/copy
 # Ctrl+Shift+y : Open scrollback file in nvim (native Ghostty feature)
 keybind = ctrl+shift+y=write_screen_file:open
+
+# Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
+async-backend = epoll

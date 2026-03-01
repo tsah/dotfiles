@@ -20,7 +20,7 @@ export PATH=$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
 export PATH=$HOME/.config/tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
 
 
-# Auto-switch to tty2 on tty1 login
-if [ "$(tty)" = "/dev/tty1" ] && [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+# Auto-switch to tty2 only for direct TTY logins.
+if [ "$(tty)" = "/dev/tty1" ] && [ "${XDG_SESSION_TYPE:-tty}" = "tty" ] && [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
     exec chvt 2
 fi

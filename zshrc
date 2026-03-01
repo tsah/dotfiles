@@ -121,7 +121,6 @@ else
   export KEYTIMEOUT=1
 fi
 
-bindkey -M viins 'jk' vi-cmd-mode
 
 zle-keymap-select() {
   if [[ ${KEYMAP} == vicmd ]]; then
