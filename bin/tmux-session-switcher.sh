@@ -235,15 +235,36 @@ for e in entries:
 PY
 }
 
+# Allow re-invocation for fzf reload
+if [[ "${1:-}" == "--rows" ]]; then
+    build_unified_rows
+    exit 0
+fi
+
+SELF="$(realpath "$0")"
+REFRESH_PORT=$(shuf -i 10000-60000 -n 1)
+
+cleanup() {
+    kill "$REFRESHER_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+(while sleep 10; do
+    curl -s -XPOST "localhost:$REFRESH_PORT" -d "reload($SELF --rows)" 2>/dev/null || break
+done) >/dev/null 2>&1 &
+REFRESHER_PID=$!
+
 PICKER_STATUS=0
 
 if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
     set +e
     SELECTED=$(build_unified_rows | fzf-tmux -p 95%,80% \
+        --listen "$REFRESH_PORT" \
         --ansi \
         --no-sort \
         --delimiter=$'\t' \
         --with-nth=1 \
+        --bind 'alt-k:abort' \
         --color='header:5,prompt:4,info:8,border:8' \
         --header 'Enter: open selection')
     PICKER_STATUS=$?
@@ -251,10 +272,12 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
 else
     set +e
     SELECTED=$(build_unified_rows | fzf \
+        --listen "$REFRESH_PORT" \
         --ansi \
         --no-sort \
         --delimiter=$'\t' \
         --with-nth=1 \
+        --bind 'alt-k:abort' \
         --color='header:5,prompt:4,info:8,border:8' \
         --header 'Enter: open selection')
     PICKER_STATUS=$?
