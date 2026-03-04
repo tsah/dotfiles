@@ -32,6 +32,15 @@ if [[ "$HAS_PORT" == false ]]; then
     ARGS+=("--port" "$PORT")
 fi
 
+# Activate virtualenv if one exists
+if [[ -f ".venv/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+elif [[ -f "venv/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    source venv/bin/activate
+fi
+
 if [[ "$CONTINUE_SESSION" == false ]]; then
     exec opencode "${ARGS[@]}"
 fi

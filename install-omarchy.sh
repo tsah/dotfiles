@@ -70,7 +70,8 @@ ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
 # Setup Claude/OpenCode shared skills
 mkdir -p ~/.claude/skills
 rm -rf ~/.claude/skills/opencode-spawn
-ln -sf ~/dotfiles/claude/skills/opencode-spawn ~/.claude/skills/opencode-spawn
+rm -rf ~/.claude/skills/tmux-worktree-worker
+ln -sf ~/dotfiles/claude/skills/tmux-worktree-worker ~/.claude/skills/tmux-worktree-worker
 
 # Setup jj (jujutsu) configuration
 mkdir -p ~/.config/jj

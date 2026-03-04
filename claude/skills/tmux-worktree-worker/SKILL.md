@@ -1,17 +1,25 @@
 ---
-name: Opencode Spawn
+name: Tmux Worktree Worker
 description: >-
-  Use this skill when the user asks to delegate work to another interactive
-  opencode worker in tmux and wants that worker to start immediately.
+  Use this skill when the user asks to spawn a new opencode process in a
+  separate tmux session and git worktree via the spawn-opencode-agent script.
+  This is NOT the built-in Task/subagent tool — it launches an external process.
 ---
 
-# Opencode Spawn Skill
+# Tmux Worktree Worker
 
-Use this skill for requests like:
-- "spawn an agent"
-- "delegate this task"
-- "run these in parallel"
-- "start another opencode session to handle X"
+This skill launches a **separate opencode process** in its own **tmux session**
+and **git worktree**. It is completely different from the built-in Task tool
+(which runs an in-process subagent). Use this skill when the user says things
+like:
+
+- "spawn a worker"
+- "spin up another opencode session"
+- "create a worktree and run opencode there"
+- "launch a tmux worker for X"
+
+Do NOT confuse this with the built-in Task tool. This skill runs a bash script
+that creates a real tmux session.
 
 ## Core Rule
 
@@ -31,16 +39,16 @@ spawn-opencode-agent --agent "<agent-name>" "<branch-name>" "<initial-prompt>"
 
 - Do not run preflight commands (`ls`, `git worktree list`, `git fetch`).
 - Do not create worktrees manually (`git worktree add`).
-- For N independent delegated tasks, run exactly N spawn commands in parallel.
+- For N independent jobs, run exactly N spawn commands in parallel.
 - Run extra commands only if a spawn command fails.
-- The spawning agent must not do planning for the delegated task.
+- The spawning agent must not do planning for the worker.
 
 ## Delegation Boundary
 
 - The spawning agent is an orchestrator only.
 - Only pass requirements, context, constraints, and success criteria.
 - Do not include step-by-step implementation plans or execution breakdowns.
-- Let the spawned agent own planning, approach selection, and execution.
+- Let the spawned worker own planning, approach selection, and execution.
 
 ## Branch Naming
 

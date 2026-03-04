@@ -266,13 +266,6 @@ def compute_column_widths(rows):
     return dir_width, status_width, title_width
 
 
-def session_id_from_cmdline(cmdline):
-    for i, arg in enumerate(cmdline):
-        if arg in ("-s", "--session") and i + 1 < len(cmdline):
-            return cmdline[i + 1]
-    return ""
-
-
 def tty_for_pid(pid):
     try:
         tty_path = os.readlink(f"/proc/{pid}/fd/0")
@@ -383,7 +376,7 @@ def main():
         is_run_mode = len(cmdline) > 1 and cmdline[1] == "run"
         session_name = ""
         pane_target = ""
-        session_id = session_id_from_cmdline(cmdline)
+        session_id = ""
 
         tty = tty_for_pid(pid)
         if tty and tty in tty_lookup:
