@@ -1,4 +1,4 @@
-font-size = 18
+font-size = 14
 font-family = Adwaita Mono
 confirm-close-surface = false
 
@@ -17,7 +17,7 @@ keybind = alt+7=text:\x1b7
 keybind = alt+8=text:\x1b8
 keybind = alt+9=text:\x1b9
 
-command = fish
+command = zsh
 
 # Enable shell integration for dynamic tab titles  
 shell-integration = detect
