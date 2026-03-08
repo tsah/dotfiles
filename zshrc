@@ -186,6 +186,11 @@ alias wtd="wt destroy"
 alias cmd="$HOME/bin/cmd"
 alias cmdyolo="cmd --yolo"
 
+# SSH + tmux in one command
+ssht() {
+    ssh -t "$1" "exec zsh -l -c 'tmux new-session -A -s main'"
+}
+
 # sesh launcher (kept)
 s() {
   local selected name dir
