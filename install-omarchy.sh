@@ -12,6 +12,12 @@ fi
 if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then
   "$HOME/.tmux/plugins/tpm/bin/install_plugins" >/dev/null 2>&1 || true
 fi
+
+if [ ! -f "$HOME/.zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]; then
+  mkdir -p "$HOME/.zsh/plugins"
+  git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "$HOME/.zsh/plugins/zsh-autosuggestions" >/dev/null 2>&1 || true
+fi
+
 ln -sf ~/dotfiles/zshrc ~/.zshrc
 ln -sf ~/dotfiles/bashrc ~/.bashrc
 ln -sf ~/dotfiles/inputrc ~/.inputrc
