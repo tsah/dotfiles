@@ -5,7 +5,11 @@
   "mcp": {
     "linear": {
       "type": "remote",
-      "url": "https://mcp.linear.app/mcp"
+      "url": "https://mcp.linear.app/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:LINEAR_API_KEY}"
+      }
     }
   },
   "tools": {
