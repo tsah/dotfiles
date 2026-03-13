@@ -3,16 +3,20 @@
 import json
 import os
 import shutil
-import sqlite3
 import subprocess
 import argparse
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from datetime import datetime
 
 
-DB_PATH = os.path.expanduser("~/.local/share/opencode/opencode.db")
 HOME = os.path.expanduser("~")
+SESSION_HTTP_TIMEOUT = 1
+MESSAGE_HTTP_TIMEOUT = 0.5
+TSV_CACHE_TTL_SECONDS = 8
 
 
 RESET = "\033[0m"
@@ -62,6 +66,40 @@ def shorten_path(path):
     if path.startswith(HOME + "/"):
         return "~" + path[len(HOME) :]
     return path
+
+
+def extract_port(cmdline):
+    for i, arg in enumerate(cmdline):
+        if arg == "--port" and i + 1 < len(cmdline):
+            try:
+                return int(cmdline[i + 1])
+            except ValueError:
+                pass
+        if arg.startswith("--port="):
+            try:
+                return int(arg.split("=", 1)[1])
+            except ValueError:
+                pass
+    return None
+
+
+def extract_session_id(cmdline):
+    for i, arg in enumerate(cmdline):
+        if arg in ("-s", "--session") and i + 1 < len(cmdline):
+            return cmdline[i + 1]
+        if arg.startswith("--session="):
+            return arg.split("=", 1)[1]
+    return ""
+
+
+def api_get(port, path, timeout):
+    url = f"http://127.0.0.1:{port}{path}"
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except (urllib.error.URLError, json.JSONDecodeError, OSError, ValueError):
+        return None
 
 
 def get_opencode_pids():
@@ -158,40 +196,31 @@ def is_opencode_process(pid):
 
 
 def infer_status(
-    latest_message_data,
+    latest_message,
     latest_message_time,
-    latest_tool_part_data,
+    latest_tool_part,
     latest_tool_time,
     pid_child_count,
     is_run_mode,
 ):
-    if latest_tool_part_data:
-        try:
-            tool_part = json.loads(latest_tool_part_data)
-            if (
-                tool_part.get("type") == "tool"
-                and (tool_part.get("state") or {}).get("status") == "running"
-                and latest_tool_time >= latest_message_time
-            ):
-                tool_name = tool_part.get("tool", "tool")
-                if tool_name == "question":
-                    return "waiting question", "question prompt"
+    if latest_tool_part:
+        if (
+            latest_tool_part.get("type") == "tool"
+            and (latest_tool_part.get("state") or {}).get("status") == "running"
+            and latest_tool_time >= latest_message_time
+        ):
+            tool_name = latest_tool_part.get("tool", "tool")
+            if tool_name == "question":
+                return "waiting question", "question prompt"
 
-                if pid_child_count == 0:
-                    return "waiting permission", f"{tool_name}"
-        except json.JSONDecodeError:
-            pass
+            if pid_child_count == 0:
+                return "waiting permission", f"{tool_name}"
 
-    if not latest_message_data:
+    if not latest_message:
         return "starting", ""
 
-    try:
-        payload = json.loads(latest_message_data)
-    except json.JSONDecodeError:
-        return "unknown", ""
-
-    role = payload.get("role")
-    time_obj = payload.get("time") or {}
+    role = latest_message.get("role")
+    time_obj = latest_message.get("time") or {}
     completed = time_obj.get("completed")
 
     if role == "user":
@@ -333,7 +362,7 @@ def main():
     args = parser.parse_args()
 
     cache_path = f"/tmp/opencode-status-{os.getuid()}.tsv"
-    cache_ttl_seconds = 2
+    cache_ttl_seconds = TSV_CACHE_TTL_SECONDS
 
     if args.tsv and not args.no_cache:
         try:
@@ -352,13 +381,6 @@ def main():
         print("No running opencode instances.")
         return
 
-    conn = None
-    if os.path.isfile(DB_PATH):
-        try:
-            conn = sqlite3.connect(DB_PATH)
-        except sqlite3.Error:
-            conn = None
-
     instances = []
     tty_lookup = tmux_tty_lookup()
     child_counts = build_child_count_map()
@@ -376,7 +398,6 @@ def main():
         is_run_mode = len(cmdline) > 1 and cmdline[1] == "run"
         session_name = ""
         pane_target = ""
-        session_id = ""
 
         tty = tty_for_pid(pid)
         if tty and tty in tty_lookup:
@@ -387,124 +408,186 @@ def main():
             {
                 "pid": pid,
                 "cwd": cwd,
+                "port": extract_port(cmdline),
                 "is_run_mode": is_run_mode,
                 "session_name": session_name,
                 "pane_target": pane_target,
-                "session_id": session_id,
+                "session_id": extract_session_id(cmdline),
                 "start_ticks": process_start_ticks(pid),
             }
         )
-
-    if conn is not None:
-        try:
-            by_cwd = defaultdict(list)
-            for inst in instances:
-                by_cwd[inst["cwd"]].append(inst)
-
-            for cwd, cwd_instances in by_cwd.items():
-                explicit_ids = {
-                    inst["session_id"]
-                    for inst in cwd_instances
-                    if inst["session_id"]
-                }
-
-                candidates = conn.execute(
-                    """
-                    SELECT id, title
-                    FROM session
-                    WHERE directory = ?
-                      AND time_archived IS NULL
-                    ORDER BY time_updated DESC
-                    """,
-                    (cwd,),
-                ).fetchall()
-
-                candidate_ids = [sid for sid, _ in candidates if sid not in explicit_ids]
-
-                unresolved = [inst for inst in cwd_instances if not inst["session_id"]]
-                unresolved.sort(key=lambda i: i["start_ticks"], reverse=True)
-
-                for idx, inst in enumerate(unresolved):
-                    if idx < len(candidate_ids):
-                        inst["session_id"] = candidate_ids[idx]
-                    elif candidates:
-                        inst["session_id"] = candidates[0][0]
-        except sqlite3.Error:
-            pass
 
     if not instances:
         print("No running interactive opencode instances.")
         return
 
-    grouped = defaultdict(list)
+    # Fetch session lists per port (each port serves one project)
+    port_sessions = {}
+    session_titles = {}
+    session_updated_times = {}
 
-    session_meta_cache = {}
-    last_message_cache = {}
-    latest_tool_cache = {}
+    unique_ports = sorted({inst["port"] for inst in instances if inst["port"]})
+    if unique_ports:
+        workers = min(8, len(unique_ports))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_port = {
+                executor.submit(
+                    api_get, port, "/session", SESSION_HTTP_TIMEOUT
+                ): port
+                for port in unique_ports
+            }
+
+            for future in as_completed(future_to_port):
+                port = future_to_port[future]
+                try:
+                    sessions = future.result()
+                except Exception:
+                    sessions = None
+
+                if not isinstance(sessions, list):
+                    sessions = []
+
+                port_sessions[port] = sessions
+                for s in sessions:
+                    sid = s.get("id")
+                    if sid:
+                        session_titles[sid] = s.get("title", "")
+                        session_updated_times[sid] = (
+                            s.get("time", {}).get("updated", 0) or 0
+                        )
+
+    # Resolve session IDs for instances without -s flag
+    by_cwd = defaultdict(list)
+    for inst in instances:
+        by_cwd[inst["cwd"]].append(inst)
+
+    for cwd, cwd_instances in by_cwd.items():
+        sessions = []
+        for inst in cwd_instances:
+            if inst["port"] and inst["port"] in port_sessions:
+                sessions = port_sessions[inst["port"]]
+                break
+
+        explicit_ids = {
+            inst["session_id"]
+            for inst in cwd_instances
+            if inst["session_id"]
+        }
+
+        candidates = sorted(
+            [
+                s
+                for s in sessions
+                if s.get("directory") == cwd
+                and not (s.get("time", {}).get("archived"))
+            ],
+            key=lambda s: s.get("time", {}).get("updated", 0),
+            reverse=True,
+        )
+
+        candidate_ids = []
+        for s in candidates:
+            sid = s.get("id")
+            if sid and sid not in explicit_ids:
+                candidate_ids.append(sid)
+
+        unresolved = [inst for inst in cwd_instances if not inst["session_id"]]
+        unresolved.sort(key=lambda i: i["start_ticks"], reverse=True)
+
+        for idx, inst in enumerate(unresolved):
+            if idx < len(candidate_ids):
+                inst["session_id"] = candidate_ids[idx]
+            elif candidates:
+                inst["session_id"] = candidates[0].get("id", "")
+
+    grouped = defaultdict(list)
+    now_ms = int(datetime.now().timestamp() * 1000)
+
+    message_requests = {}
+    for inst in instances:
+        sid = inst["session_id"]
+        port = inst["port"]
+        if not port or not sid:
+            continue
+        message_key = f"{port}:{sid}"
+        message_requests[message_key] = (port, sid)
+
+    message_cache = {}
+    if message_requests:
+        workers = min(8, len(message_requests))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_key = {
+                executor.submit(
+                    api_get,
+                    port,
+                    f"/session/{sid}/message?limit=1",
+                    MESSAGE_HTTP_TIMEOUT,
+                ): key
+                for key, (port, sid) in message_requests.items()
+            }
+
+            for future in as_completed(future_to_key):
+                key = future_to_key[future]
+                try:
+                    message_cache[key] = future.result()
+                except Exception:
+                    message_cache[key] = None
 
     for inst in instances:
         pid = inst["pid"]
         cwd = inst["cwd"]
         session_id = inst["session_id"]
+        port = inst["port"]
         status = "starting"
-        title = ""
+        title = session_titles.get(session_id, "")
         age = "-"
 
-        if conn is not None and session_id:
-            try:
-                if session_id not in session_meta_cache:
-                    session_meta_cache[session_id] = conn.execute(
-                        "SELECT title FROM session WHERE id = ? LIMIT 1",
-                        (session_id,),
-                    ).fetchone()
+        if port and session_id:
+            message_key = f"{port}:{session_id}"
+            messages = message_cache[message_key]
+            if messages is None:
+                updated_ms = session_updated_times.get(session_id, 0)
+                if child_counts.get(str(pid), 0) > 0:
+                    status = "generating"
+                elif updated_ms and now_ms - updated_ms < 30000:
+                    status = "unknown"
+                else:
+                    status = "done"
+                age = format_age(updated_ms)
+            elif isinstance(messages, list) and messages:
+                last_msg = messages[-1]
+                msg_info = last_msg.get("info", {})
+                msg_time = msg_info.get("time", {}).get("created", 0)
 
-                title_row = session_meta_cache.get(session_id)
-                title = (title_row[0] if title_row else "") or ""
-
-                if session_id not in last_message_cache:
-                    last_message_cache[session_id] = conn.execute(
-                        """
-                        SELECT data, time_created
-                        FROM message
-                        WHERE session_id = ?
-                        ORDER BY time_created DESC
-                        LIMIT 1
-                        """,
-                        (session_id,),
-                    ).fetchone()
-
-                last_row = last_message_cache.get(session_id)
-                last_data = last_row[0] if last_row else ""
-                last_time = last_row[1] if last_row else 0
-
-                if session_id not in latest_tool_cache:
-                    latest_tool_cache[session_id] = conn.execute(
-                        """
-                        SELECT data, time_created
-                        FROM part
-                        WHERE session_id = ?
-                          AND json_extract(data, '$.type') = 'tool'
-                        ORDER BY time_created DESC
-                        LIMIT 1
-                        """,
-                        (session_id,),
-                    ).fetchone()
-
-                latest_tool_row = latest_tool_cache.get(session_id)
-                latest_tool_data = latest_tool_row[0] if latest_tool_row else ""
-                latest_tool_time = latest_tool_row[1] if latest_tool_row else 0
+                # Find latest tool part across recent messages
+                latest_tool = None
+                latest_tool_time = 0
+                for msg in reversed(messages):
+                    for part in reversed(msg.get("parts", [])):
+                        if part.get("type") == "tool":
+                            pt = (
+                                (part.get("state") or {})
+                                .get("time", {})
+                                .get("start", 0)
+                            ) or 0
+                            if pt > latest_tool_time:
+                                latest_tool = part
+                                latest_tool_time = pt
+                            break
+                    if latest_tool:
+                        break
 
                 status, _detail = infer_status(
-                    last_data,
-                    last_time,
-                    latest_tool_data,
+                    msg_info,
+                    msg_time,
+                    latest_tool,
                     latest_tool_time,
                     child_counts.get(str(pid), 0),
                     inst["is_run_mode"],
                 )
-                age = format_age(last_time)
-            except sqlite3.Error:
-                status = "unknown"
+                age = format_age(msg_time)
+            else:
+                age = format_age(session_updated_times.get(session_id, 0))
 
         grouped[cwd].append(
             (
@@ -516,9 +599,6 @@ def main():
                 inst["pane_target"],
             )
         )
-
-    if conn is not None:
-        conn.close()
 
     rows = []
     for cwd, entries in grouped.items():

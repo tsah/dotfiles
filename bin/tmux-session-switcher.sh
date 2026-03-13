@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Ensure ~/dotfiles/bin is in PATH — tmux run-shell doesn't source zshrc.
+export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
+
 FILTER='(_.*__(persistent|temp)| [0-9]+$)'
 
 build_unified_rows() {

@@ -84,15 +84,10 @@ if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     exit 1
 fi
 
-WINDOW_BASE="opencode-agent"
-WINDOW_NAME="$WINDOW_BASE"
-WINDOW_INDEX=2
+WINDOW_NAME="opencode"
 
-while tmux list-windows -t "$SESSION_NAME" -F '#W' | grep -Fxq "$WINDOW_NAME"; do
-    WINDOW_NAME="${WINDOW_BASE}-${WINDOW_INDEX}"
-    WINDOW_INDEX=$((WINDOW_INDEX + 1))
-done
-
+# Create the opencode window with oc running, then remove the default shell window
+# so the session ends up with a single tab named "opencode".
 if [[ -n "$AGENT_NAME" ]]; then
     tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
         bash -lc 'oc --agent "$1" --prompt "$2"' _ "$AGENT_NAME" "$INITIAL_PROMPT"
@@ -100,6 +95,11 @@ else
     tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
         bash -lc 'oc --prompt "$1"' _ "$INITIAL_PROMPT"
 fi
+
+# Queue exit on the default shell window so it self-closes after any
+# post-spawn commands (from .wtconfig) finish running.
+# renumber-windows is on, so the opencode window becomes index 1.
+tmux send-keys -t "$SESSION_NAME:1" "exit" Enter
 
 echo "Spawned opencode worker."
 echo "Session: $SESSION_NAME"

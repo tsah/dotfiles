@@ -5,26 +5,46 @@
 #
 # Used with Alt+w keybinding in tmux
 
+# Ensure ~/dotfiles/bin is in PATH — tmux run-shell doesn't source zshrc.
+export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
+
+# Get the current pane's working directory
+PANE_PATH=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || echo "$PWD")
+
 # Check if in git repo
-if git rev-parse --is-inside-work-tree &>/dev/null; then
+if git -C "$PANE_PATH" rev-parse --is-inside-work-tree &>/dev/null; then
+    cd "$PANE_PATH"
     REPO_PATH=$(git worktree list --porcelain | grep "^worktree " | head -1 | cut -d' ' -f2)
     REPO_NAME=$(basename "$REPO_PATH")
 else
-    # Pick repo from sesh/zoxide (filtered to git repos)
-    REPOS=$(sesh list -z | while read -r dir; do
-        expanded="${dir/#\~/$HOME}"
-        [[ -d "$expanded/.git" ]] && echo "$dir"
+    # Pick repo from zoxide (filtered to git repos)
+    GIT_REPOS=$(zoxide query -l | while IFS= read -r dir; do
+        if [ -d "$dir/.git" ]; then
+            echo "$dir"
+        fi
     done)
-    
-    [[ -z "$REPOS" ]] && exit 0
-    
-    SELECTED_REPO=$(echo "$REPOS" | fzf-tmux -p 80%,70% \
-        --no-sort --border-label ' Select Git Repository ' \
-        --prompt '📁  ' \
-        --preview 'dir="${1/#\~/$HOME}"; cd "$dir" && git log --oneline -10 2>/dev/null || echo "No commits"')
-    
+
+    [[ -z "$GIT_REPOS" ]] && exit 0
+
+    REPO_FZF_OPTS=(
+        --no-sort --border
+        --bind 'alt-b:abort'
+        --border-label ' NOT IN A GIT REPO '
+        --border-label-pos 3
+        --color 'header:#e5c07b,prompt:#e5c07b:bold,pointer:#e5c07b,border:#e5c07b,label:#e5c07b:bold,info:8'
+        --header 'Select a git repository to spawn a worktree in'
+        --prompt 'Git Repo > '
+        --preview 'cd {} && git log --oneline -10 2>/dev/null || echo "No commits"'
+    )
+
+    if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
+        SELECTED_REPO=$(echo "$GIT_REPOS" | fzf-tmux -p 95%,80% "${REPO_FZF_OPTS[@]}")
+    else
+        SELECTED_REPO=$(echo "$GIT_REPOS" | fzf "${REPO_FZF_OPTS[@]}")
+    fi
+
     [[ -z "$SELECTED_REPO" ]] && exit 0
-    REPO_PATH="${SELECTED_REPO/#\~/$HOME}"
+    REPO_PATH="$SELECTED_REPO"
     cd "$REPO_PATH" || exit 1
     REPO_NAME=$(basename "$REPO_PATH")
 fi
