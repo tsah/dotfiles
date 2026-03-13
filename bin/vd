@@ -1,0 +1,15 @@
+#!/bin/bash
+# Diff current branch against its fork point from master/main
+# Works from shell (launches nvim) or from nvim terminal (sends command to parent)
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: Not in a git repository" >&2
+    exit 1
+fi
+
+if [[ -n "$NVIM" ]]; then
+    # Inside nvim terminal — send command to parent nvim
+    nvim --server "$NVIM" --remote-send "<C-\\><C-n>:Vd<CR>"
+else
+    exec nvim -c "Vd"
+fi

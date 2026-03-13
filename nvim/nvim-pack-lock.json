@@ -21,6 +21,10 @@
       "rev": "8bbc8fd",
       "src": "https://github.com/vieitesss/command.nvim"
     },
+    "diffview.nvim": {
+      "rev": "4516612fe98ff56ae0415a259ff6361a89419b0a",
+      "src": "https://github.com/sindrets/diffview.nvim"
+    },
     "flash.nvim": {
       "rev": "fcea7ff",
       "src": "https://github.com/folke/flash.nvim"
@@ -77,6 +81,10 @@
     "nvim-trevJ.lua": {
       "rev": "db6a428",
       "src": "https://github.com/AckslD/nvim-trevJ.lua"
+    },
+    "nvim-web-devicons": {
+      "rev": "737cf6c657898d0c697311d79d361288a1343d50",
+      "src": "https://github.com/nvim-tree/nvim-web-devicons"
     },
     "opencode.nvim": {
       "rev": "87cda19",

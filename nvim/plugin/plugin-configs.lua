@@ -7,7 +7,22 @@ vim.schedule(function()
     vim.cmd.colorscheme('catppuccin-mocha')
 end)
 
-require('gitsigns').setup({ signcolumn = true })
+require('gitsigns').setup({
+    signcolumn = true,
+    on_attach = function(bufnr)
+        local gs = require('gitsigns')
+        local opts = { buffer = bufnr, silent = true }
+
+        vim.keymap.set('n', '<leader>hp', gs.preview_hunk, opts)
+        vim.keymap.set('n', '<leader>hs', gs.stage_hunk, opts)
+        vim.keymap.set('n', '<leader>hu', gs.undo_stage_hunk, opts)
+    end
+})
+
+-- Global hunk navigation (works everywhere, no-op when gitsigns isn't attached)
+local gs = require('gitsigns')
+vim.keymap.set('n', '<leader>n', function() gs.nav_hunk('next') end, { silent = true })
+vim.keymap.set('n', '<leader>p', function() gs.nav_hunk('prev') end, { silent = true })
 
 require('blink.cmp').setup({
     fuzzy = {
@@ -188,7 +203,53 @@ require('treesitter-context').setup({
     max_lines = 4,
 })
 
-require('hunk').setup({})
+require('diffview').setup({
+
+    view = {
+        default = { layout = "diff2_horizontal" },
+        merge_tool = { layout = "diff3_horizontal" },
+        file_history = { layout = "diff2_horizontal" },
+    },
+    keymaps = {
+        view = {
+            { "n", "<leader>n", "]c", { desc = "Next hunk" } },
+            { "n", "<leader>p", "[c", { desc = "Previous hunk" } },
+            { "n", "q", "<cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
+        },
+        file_panel = {
+            { "n", "q", "<cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
+        },
+        file_history_panel = {
+            { "n", "q", "<cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
+        },
+    },
+})
+
+-- Vd: diff current branch against its fork point from master/main
+vim.api.nvim_create_user_command('Vd', function()
+    local base = 'master'
+    if vim.fn.system('git rev-parse --verify origin/master 2>/dev/null'):find('^fatal') or
+       vim.v.shell_error ~= 0 then
+        base = 'main'
+    end
+    vim.fn.system('git fetch origin ' .. base .. ' --quiet 2>/dev/null')
+    local current = vim.fn.system('git branch --show-current'):gsub('%s+$', '')
+    if current == base then
+        vim.cmd('DiffviewOpen HEAD~1')
+    else
+        local fork = vim.fn.system('git merge-base HEAD origin/' .. base):gsub('%s+$', '')
+        vim.cmd('DiffviewOpen ' .. fork)
+    end
+end, { desc = 'Diff branch against fork point' })
+
+-- Vdh: file history in diffview
+vim.api.nvim_create_user_command('Vdh', function(opts)
+    if opts.args ~= '' then
+        vim.cmd('DiffviewFileHistory ' .. opts.args)
+    else
+        vim.cmd('DiffviewFileHistory')
+    end
+end, { nargs = '?', complete = 'file', desc = 'Diffview file history' })
 
 require('snacks').setup({
     input = { enabled = true },

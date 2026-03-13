@@ -26,6 +26,12 @@ keymap("n", "<Leader>te", "<cmd>tabnew<CR>", s)
 keymap("n", "<Leader>_", "<cmd>vsplit<CR>", s)
 keymap("n", "<Leader>-", "<cmd>split<CR>", s)
 
+-- pane navigation
+keymap("n", "<C-h>", "<C-w>h", s)
+keymap("n", "<C-j>", "<C-w>j", s)
+keymap("n", "<C-k>", "<C-w>k", s)
+keymap("n", "<C-l>", "<C-w>l", s)
+
 -- LSP actions
 keymap("n", "<Leader>lf", ":lua vim.lsp.buf.format()<CR>", s)        -- lsp format
 keymap("n", "<Leader>lr", "<cmd>lua vim.lsp.buf.rename()<CR>", opts) -- lsp rename  
