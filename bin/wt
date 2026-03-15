@@ -1,45 +1,46 @@
 #!/bin/sh
-# Worktree branch switcher with directory and tmux session renaming
 
-# Toggle for tmux integration (set to true for original behavior with tmux sessions)
 USE_TMUX=true
 POST_SPAWN_RUN_COMMANDS=""
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+WWT_BIN="$SCRIPT_DIR/wwt"
 
 usage() {
     echo "Usage: $0 spawn <branch> [--new-window|-w] [--no-switch|-d] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
-    echo "Task-oriented worktree manager: spawn worktrees per task, destroy when done."
+    echo "Task-oriented worktree manager with dual legacy/bare Worktrunk support."
     echo ""
     echo "Task Commands:"
-    echo "  spawn <branch>    Create new worktree from origin/master and switch to tmux session"
-    echo "  spawn <branch> -w Create new worktree and open session in new Ghostty window"
-    echo "                    Worktree name: {repo}-{branch} (e.g., dotfiles-fix-login-bug)"
-    echo "                    Session name: {repo}-{branch}"
-    echo "                    Supports optional .wtconfig with copy/run directives"
-    echo "                    Also supports copy-manual/run-manual and copy-auto/run-auto"
-    echo "  destroy           Delete current worktree and tmux session, exit terminal"
+    echo "  spawn <branch>    Create or connect to a task worktree and tmux session"
+    echo "                    Worktree/session name: {repo}-{branch}"
+    echo "                    Supports optional .wtconfig in the repo/container root"
+    echo "  destroy           Delete current worktree and tmux session, keep the branch"
     echo ""
     echo "Branch Commands:"
     echo "  <branch-name>     Switch to/create branch in current worktree and rename tmux session"
     echo ""
     echo "Options:"
-    echo "  -m, --from-master Create new branch from master/main instead of current branch"
-    echo "  -f, --fix-session Fix current session name to match expected format"
-    echo "  -d, --no-switch  Create/spawn worktree and tmux session without switching"
+    echo "  -m, --from-master Create new branch from the default branch instead of current branch"
+    echo "  -f, --fix-session Fix current session name"
+    echo "  -d, --no-switch   Create/spawn worktree and tmux session without switching"
     echo "  -h, --help        Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 spawn fix-login-bug   # Create worktree dotfiles-fix-login-bug, switch to tmux"
+    echo "  $0 spawn fix-login-bug   # Create or connect to repo-fix-login-bug"
     echo "  $0 destroy               # Delete current worktree, exit terminal"
     echo "  $0 feature-new           # Switch to feature-new in current worktree"
-    echo "  $0 feature-new -m        # Create from master/main instead of current branch"
+    echo "  $0 feature-new -m        # Create from the default branch"
     echo "  $0 --fix-session         # Fix current session name"
 }
 
+
 post_spawn_setup() {
-    WT_SETUP_MAIN_ROOT="$1"
+    WT_SETUP_ROOT="$1"
     WT_SETUP_WORKTREE_PATH="$2"
-    WT_SETUP_CONFIG="${WT_SETUP_MAIN_ROOT}/.wtconfig"
+    WT_SETUP_CONFIG="${WT_SETUP_ROOT}/.wtconfig"
     WT_SETUP_MODE="${WT_SPAWN_MODE:-manual}"
 
     POST_SPAWN_RUN_COMMANDS=""
@@ -98,7 +99,7 @@ post_spawn_setup() {
                     continue
                 fi
 
-                WT_COPY_SRC="${WT_SETUP_MAIN_ROOT}/${WT_COPY_PATH}"
+                WT_COPY_SRC="${WT_SETUP_ROOT}/${WT_COPY_PATH}"
                 WT_COPY_DEST="${WT_SETUP_WORKTREE_PATH}/${WT_COPY_PATH}"
                 WT_COPY_DEST_DIR=$(dirname "$WT_COPY_DEST")
 
@@ -159,131 +160,207 @@ post_spawn_setup() {
     return 0
 }
 
+
+load_post_spawn_run_commands() {
+    WT_POST_SPAWN_ROOT="$1"
+    WT_POST_SPAWN_FILE="${WT_POST_SPAWN_ROOT}/.wtcompat-post-spawn-run"
+
+    if [ ! -f "$WT_POST_SPAWN_FILE" ]; then
+        return 0
+    fi
+
+    while IFS= read -r WT_POST_SPAWN_LINE || [ -n "$WT_POST_SPAWN_LINE" ]; do
+        WT_POST_SPAWN_CMD="$WT_POST_SPAWN_LINE"
+        WT_POST_SPAWN_CMD=${WT_POST_SPAWN_CMD#"${WT_POST_SPAWN_CMD%%[![:space:]]*}"}
+        WT_POST_SPAWN_CMD=${WT_POST_SPAWN_CMD%"${WT_POST_SPAWN_CMD##*[![:space:]]}"}
+
+        case "$WT_POST_SPAWN_CMD" in
+            ''|\#*)
+                continue
+                ;;
+        esac
+
+        if [ "${WT_SKIP_RUN_OC:-0}" = "1" ]; then
+            case "$WT_POST_SPAWN_CMD" in
+                oc|oc\ *|opencode|opencode\ *)
+                    continue
+                    ;;
+            esac
+        fi
+
+        if [ -z "$POST_SPAWN_RUN_COMMANDS" ]; then
+            POST_SPAWN_RUN_COMMANDS="$WT_POST_SPAWN_CMD"
+        else
+            POST_SPAWN_RUN_COMMANDS="${POST_SPAWN_RUN_COMMANDS} && ${WT_POST_SPAWN_CMD}"
+        fi
+    done < "$WT_POST_SPAWN_FILE"
+
+    return 0
+}
+
+
+create_tmux_session() {
+    SESSION_NAME="$1"
+    WORKTREE_PATH="$2"
+
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        echo "Tmux session '$SESSION_NAME' already exists"
+        return 0
+    fi
+
+    echo "Creating new tmux session '$SESSION_NAME'..."
+    tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
+    tmux rename-window -t "$SESSION_NAME:1" 'opencode'
+}
+
+
+run_post_spawn_commands_in_tmux() {
+    SESSION_NAME="$1"
+    WORKTREE_PATH="$2"
+
+    if [ -z "$POST_SPAWN_RUN_COMMANDS" ]; then
+        return 0
+    fi
+
+    echo "Running post-spawn commands in tmux session..."
+    if ! tmux send-keys -t "$SESSION_NAME" "cd \"$WORKTREE_PATH\" && $POST_SPAWN_RUN_COMMANDS" Enter; then
+        echo "Warning: Failed to queue post-spawn commands in tmux session"
+    fi
+}
+
+
 spawn_impl() {
     BRANCH_NAME="$1"
     NEW_WINDOW="$2"
     NO_SWITCH="$3"
+
+    if ! wt_compat_resolve_context "$PWD"; then
+        echo "Error: Not in a supported git repository"
+        exit 1
+    fi
+
+    if [ ! -x "$WWT_BIN" ]; then
+        echo "Error: Worktrunk wrapper not found: $WWT_BIN"
+        exit 1
+    fi
+
+    CONTAINER_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+    COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+    REPO_NAME="$WT_COMPAT_REPO_NAME"
+    SAFE_BRANCH_NAME=$(wt_compat_sanitize_branch "$BRANCH_NAME")
     WORKTREE_CREATED=false
 
-    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        echo "Error: Not in a git repository"
-        exit 1
-    fi
+    EXISTING_WORKTREE=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
 
-    CURRENT_ROOT=$(git rev-parse --show-toplevel)
-    if [ -z "$CURRENT_ROOT" ]; then
-        echo "Error: Could not determine repository root"
-        exit 1
-    fi
-
-    WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
-    
-    # The main repository is always the first worktree listed
-    MAIN_REPO_ROOT=$(echo "$WORKTREE_LIST" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
-    
-    # If we're in a worktree, switch context to main repo for git operations
-    if [ "$CURRENT_ROOT" != "$MAIN_REPO_ROOT" ]; then
-        echo "Running from worktree, using main repository: $MAIN_REPO_ROOT"
-        cd "$MAIN_REPO_ROOT" || {
-            echo "Error: Failed to change to main repository"
-            exit 1
-        }
-    fi
-
-    REPO_NAME=$(basename "$MAIN_REPO_ROOT")
-    REPO_PARENT=$(dirname "$MAIN_REPO_ROOT")
-
-    # Sanitize branch name for worktree directory (replace / with -)
-    SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '/' '-')
-    WORKTREE_NAME="${REPO_NAME}-${SAFE_BRANCH_NAME}"
-    WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
-
-    # Check if branch is already checked out in a worktree
-    EXISTING_WORKTREE=$(git worktree list --porcelain | grep -B2 "branch refs/heads/$BRANCH_NAME$" | grep "^worktree " | cut -d' ' -f2 || true)
-    
     if [ -n "$EXISTING_WORKTREE" ]; then
-        # Branch is already in a worktree - just connect to it
         echo "Branch '$BRANCH_NAME' is already checked out in worktree: $EXISTING_WORKTREE"
         echo "Connecting to existing worktree..."
         WORKTREE_PATH="$EXISTING_WORKTREE"
-        WORKTREE_NAME=$(basename "$WORKTREE_PATH")
-    elif [ -d "$WORKTREE_PATH" ]; then
-        # Directory exists but branch isn't in a worktree - error
-        echo "Error: Worktree directory already exists: $WORKTREE_PATH"
-        echo "Use 'wt destroy' if you're in that worktree, or choose a different branch name"
-        exit 1
-    elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
-        # Branch exists locally but not in a worktree - create worktree for existing branch
-        echo "Spawning worktree for existing branch: $BRANCH_NAME"
-        echo "  Repository: $REPO_NAME"
-        echo "  Worktree: $WORKTREE_PATH"
-        echo "  Branch: $BRANCH_NAME (existing)"
-
-        if ! git worktree add "$WORKTREE_PATH" "$BRANCH_NAME"; then
-            echo "Error: Failed to create worktree"
-            exit 1
-        fi
-        echo "Worktree created successfully"
-        WORKTREE_CREATED=true
     else
-        # Branch doesn't exist - create new branch from default
-        # Determine the default branch (origin/master or origin/main)
-        if git show-ref --verify --quiet refs/remotes/origin/master; then
-            BASE_REF="origin/master"
-        elif git show-ref --verify --quiet refs/remotes/origin/main; then
-            BASE_REF="origin/main"
+        if [ "$WT_COMPAT_MODE" = "legacy" ]; then
+            REPO_PARENT=$(dirname "$CONTAINER_ROOT")
+            WORKTREE_PATH="${REPO_PARENT}/${REPO_NAME}-${SAFE_BRANCH_NAME}"
+
+            if [ -d "$WORKTREE_PATH" ]; then
+                echo "Error: Worktree directory already exists: $WORKTREE_PATH"
+                echo "Use 'wt destroy' if you're in that worktree, or choose a different branch name"
+                exit 1
+            fi
+
+            if wt_compat_branch_exists_local "$COMMON_DIR" "$BRANCH_NAME"; then
+                echo "Spawning worktree for existing branch: $BRANCH_NAME"
+                echo "  Repository: $REPO_NAME"
+                echo "  Worktree: $WORKTREE_PATH"
+                echo "  Branch: $BRANCH_NAME (existing local)"
+
+                if ! git -C "$CONTAINER_ROOT" worktree add "$WORKTREE_PATH" "$BRANCH_NAME"; then
+                    echo "Error: Failed to create worktree"
+                    exit 1
+                fi
+            elif wt_compat_branch_exists_remote "$COMMON_DIR" "$BRANCH_NAME"; then
+                echo "Spawning worktree for remote branch: $BRANCH_NAME"
+                echo "  Repository: $REPO_NAME"
+                echo "  Worktree: $WORKTREE_PATH"
+                echo "  Branch: $BRANCH_NAME (tracking origin/$BRANCH_NAME)"
+
+                if ! git -C "$CONTAINER_ROOT" worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "origin/$BRANCH_NAME"; then
+                    echo "Error: Failed to create worktree"
+                    exit 1
+                fi
+
+                wt_compat_set_upstream "$COMMON_DIR" "$BRANCH_NAME" origin
+            else
+                BASE_REF=$(wt_compat_default_base_ref "$COMMON_DIR" 2>/dev/null || true)
+                if [ -z "$BASE_REF" ]; then
+                    echo "Error: Could not determine a default branch"
+                    exit 1
+                fi
+
+                echo "Spawning new worktree for task: $BRANCH_NAME"
+                echo "  Repository: $REPO_NAME"
+                echo "  Worktree: $WORKTREE_PATH"
+                echo "  Branch: $BRANCH_NAME (from $BASE_REF)"
+
+                if ! git -C "$CONTAINER_ROOT" worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$BASE_REF"; then
+                    echo "Error: Failed to create worktree"
+                    exit 1
+                fi
+
+                wt_compat_set_upstream "$COMMON_DIR" "$BRANCH_NAME" origin
+                echo "Worktree created successfully (upstream configured for git push)"
+            fi
         else
-            echo "Error: Could not find origin/master or origin/main"
-            echo "Available remote branches:"
-            git branch -r
-            exit 1
+            echo "Spawning bare-layout worktree for task: $BRANCH_NAME"
+            echo "  Repository: $REPO_NAME"
+
+            if wt_compat_branch_exists_local "$COMMON_DIR" "$BRANCH_NAME" || wt_compat_branch_exists_remote "$COMMON_DIR" "$BRANCH_NAME"; then
+                if ! "$WWT_BIN" -C "$CONTAINER_ROOT" switch "$BRANCH_NAME" --no-cd; then
+                    echo "Error: Failed to create or locate bare-layout worktree"
+                    exit 1
+                fi
+            else
+                if ! "$WWT_BIN" -C "$CONTAINER_ROOT" switch --create "$BRANCH_NAME" --no-cd; then
+                    echo "Error: Failed to create bare-layout worktree"
+                    exit 1
+                fi
+
+                wt_compat_set_upstream "$COMMON_DIR" "$BRANCH_NAME" origin
+                echo "Worktree created successfully (upstream configured for git push)"
+            fi
+
+            WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+            if [ -z "$WORKTREE_PATH" ]; then
+                echo "Error: Failed to resolve worktree path for branch '$BRANCH_NAME'"
+                exit 1
+            fi
         fi
 
-        echo "Spawning new worktree for task: $BRANCH_NAME"
-        echo "  Repository: $REPO_NAME"
-        echo "  Worktree: $WORKTREE_PATH"
-        echo "  Branch: $BRANCH_NAME (from $BASE_REF)"
-
-        if ! git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$BASE_REF"; then
-            echo "Error: Failed to create worktree"
-            exit 1
-        fi
-        
-        # Set up upstream tracking so 'git push' works out of the box
-        git config "branch.${BRANCH_NAME}.remote" origin
-        git config "branch.${BRANCH_NAME}.merge" "refs/heads/${BRANCH_NAME}"
-        echo "Worktree created successfully (upstream configured for git push)"
         WORKTREE_CREATED=true
     fi
 
     if [ "$WORKTREE_CREATED" = true ]; then
-        if ! post_spawn_setup "$MAIN_REPO_ROOT" "$WORKTREE_PATH"; then
+        SETUP_ROOT=$(wt_compat_setup_root "$CONTAINER_ROOT")
+
+        if ! post_spawn_setup "$SETUP_ROOT" "$WORKTREE_PATH"; then
+            exit 1
+        fi
+
+        if ! load_post_spawn_run_commands "$CONTAINER_ROOT"; then
             exit 1
         fi
     fi
 
-    # Register worktree path with zoxide so it appears in sesh
     if command -v zoxide >/dev/null 2>&1; then
         zoxide add "$WORKTREE_PATH"
     fi
 
+    SESSION_NAME=$(wt_compat_session_name "$CONTAINER_ROOT" "$BRANCH_NAME")
+
     if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
-        SESSION_NAME="$WORKTREE_NAME"
+        create_tmux_session "$SESSION_NAME" "$WORKTREE_PATH"
 
-        # Ensure the tmux session exists (attach/switch happens after).
-        if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-            echo "Tmux session '$SESSION_NAME' already exists"
-        else
-            echo "Creating new tmux session '$SESSION_NAME'..."
-            tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH"
-            tmux rename-window -t "$SESSION_NAME:1" 'opencode'
-        fi
-
-        if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
-            echo "Running post-spawn commands in tmux session..."
-            if ! tmux send-keys -t "$SESSION_NAME" "cd \"$WORKTREE_PATH\" && $POST_SPAWN_RUN_COMMANDS" Enter; then
-                echo "Warning: Failed to queue post-spawn commands in tmux session"
-            fi
+        if [ "$WORKTREE_CREATED" = true ]; then
+            run_post_spawn_commands_in_tmux "$SESSION_NAME" "$WORKTREE_PATH"
         fi
 
         if [ "$NEW_WINDOW" = true ]; then
@@ -302,78 +379,77 @@ spawn_impl() {
             return 0
         fi
 
-        if [ -n "$TMUX" ]; then
+        if [ -n "${TMUX:-}" ]; then
             echo "Switching to tmux session '$SESSION_NAME'..."
             tmux switch-client -t "$SESSION_NAME"
         else
             echo "Attaching to tmux session '$SESSION_NAME'..."
             tmux attach-session -t "$SESSION_NAME"
         fi
-    else
-        # Tmux-free mode
-        if [ "$NEW_WINDOW" = true ]; then
-            if ! command -v ghostty >/dev/null 2>&1; then
-                echo "Error: ghostty not found (required for --new-window)" >&2
-                exit 1
-            fi
 
-            echo "Opening worktree in new Ghostty window..."
-            ghostty --working-directory="$WORKTREE_PATH"
-            return 0
-        fi
-
-        if [ "$NO_SWITCH" = true ]; then
-            echo "Worktree ready at: $WORKTREE_PATH"
-            return 0
-        fi
-
-        if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
-            echo "Running post-spawn commands..."
-            if ! (cd "$WORKTREE_PATH" && sh -c "$POST_SPAWN_RUN_COMMANDS"); then
-                echo "Error: Post-spawn commands failed"
-                exit 1
-            fi
-        fi
-
-        echo "Changing to worktree directory..."
-        cd "$WORKTREE_PATH" || exit 1
-        exec "$DEFAULT_SHELL"
+        return 0
     fi
+
+    if [ "$NEW_WINDOW" = true ]; then
+        if ! command -v ghostty >/dev/null 2>&1; then
+            echo "Error: ghostty not found (required for --new-window)" >&2
+            exit 1
+        fi
+
+        echo "Opening worktree in new Ghostty window..."
+        ghostty --working-directory="$WORKTREE_PATH"
+        return 0
+    fi
+
+    if [ "$NO_SWITCH" = true ]; then
+        echo "Worktree ready at: $WORKTREE_PATH"
+        return 0
+    fi
+
+    if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
+        echo "Running post-spawn commands..."
+        if ! (cd "$WORKTREE_PATH" && sh -c "$POST_SPAWN_RUN_COMMANDS"); then
+            echo "Error: Post-spawn commands failed"
+            exit 1
+        fi
+    fi
+
+    echo "Changing to worktree directory..."
+    cd "$WORKTREE_PATH" || exit 1
+    exec "${SHELL:-/bin/sh}"
 }
 
+
 destroy_impl() {
-    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        echo "Error: Not in a git repository"
+    if ! wt_compat_resolve_context "$PWD"; then
+        echo "Error: Not in a supported git repository"
         exit 1
     fi
 
-    WORKTREE_ROOT=$(git rev-parse --show-toplevel)
+    if [ -z "$WT_COMPAT_WORKTREE_ROOT" ]; then
+        echo "Error: This command must be run from a worktree"
+        exit 1
+    fi
+
+    WORKTREE_ROOT="$WT_COMPAT_WORKTREE_ROOT"
     CURRENT_BRANCH=$(git branch --show-current)
+    DEFAULT_BRANCH=$(wt_compat_default_branch_name "$WT_COMPAT_COMMON_DIR" 2>/dev/null || true)
 
-    MAIN_REPO_ROOT=$(git worktree list --porcelain | grep -E "^worktree " | head -1 | cut -d' ' -f2)
-    if [ -z "$MAIN_REPO_ROOT" ]; then
-        echo "Error: Could not determine main repository root"
-        exit 1
-    fi
-
-    if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
+    if [ "$WT_COMPAT_MODE" = "legacy" ] && [ "$WORKTREE_ROOT" = "$WT_COMPAT_CONTAINER_ROOT" ]; then
         echo "Error: This command must be run from a spawned worktree, not the main repository"
         echo "Current directory: $(pwd)"
         exit 1
     fi
 
-    REPO_NAME=$(basename "$MAIN_REPO_ROOT")
-    WORKTREE_NAME=$(basename "$WORKTREE_ROOT")
-
-    if ! echo "$WORKTREE_NAME" | grep -qE "^${REPO_NAME}-"; then
-        echo "Warning: This doesn't look like a spawned worktree (expected: ${REPO_NAME}-*)"
-        echo "Current worktree: $WORKTREE_NAME"
-        echo "Main repository: $REPO_NAME"
+    if [ "$WT_COMPAT_MODE" = "bare" ] && [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
+        echo "Error: This command must be run from a spawned worktree, not the default-branch worktree"
+        echo "Current branch: $CURRENT_BRANCH"
+        exit 1
     fi
 
     echo "Destroying worktree: $WORKTREE_ROOT"
     echo "  Branch: $CURRENT_BRANCH"
-    echo "  Worktree name: $WORKTREE_NAME"
+    echo "  Mode: $WT_COMPAT_MODE"
 
     printf "Are you sure you want to delete this worktree? [y/N] "
     read -r response
@@ -387,24 +463,28 @@ destroy_impl() {
             ;;
     esac
 
-    # Remove worktree first (before killing tmux session)
-    if ! git worktree remove "$WORKTREE_ROOT" --force; then
-        echo "Error: Failed to remove worktree"
-        exit 1
+    if [ "$WT_COMPAT_MODE" = "bare" ]; then
+        if ! "$WWT_BIN" -C "$WT_COMPAT_CONTAINER_ROOT" remove --foreground --force --no-delete-branch "$CURRENT_BRANCH"; then
+            echo "Error: Failed to remove worktree"
+            exit 1
+        fi
+    else
+        if ! git -C "$WT_COMPAT_CONTAINER_ROOT" worktree remove "$WORKTREE_ROOT" --force; then
+            echo "Error: Failed to remove worktree"
+            exit 1
+        fi
     fi
-    
+
     echo "Worktree removed successfully"
 
-    # Handle tmux session cleanup (only if USE_TMUX is enabled)
     if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
         CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
-        
-        if [ -n "$TMUX" ] && [ -n "$CURRENT_SESSION" ]; then
-            # We're in tmux - switch to another session first, then kill this one
+        EXPECTED_SESSION=$(wt_compat_session_name "$WT_COMPAT_CONTAINER_ROOT" "$CURRENT_BRANCH")
+
+        if [ -n "${TMUX:-}" ] && [ -n "$CURRENT_SESSION" ]; then
             echo "Switching to another session..."
-            # Try to switch to previous session, or main repo session, or any other session
             if tmux switch-client -p 2>/dev/null || \
-               tmux switch-client -t "$REPO_NAME" 2>/dev/null || \
+               tmux switch-client -t "$WT_COMPAT_REPO_NAME" 2>/dev/null || \
                tmux switch-client -n 2>/dev/null; then
                 echo "Switched to another session, killing '$CURRENT_SESSION'..."
                 tmux kill-session -t "$CURRENT_SESSION"
@@ -412,17 +492,188 @@ destroy_impl() {
                 echo "Killing tmux session '$CURRENT_SESSION'..."
                 tmux kill-session -t "$CURRENT_SESSION"
             fi
-        elif tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
-            # Not in tmux, just kill the session if it exists
-            echo "Killing tmux session '$WORKTREE_NAME'..."
-            tmux kill-session -t "$WORKTREE_NAME"
+        elif tmux has-session -t "$EXPECTED_SESSION" 2>/dev/null; then
+            echo "Killing tmux session '$EXPECTED_SESSION'..."
+            tmux kill-session -t "$EXPECTED_SESSION"
         fi
     fi
 
     echo "Done!"
 }
 
-# Parse arguments
+
+fix_session_impl() {
+    if [ "$USE_TMUX" != true ]; then
+        echo "Note: --fix-session is a tmux feature."
+        exit 0
+    fi
+
+    if ! command -v tmux >/dev/null 2>&1 || [ -z "${TMUX:-}" ]; then
+        echo "Error: Not in a tmux session or tmux not available"
+        exit 1
+    fi
+
+    if ! wt_compat_resolve_context "$PWD"; then
+        echo "Error: Not in a supported git repository"
+        exit 1
+    fi
+
+    if [ -z "$WT_COMPAT_WORKTREE_ROOT" ]; then
+        echo "Error: --fix-session must be run from a worktree"
+        exit 1
+    fi
+
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [ -z "$CURRENT_BRANCH" ]; then
+        echo "Error: Could not determine current branch"
+        exit 1
+    fi
+
+    CURRENT_SESSION=$(tmux display-message -p '#S')
+    EXPECTED_SESSION_NAME=$(wt_compat_session_name "$WT_COMPAT_CONTAINER_ROOT" "$CURRENT_BRANCH")
+
+    echo "Current session: $CURRENT_SESSION"
+    echo "Expected session name: $EXPECTED_SESSION_NAME"
+
+    if [ "$CURRENT_SESSION" = "$EXPECTED_SESSION_NAME" ]; then
+        echo "Session name already matches expected format"
+        exit 0
+    fi
+
+    if tmux has-session -t "$EXPECTED_SESSION_NAME" 2>/dev/null; then
+        echo "Session '$EXPECTED_SESSION_NAME' already exists, switching to it..."
+        tmux switch-client -t "$EXPECTED_SESSION_NAME"
+    else
+        echo "Renaming current session to '$EXPECTED_SESSION_NAME'..."
+        if tmux rename-session "$EXPECTED_SESSION_NAME"; then
+            echo "Session renamed successfully"
+        else
+            echo "Error: Failed to rename session"
+            exit 1
+        fi
+    fi
+
+    echo "Session fix complete!"
+    echo "Session: $(tmux display-message -p '#S')"
+    echo "Directory: $(pwd)"
+    echo "Branch: $CURRENT_BRANCH"
+}
+
+
+branch_switch_impl() {
+    BRANCH_NAME="$1"
+    FROM_MASTER="$2"
+
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Error: Not in a git repository"
+        exit 1
+    fi
+
+    if ! wt_compat_resolve_context "$PWD"; then
+        echo "Error: Not in a supported git repository"
+        exit 1
+    fi
+
+    if [ -z "$WT_COMPAT_WORKTREE_ROOT" ]; then
+        echo "Error: Branch switching must be run from a worktree"
+        exit 1
+    fi
+
+    CURRENT_BRANCH=$(git branch --show-current)
+    DEFAULT_BRANCH=$(wt_compat_default_branch_name "$WT_COMPAT_COMMON_DIR" 2>/dev/null || true)
+
+    if [ "$WT_COMPAT_MODE" = "legacy" ] && [ "$WT_COMPAT_WORKTREE_ROOT" = "$WT_COMPAT_CONTAINER_ROOT" ]; then
+        echo "Error: This script is designed for worktrees, not the main repository"
+        echo "Current directory appears to be the main repository: $WT_COMPAT_CONTAINER_ROOT"
+        echo "Use 'wt -f' to fix the session name in the main repository"
+        exit 1
+    fi
+
+    if [ "$WT_COMPAT_MODE" = "bare" ] && [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
+        echo "Error: This script is designed for spawned worktrees, not the default-branch worktree"
+        echo "Use 'wt spawn <branch>' instead"
+        exit 1
+    fi
+
+    echo "Current worktree: $WT_COMPAT_WORKTREE_ROOT"
+    echo "Current branch: $CURRENT_BRANCH"
+    echo "Target branch: $BRANCH_NAME"
+
+    if wt_compat_branch_exists_local "$WT_COMPAT_COMMON_DIR" "$BRANCH_NAME" || wt_compat_branch_exists_remote "$WT_COMPAT_COMMON_DIR" "$BRANCH_NAME"; then
+        BRANCH_EXISTS=true
+        echo "Branch '$BRANCH_NAME' exists"
+    else
+        BRANCH_EXISTS=false
+        echo "Branch '$BRANCH_NAME' does not exist, will create it"
+    fi
+
+    if [ "$BRANCH_EXISTS" = false ]; then
+        if [ "$FROM_MASTER" = true ]; then
+            BASE_BRANCH=$(wt_compat_default_base_ref "$WT_COMPAT_COMMON_DIR" 2>/dev/null || true)
+            if [ -z "$BASE_BRANCH" ]; then
+                echo "Error: Could not determine a default branch"
+                exit 1
+            fi
+            echo "Will create new branch from: $BASE_BRANCH"
+        else
+            BASE_BRANCH="$CURRENT_BRANCH"
+            echo "Will create new branch from current branch: $BASE_BRANCH"
+        fi
+    fi
+
+    if [ "$BRANCH_EXISTS" = true ]; then
+        echo "Switching to existing branch '$BRANCH_NAME'..."
+        if ! git switch "$BRANCH_NAME"; then
+            echo "Error: Failed to switch to branch '$BRANCH_NAME'"
+            exit 1
+        fi
+    else
+        echo "Creating and switching to new branch '$BRANCH_NAME' from '$BASE_BRANCH'..."
+        if ! git switch -c "$BRANCH_NAME" "$BASE_BRANCH"; then
+            echo "Error: Failed to create branch '$BRANCH_NAME'"
+            exit 1
+        fi
+    fi
+
+    echo "Successfully switched to branch '$BRANCH_NAME'"
+
+    if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1 && [ -n "${TMUX:-}" ]; then
+        CURRENT_SESSION=$(tmux display-message -p '#S')
+        NEW_SESSION_NAME=$(wt_compat_session_name "$WT_COMPAT_CONTAINER_ROOT" "$BRANCH_NAME")
+
+        echo "Current tmux session: $CURRENT_SESSION"
+        echo "New tmux session name: $NEW_SESSION_NAME"
+
+        if [ "$CURRENT_SESSION" != "$NEW_SESSION_NAME" ]; then
+            if tmux has-session -t "$NEW_SESSION_NAME" 2>/dev/null; then
+                echo "Warning: Tmux session '$NEW_SESSION_NAME' already exists"
+                echo "Switching to existing session..."
+                tmux switch-client -t "$NEW_SESSION_NAME"
+            else
+                echo "Renaming tmux session to '$NEW_SESSION_NAME'..."
+                if tmux rename-session "$NEW_SESSION_NAME"; then
+                    echo "Tmux session renamed successfully"
+                else
+                    echo "Warning: Failed to rename tmux session"
+                fi
+            fi
+        else
+            echo "Tmux session name already matches"
+        fi
+    elif [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
+        echo "Not in a tmux session, skipping session rename"
+    fi
+
+    echo ""
+    echo "Branch switch complete!"
+    echo "Branch: $BRANCH_NAME"
+    echo "Directory: $(pwd)"
+    if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1 && [ -n "${TMUX:-}" ]; then
+        echo "Tmux session: $(tmux display-message -p '#S')"
+    fi
+}
+
+
 COMMAND=""
 BRANCH_NAME=""
 FROM_MASTER=false
@@ -474,7 +725,6 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Handle task commands first
 if [ "$COMMAND" = "spawn" ]; then
     if [ -z "$BRANCH_NAME" ]; then
         echo "Error: spawn command requires a branch name"
@@ -482,7 +732,7 @@ if [ "$COMMAND" = "spawn" ]; then
         exit 1
     fi
     if [ "$FROM_MASTER" = true ]; then
-        echo "Error: spawn command always uses origin/master, --from-master not applicable"
+        echo "Error: spawn command always uses the default branch, --from-master not applicable"
         usage
         exit 1
     fi
@@ -500,6 +750,7 @@ if [ "$COMMAND" = "spawn" ]; then
         echo "Error: --new-window requires ghostty" >&2
         exit 1
     fi
+
     spawn_impl "$BRANCH_NAME" "$NEW_WINDOW" "$NO_SWITCH"
     exit $?
 fi
@@ -527,183 +778,9 @@ if [ -z "$BRANCH_NAME" ] && [ "$FIX_SESSION" = false ]; then
     exit 1
 fi
 
-# Validate we're in a git repository
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "Error: Not in a git repository"
-    exit 1
-fi
-
-# Get current worktree information
-CURRENT_DIR=$(pwd)
-WORKTREE_ROOT=$(git rev-parse --show-toplevel)
-CURRENT_BRANCH=$(git branch --show-current)
-
-# Check if we're in a worktree by looking at git worktree list
-WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
-if [ -z "$WORKTREE_LIST" ]; then
-    echo "Error: This script is designed for worktrees, but git worktree is not available"
-    exit 1
-fi
-
-# Find the main repository root from worktree list
-MAIN_REPO_ROOT=$(echo "$WORKTREE_LIST" | grep -E "^worktree " | head -1 | cut -d' ' -f2)
-if [ -z "$MAIN_REPO_ROOT" ]; then
-    echo "Error: Could not determine main repository root"
-    exit 1
-fi
-
-# Extract repository name and current directory name
-REPO_NAME=$(basename "$MAIN_REPO_ROOT")
-DIR_NAME=$(basename "$WORKTREE_ROOT")
-
-# Handle fix-session mode
 if [ "$FIX_SESSION" = true ]; then
-    if [ "$USE_TMUX" != true ]; then
-        echo "Note: --fix-session is a tmux feature."
-        echo "Set USE_TMUX=true in ~/dotfiles/bin/wt to enable tmux integration."
-        exit 0
-    fi
-    if ! command -v tmux >/dev/null 2>&1 || [ -z "$TMUX" ]; then
-        echo "Error: Not in a tmux session or tmux not available"
-        exit 1
-    fi
-    
-    CURRENT_SESSION=$(tmux display-message -p '#S')
-    
-    # Check if we're in a worktree or main repo
-    if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
-        # Main repository - just use repo name + branch
-        EXPECTED_SESSION_NAME="${REPO_NAME}@${CURRENT_BRANCH}"
-    else
-        # Worktree - use directory name + branch
-        EXPECTED_SESSION_NAME="${DIR_NAME}@${CURRENT_BRANCH}"
-    fi
-    
-    echo "Current session: $CURRENT_SESSION"
-    echo "Expected session name: $EXPECTED_SESSION_NAME"
-    
-    if [ "$CURRENT_SESSION" = "$EXPECTED_SESSION_NAME" ]; then
-        echo "Session name already matches expected format"
-        exit 0
-    fi
-    
-    # Check if expected session already exists
-    if tmux has-session -t "$EXPECTED_SESSION_NAME" 2>/dev/null; then
-        echo "Session '$EXPECTED_SESSION_NAME' already exists, switching to it..."
-        tmux switch-client -t "$EXPECTED_SESSION_NAME"
-    else
-        echo "Renaming current session to '$EXPECTED_SESSION_NAME'..."
-        if tmux rename-session "$EXPECTED_SESSION_NAME"; then
-            echo "Session renamed successfully"
-        else
-            echo "Error: Failed to rename session"
-            exit 1
-        fi
-    fi
-    
-    echo "Session fix complete!"
-    echo "Session: $(tmux display-message -p '#S')"
-    echo "Directory: $(pwd)"
-    echo "Branch: $CURRENT_BRANCH"
-    exit 0
+    fix_session_impl
+    exit $?
 fi
 
-# Check if we're in a worktree (not the main repo)
-if [ "$WORKTREE_ROOT" = "$MAIN_REPO_ROOT" ]; then
-    echo "Error: This script is designed for worktrees, not the main repository"
-    echo "Current directory appears to be the main repository: $MAIN_REPO_ROOT"
-    echo "Use 'wt -f' to fix the session name in the main repository"
-    exit 1
-fi
-
-echo "Current worktree: $WORKTREE_ROOT"
-echo "Current branch: $CURRENT_BRANCH"
-echo "Target branch: $BRANCH_NAME"
-
-# Check if target branch already exists
-BRANCH_EXISTS=false
-if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" || git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
-    BRANCH_EXISTS=true
-    echo "Branch '$BRANCH_NAME' exists"
-else
-    echo "Branch '$BRANCH_NAME' does not exist, will create it"
-fi
-
-# Determine base branch for new branch creation
-if [ "$BRANCH_EXISTS" = false ]; then
-    if [ "$FROM_MASTER" = true ]; then
-        # Check if master exists, fallback to main
-        if git show-ref --verify --quiet refs/heads/master; then
-            BASE_BRANCH="master"
-        elif git show-ref --verify --quiet refs/heads/main; then
-            BASE_BRANCH="main"
-        elif git show-ref --verify --quiet refs/remotes/origin/master; then
-            BASE_BRANCH="origin/master"
-        elif git show-ref --verify --quiet refs/remotes/origin/main; then
-            BASE_BRANCH="origin/main"
-        else
-            echo "Error: Could not find master or main branch"
-            exit 1
-        fi
-        echo "Will create new branch from: $BASE_BRANCH"
-    else
-        BASE_BRANCH="$CURRENT_BRANCH"
-        echo "Will create new branch from current branch: $BASE_BRANCH"
-    fi
-fi
-
-
-
-# Switch or create the branch
-if [ "$BRANCH_EXISTS" = true ]; then
-    echo "Switching to existing branch '$BRANCH_NAME'..."
-    if ! git switch "$BRANCH_NAME"; then
-        echo "Error: Failed to switch to branch '$BRANCH_NAME'"
-        exit 1
-    fi
-else
-    echo "Creating and switching to new branch '$BRANCH_NAME' from '$BASE_BRANCH'..."
-    if ! git switch -c "$BRANCH_NAME" "$BASE_BRANCH"; then
-        echo "Error: Failed to create branch '$BRANCH_NAME'"
-        exit 1
-    fi
-fi
-
-echo "Successfully switched to branch '$BRANCH_NAME'"
-
-# Handle tmux session renaming (only if USE_TMUX is enabled)
-if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
-    CURRENT_SESSION=$(tmux display-message -p '#S')
-    NEW_SESSION_NAME="${DIR_NAME}@${BRANCH_NAME}"
-    
-    echo "Current tmux session: $CURRENT_SESSION"
-    echo "New tmux session name: $NEW_SESSION_NAME"
-    
-    if [ "$CURRENT_SESSION" != "$NEW_SESSION_NAME" ]; then
-        # Check if target session name already exists
-        if tmux has-session -t "$NEW_SESSION_NAME" 2>/dev/null; then
-            echo "Warning: Tmux session '$NEW_SESSION_NAME' already exists"
-            echo "Switching to existing session..."
-            tmux switch-client -t "$NEW_SESSION_NAME"
-        else
-            echo "Renaming tmux session to '$NEW_SESSION_NAME'..."
-            if tmux rename-session "$NEW_SESSION_NAME"; then
-                echo "Tmux session renamed successfully"
-            else
-                echo "Warning: Failed to rename tmux session"
-            fi
-        fi
-    else
-        echo "Tmux session name already matches"
-    fi
-elif [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1; then
-    echo "Not in a tmux session, skipping session rename"
-fi
-
-echo ""
-echo "Branch switch complete!"
-echo "Branch: $BRANCH_NAME"
-echo "Directory: $(pwd)"
-if [ "$USE_TMUX" = true ] && command -v tmux >/dev/null 2>&1 && [ -n "$TMUX" ]; then
-    echo "Tmux session: $(tmux display-message -p '#S')"
-fi
+branch_switch_impl "$BRANCH_NAME" "$FROM_MASTER"

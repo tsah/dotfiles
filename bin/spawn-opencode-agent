@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
 usage() {
     echo "Usage: $0 [--agent <agent-name>] <branch-name> <prompt...>"
     echo ""
@@ -57,27 +60,22 @@ for required_cmd in git wt tmux oc; do
     fi
 done
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "Error: Not in a git repository" >&2
+if ! wt_compat_resolve_context "$PWD"; then
+    echo "Error: Not in a supported git repository" >&2
     exit 1
 fi
 
-WORKTREE_LIST=$(git worktree list --porcelain 2>/dev/null)
-MAIN_REPO_ROOT=$(printf '%s\n' "$WORKTREE_LIST" | awk '/^worktree / {print $2; exit}')
-
-if [[ -z "$MAIN_REPO_ROOT" ]]; then
-    echo "Error: Could not determine main repository root" >&2
-    exit 1
-fi
-
-REPO_NAME=$(basename "$MAIN_REPO_ROOT")
-REPO_PARENT=$(dirname "$MAIN_REPO_ROOT")
-SAFE_BRANCH_NAME=${BRANCH_NAME//\//-}
-WORKTREE_NAME="${REPO_NAME}-${SAFE_BRANCH_NAME}"
-WORKTREE_PATH="${REPO_PARENT}/${WORKTREE_NAME}"
-SESSION_NAME="$WORKTREE_NAME"
+COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+CONTAINER_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+SESSION_NAME=$(wt_compat_session_name "$CONTAINER_ROOT" "$BRANCH_NAME")
 
 WT_SPAWN_MODE=auto WT_SKIP_RUN_OC=1 wt spawn "$BRANCH_NAME" --no-switch
+
+WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+if [[ -z "$WORKTREE_PATH" ]]; then
+    echo "Error: Could not resolve worktree path for branch '$BRANCH_NAME'" >&2
+    exit 1
+fi
 
 if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     echo "Error: tmux session '$SESSION_NAME' was not created" >&2
@@ -86,8 +84,6 @@ fi
 
 WINDOW_NAME="opencode"
 
-# Create the opencode window with oc running, then remove the default shell window
-# so the session ends up with a single tab named "opencode".
 if [[ -n "$AGENT_NAME" ]]; then
     tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
         bash -lc 'oc --agent "$1" --prompt "$2"' _ "$AGENT_NAME" "$INITIAL_PROMPT"
@@ -96,9 +92,6 @@ else
         bash -lc 'oc --prompt "$1"' _ "$INITIAL_PROMPT"
 fi
 
-# Queue exit on the default shell window so it self-closes after any
-# post-spawn commands (from .wtconfig) finish running.
-# renumber-windows is on, so the opencode window becomes index 1.
 tmux send-keys -t "$SESSION_NAME:1" "exit" Enter
 
 echo "Spawned opencode worker."

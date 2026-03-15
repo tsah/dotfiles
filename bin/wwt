@@ -1,0 +1,40 @@
+#!/bin/sh
+
+set -e
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+NATIVE_WT=$(wt_compat_native_bin)
+TARGET_PATH=$PWD
+EXPLICIT_CONFIG=false
+EXPECT_C_ARG=false
+
+for arg in "$@"; do
+    if [ "$EXPECT_C_ARG" = true ]; then
+        TARGET_PATH=$arg
+        EXPECT_C_ARG=false
+        continue
+    fi
+
+    case "$arg" in
+        --config|--config=*)
+            EXPLICIT_CONFIG=true
+            ;;
+        -C)
+            EXPECT_C_ARG=true
+            ;;
+        -C*)
+            TARGET_PATH=${arg#-C}
+            ;;
+    esac
+done
+
+if [ "$EXPLICIT_CONFIG" = false ] && wt_compat_resolve_context "$TARGET_PATH"; then
+    WORKTRUNK_CONFIG=$(wt_compat_worktrunk_config_path "$WT_COMPAT_CONTAINER_ROOT")
+    if [ -n "$WORKTRUNK_CONFIG" ]; then
+        exec "$NATIVE_WT" --config "$WORKTRUNK_CONFIG" "$@"
+    fi
+fi
+
+exec "$NATIVE_WT" "$@"

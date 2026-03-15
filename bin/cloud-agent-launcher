@@ -8,16 +8,50 @@
 # 2. Type the task description
 # 3. Launch the cloud agent
 
-# Hardcoded repo path for now
-REPO_ROOT="$HOME/dev/work/tweezr"
-cd "$REPO_ROOT" || { echo "Failed to cd to $REPO_ROOT"; read -p "Press Enter..."; exit 1; }
+set -euo pipefail
 
-REPO_NAME=$(basename "$REPO_ROOT")
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+if [[ -n "${TWEEZR_REPO_ROOT:-}" ]]; then
+    REPO_ROOT="$TWEEZR_REPO_ROOT"
+elif wt_compat_resolve_context "$PWD"; then
+    REPO_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+else
+    REPO_ROOT="$HOME/dev/work/tweezr"
+fi
+
+if ! wt_compat_resolve_context "$REPO_ROOT"; then
+    echo "Failed to resolve repo context for $REPO_ROOT" >&2
+    read -p "Press Enter..."
+    exit 1
+fi
+
+COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+REPO_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+REPO_NAME="$WT_COMPAT_REPO_NAME"
+
+if [[ -n "$WT_COMPAT_WORKTREE_ROOT" ]]; then
+    CHECKOUT_ROOT="$WT_COMPAT_WORKTREE_ROOT"
+else
+    DEFAULT_BRANCH=$(wt_compat_default_branch_name "$COMMON_DIR")
+    CHECKOUT_ROOT=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$DEFAULT_BRANCH")
+fi
+
+if [[ -z "$CHECKOUT_ROOT" || ! -d "$CHECKOUT_ROOT" ]]; then
+    echo "Could not find a checkout to use for $REPO_ROOT" >&2
+    echo "Create the default worktree first (for bare repos, run: wwt -C \"$REPO_ROOT\" switch ^ --no-cd)" >&2
+    read -p "Press Enter..."
+    exit 1
+fi
+
+cd "$CHECKOUT_ROOT" || { echo "Failed to cd to $CHECKOUT_ROOT"; read -p "Press Enter..."; exit 1; }
+
 CURRENT_BRANCH=$(git branch --show-current)
 
 # Fetch latest remote refs
 echo "Fetching latest from remote..."
-git fetch origin --quiet
+git --git-dir="$COMMON_DIR" fetch origin --quiet
 
 # Step 1: Select or create branch (no local switching)
 echo "Repository: $REPO_NAME"
@@ -25,7 +59,10 @@ echo "Local branch: $CURRENT_BRANCH (will not change)"
 echo ""
 
 # Get remote branches only (what exists on GitHub)
-BRANCHES=$(git branch -r --format='%(refname:short)' 2>/dev/null | \
+BASE_REF=$(wt_compat_default_base_ref "$COMMON_DIR" 2>/dev/null || true)
+BASE_REF=${BASE_REF:-origin/main}
+
+BRANCHES=$(git --git-dir="$COMMON_DIR" branch -r --format='%(refname:short)' 2>/dev/null | \
     sed 's|^origin/||' | \
     grep -v '^HEAD$' | \
     sort -u)
@@ -40,8 +77,7 @@ RESULT=$(echo "$BRANCHES" | fzf \
     --prompt '🌿  ' \
     --header 'Enter: select • Ctrl-N: use typed text • Type new name to create on remote' \
     --bind 'ctrl-n:become(echo "NEW:{q}")' \
-    --preview 'branch="origin/{}"; 
-               [[ -n "{}" ]] && git log --oneline -10 "$branch" 2>/dev/null || echo "New branch (will be created from origin/main)"')
+    --preview "branch=\"origin/{}\"; [[ -n \"{}\" ]] && git --git-dir=\"$COMMON_DIR\" log --oneline -10 \"\$branch\" 2>/dev/null || echo \"New branch (will be created from $BASE_REF)\"")
 FZF_EXIT=$?
 
 # Handle cancelled (Ctrl-C or Escape)
@@ -90,15 +126,10 @@ fi
 # Create branch on remote if needed (without local checkout)
 if [[ "$CREATE_NEW" == true ]]; then
     # Check if it already exists on remote
-    if git show-ref --verify --quiet "refs/remotes/origin/$TARGET_BRANCH"; then
+    if git --git-dir="$COMMON_DIR" show-ref --verify --quiet "refs/remotes/origin/$TARGET_BRANCH"; then
         echo "Branch '$TARGET_BRANCH' already exists on remote"
     else
-        # Determine base branch
-        if git show-ref --verify --quiet refs/remotes/origin/main; then
-            BASE_REF="origin/main"
-        elif git show-ref --verify --quiet refs/remotes/origin/master; then
-            BASE_REF="origin/master"
-        else
+        if [[ -z "$BASE_REF" ]]; then
             echo "Error: Could not find origin/main or origin/master" >&2
             read -p "Press Enter to exit..."
             exit 1
@@ -106,7 +137,7 @@ if [[ "$CREATE_NEW" == true ]]; then
         
         echo "Creating branch '$TARGET_BRANCH' on remote from $BASE_REF..."
         # Create branch on remote directly (no local checkout)
-        if ! git push origin "$BASE_REF:refs/heads/$TARGET_BRANCH"; then
+        if ! git --git-dir="$COMMON_DIR" push origin "$BASE_REF:refs/heads/$TARGET_BRANCH"; then
             echo "Error: Failed to create branch on remote" >&2
             read -p "Press Enter to exit..."
             exit 1
@@ -153,7 +184,7 @@ echo "  Task: $TASK"
 echo ""
 
 # Launch the agent
-LAUNCH_SCRIPT="$REPO_ROOT/scripts/launch_cursor_agent.py"
+LAUNCH_SCRIPT="$CHECKOUT_ROOT/scripts/launch_cursor_agent.py"
 
 if [[ ! -f "$LAUNCH_SCRIPT" ]]; then
     echo "Error: launch_cursor_agent.py not found at $LAUNCH_SCRIPT" >&2
