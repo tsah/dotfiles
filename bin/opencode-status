@@ -587,7 +587,14 @@ def main():
                 )
                 age = format_age(msg_time)
             else:
-                age = format_age(session_updated_times.get(session_id, 0))
+                updated_ms = session_updated_times.get(session_id, 0)
+                if child_counts.get(str(pid), 0) > 0:
+                    status = "generating"
+                elif updated_ms and now_ms - updated_ms < 30000:
+                    status = "unknown"
+                else:
+                    status = "done"
+                age = format_age(updated_ms)
 
         grouped[cwd].append(
             (
