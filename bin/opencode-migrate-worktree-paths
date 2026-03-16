@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+from datetime import datetime
+
+
+def parse_worktrees(repo_root):
+    git_dir = os.path.join(repo_root, ".git")
+    proc = subprocess.run(
+        ["git", "--git-dir", git_dir, "worktree", "list", "--porcelain"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or "failed to list worktrees")
+
+    entries = []
+    current = {}
+    for line in proc.stdout.splitlines():
+        if not line:
+            if current:
+                entries.append(current)
+                current = {}
+            continue
+
+        parts = line.split(" ", 1)
+        if len(parts) == 2:
+            key, value = parts
+            current[key] = value
+        else:
+            current[line] = True
+
+    if current:
+        entries.append(current)
+
+    paths = []
+    for entry in entries:
+        wt = entry.get("worktree")
+        if not wt:
+            continue
+        paths.append(os.path.realpath(wt))
+    return paths
+
+
+def build_mapping(repo_root):
+    repo_root = os.path.realpath(repo_root)
+    parent = os.path.dirname(repo_root)
+    repo_name = os.path.basename(repo_root)
+
+    mapping = {}
+
+    master_path = os.path.join(repo_root, "master")
+    if os.path.isdir(master_path):
+        mapping[repo_root] = master_path
+        mapping[f"{repo_root}-next"] = master_path
+
+    for wt in parse_worktrees(repo_root):
+        if wt == repo_root:
+            continue
+
+        base = os.path.basename(wt)
+        if not base:
+            continue
+
+        mapping[os.path.join(parent, f"{repo_name}-{base}")] = wt
+        mapping[os.path.join(parent, f"{repo_name}-next", base)] = wt
+        mapping[os.path.join(parent, f"{repo_name}-next-{base}")] = wt
+
+    compact = {}
+    for old_path, new_path in mapping.items():
+        if old_path == new_path:
+            continue
+        if not os.path.isdir(new_path):
+            continue
+        compact[old_path] = new_path
+    return compact
+
+
+def backup_database(db_path):
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = f"{db_path}.bak-worktree-paths-{ts}"
+
+    src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    dst = sqlite3.connect(backup_path)
+    src.backup(dst)
+    dst.close()
+    src.close()
+
+    return backup_path
+
+
+def apply_migration(db_path, mapping):
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+
+    session_updates = 0
+    worktree_updates = 0
+    workspace_updates = 0
+    sandbox_updates = 0
+
+    for old_path, new_path in mapping.items():
+        cur.execute("UPDATE session SET directory = ? WHERE directory = ?", (new_path, old_path))
+        session_updates += cur.rowcount
+
+        cur.execute("UPDATE project SET worktree = ? WHERE worktree = ?", (new_path, old_path))
+        worktree_updates += cur.rowcount
+
+        try:
+            cur.execute("UPDATE workspace SET directory = ? WHERE directory = ?", (new_path, old_path))
+            workspace_updates += cur.rowcount
+        except sqlite3.OperationalError:
+            pass
+
+    cur.execute("SELECT id, sandboxes FROM project WHERE sandboxes IS NOT NULL AND sandboxes != ''")
+    project_rows = cur.fetchall()
+    for project_id, sandboxes_raw in project_rows:
+        try:
+            sandboxes = json.loads(sandboxes_raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+        if not isinstance(sandboxes, list):
+            continue
+
+        updated = []
+        changed = False
+        for path in sandboxes:
+            if not isinstance(path, str):
+                updated.append(path)
+                continue
+            new_path = mapping.get(path, path)
+            if new_path != path:
+                changed = True
+            updated.append(new_path)
+
+        if changed:
+            cur.execute(
+                "UPDATE project SET sandboxes = ? WHERE id = ?",
+                (json.dumps(updated), project_id),
+            )
+            sandbox_updates += 1
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "session_updates": session_updates,
+        "project_worktree_updates": worktree_updates,
+        "workspace_updates": workspace_updates,
+        "project_sandbox_updates": sandbox_updates,
+    }
+
+
+def collect_preview_counts(db_path, mapping):
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    cur = conn.cursor()
+    rows = []
+    for old_path, new_path in mapping.items():
+        cur.execute("SELECT COUNT(*) FROM session WHERE directory = ?", (old_path,))
+        session_count = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM project WHERE worktree = ?", (old_path,))
+        worktree_count = cur.fetchone()[0]
+
+        try:
+            cur.execute("SELECT COUNT(*) FROM workspace WHERE directory = ?", (old_path,))
+            workspace_count = cur.fetchone()[0]
+        except sqlite3.OperationalError:
+            workspace_count = 0
+
+        if session_count or worktree_count or workspace_count:
+            rows.append((old_path, new_path, session_count, worktree_count, workspace_count))
+
+    conn.close()
+    return rows
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Migrate opencode session directories from sibling worktrees to bare-container paths")
+    parser.add_argument("--repo", default="/home/tsah/dev/work/tweezr", help="Bare repo container path")
+    parser.add_argument("--db", default=os.path.expanduser("~/.local/share/opencode/opencode.db"), help="Path to opencode SQLite DB")
+    parser.add_argument("--apply", action="store_true", help="Apply updates (default is dry run)")
+    args = parser.parse_args()
+
+    repo_root = os.path.realpath(os.path.expanduser(args.repo))
+    db_path = os.path.realpath(os.path.expanduser(args.db))
+
+    if not os.path.isdir(repo_root):
+        raise SystemExit(f"Repo path does not exist: {repo_root}")
+
+    if not os.path.isfile(db_path):
+        raise SystemExit(f"Database path does not exist: {db_path}")
+
+    mapping = build_mapping(repo_root)
+    if not mapping:
+        print("No mapping candidates found.")
+        return
+
+    preview = collect_preview_counts(db_path, mapping)
+    if not preview:
+        print("No matching rows to migrate.")
+        return
+
+    print("Planned remaps:")
+    for old_path, new_path, session_count, worktree_count, workspace_count in preview:
+        print(
+            f"- {old_path} -> {new_path} "
+            f"(session:{session_count}, project.worktree:{worktree_count}, workspace:{workspace_count})"
+        )
+
+    if not args.apply:
+        print("Dry run only. Re-run with --apply to execute.")
+        return
+
+    backup_path = backup_database(db_path)
+    summary = apply_migration(db_path, {old: new for old, new, *_ in preview})
+
+    print(f"Created backup: {backup_path}")
+    print("Applied updates:")
+    for key, value in summary.items():
+        print(f"- {key}: {value}")
+
+
+if __name__ == "__main__":
+    main()

@@ -2,13 +2,17 @@
 # OpenCode wrapper with random port configuration (40000-50000)
 #
 # Usage:
-#   oc           Start new session
-#   oc -c        Continue most recent session for this directory
+#   oc           Resume most recent session for this directory (if available)
+#   oc -c        Alias for resume behavior
+#   oc --new     Force a new session
 #   oc [args]    Pass additional args to opencode
 
-# Check for -c/--continue flag and extract other args
 CONTINUE_SESSION=false
+FORCE_NEW_SESSION=false
 HAS_PORT=false
+HAS_SESSION_ARG=false
+IS_INTERACTIVE=true
+FIRST_POSITIONAL=""
 ARGS=()
 
 for arg in "$@"; do
@@ -16,18 +20,40 @@ for arg in "$@"; do
         -c|--continue)
             CONTINUE_SESSION=true
             ;;
+        --new|--new-session|--no-resume)
+            FORCE_NEW_SESSION=true
+            ;;
         --port|-p)
             HAS_PORT=true
             ARGS+=("$arg")
             ;;
+        --port=*|-p=*)
+            HAS_PORT=true
+            ARGS+=("$arg")
+            ;;
+        -s|--session|--session=*)
+            HAS_SESSION_ARG=true
+            ARGS+=("$arg")
+            ;;
         *)
+            if [[ -z "$FIRST_POSITIONAL" && "$arg" != -* ]]; then
+                FIRST_POSITIONAL="$arg"
+            fi
             ARGS+=("$arg")
             ;;
     esac
 done
 
+case "$FIRST_POSITIONAL" in
+    "" )
+        ;;
+    completion|acp|mcp|attach|run|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|session|db)
+        IS_INTERACTIVE=false
+        ;;
+esac
+
 # Add random port if not already specified (40000-50000 range)
-if [[ "$HAS_PORT" == false ]]; then
+if [[ "$HAS_PORT" == false && "$IS_INTERACTIVE" == true ]]; then
     PORT=$((RANDOM % 10000 + 40000))
     ARGS+=("--port" "$PORT")
 fi
@@ -41,7 +67,7 @@ elif [[ -f "venv/bin/activate" ]]; then
     source venv/bin/activate
 fi
 
-if [[ "$CONTINUE_SESSION" == false ]]; then
+if [[ "$IS_INTERACTIVE" == false || "$FORCE_NEW_SESSION" == true || "$HAS_SESSION_ARG" == true ]]; then
     exec opencode "${ARGS[@]}"
 fi
 
@@ -89,7 +115,9 @@ PY
 fi
 
 if [[ -n "$SESSION_ID" ]]; then
-    echo "Continuing session: $SESSION_ID"
+    if [[ "$CONTINUE_SESSION" == true ]]; then
+        echo "Continuing session: $SESSION_ID"
+    fi
     exec opencode -s "$SESSION_ID" "${ARGS[@]}"
 else
     exec opencode "${ARGS[@]}"

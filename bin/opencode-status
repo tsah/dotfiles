@@ -2,11 +2,13 @@
 
 import json
 import os
+import sqlite3
 import shutil
 import subprocess
 import argparse
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
@@ -14,6 +16,7 @@ from datetime import datetime
 
 
 HOME = os.path.expanduser("~")
+OPENCODE_DB_PATH = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
 SESSION_HTTP_TIMEOUT = 1
 MESSAGE_HTTP_TIMEOUT = 0.5
 TSV_CACHE_TTL_SECONDS = 8
@@ -261,6 +264,114 @@ def format_age(epoch_ms):
     return f"{hours}h"
 
 
+def process_age_seconds(start_ticks, clock_ticks_per_second, uptime_seconds):
+    if not start_ticks or not clock_ticks_per_second or uptime_seconds is None:
+        return None
+
+    try:
+        started_at = start_ticks / float(clock_ticks_per_second)
+        age = uptime_seconds - started_at
+        if age < 0:
+            return 0
+        return int(age)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def system_uptime_seconds():
+    try:
+        with open("/proc/uptime", "r", encoding="utf-8", errors="ignore") as f:
+            first = f.read().strip().split()[0]
+        return float(first)
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def session_lookup_directories(directory):
+    dirs = []
+
+    def add(path):
+        if path and path not in dirs:
+            dirs.append(path)
+
+    path = directory.rstrip("/")
+    add(path)
+
+    parent = os.path.dirname(path)
+    base = os.path.basename(path)
+    repo = os.path.basename(parent)
+    grandparent = os.path.dirname(parent)
+
+    if base and repo and grandparent and grandparent != parent:
+        add(os.path.join(grandparent, f"{repo}-{base}"))
+        add(os.path.join(grandparent, f"{repo}-next", base))
+
+    if base == "master" and parent:
+        add(parent)
+
+    return dirs
+
+
+def db_latest_session_id(conn, directory, cache):
+    if not conn:
+        return ""
+
+    if directory in cache:
+        return cache[directory]
+
+    try:
+        cur = conn.execute(
+            """
+            SELECT id
+            FROM session
+            WHERE directory = ?
+              AND time_archived IS NULL
+            ORDER BY time_updated DESC
+            LIMIT 1
+            """,
+            (directory,),
+        )
+        row = cur.fetchone()
+    except sqlite3.Error:
+        cache[directory] = ""
+        return ""
+
+    cache[directory] = row[0] if row else ""
+    return cache[directory]
+
+
+def db_session_meta(conn, session_id, cache):
+    if not conn or not session_id:
+        return "", 0
+
+    if session_id in cache:
+        return cache[session_id]
+
+    try:
+        cur = conn.execute(
+            """
+            SELECT title, time_updated
+            FROM session
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (session_id,),
+        )
+        row = cur.fetchone()
+    except sqlite3.Error:
+        cache[session_id] = ("", 0)
+        return cache[session_id]
+
+    if not row:
+        cache[session_id] = ("", 0)
+        return cache[session_id]
+
+    title = row[0] or ""
+    updated = row[1] or 0
+    cache[session_id] = (title, updated)
+    return cache[session_id]
+
+
 def truncate_text(text, max_len=56):
     if text is None:
         return ""
@@ -425,6 +536,7 @@ def main():
     port_sessions = {}
     session_titles = {}
     session_updated_times = {}
+    scoped_session_cache = {}
 
     unique_ports = sorted({inst["port"] for inst in instances if inst["port"]})
     if unique_ports:
@@ -432,7 +544,7 @@ def main():
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_port = {
                 executor.submit(
-                    api_get, port, "/session", SESSION_HTTP_TIMEOUT
+                    api_get, port, "/session?limit=1000", SESSION_HTTP_TIMEOUT
                 ): port
                 for port in unique_ports
             }
@@ -456,6 +568,15 @@ def main():
                             s.get("time", {}).get("updated", 0) or 0
                         )
 
+    db_conn = None
+    db_directory_cache = {}
+    db_meta_cache = {}
+    if os.path.isfile(OPENCODE_DB_PATH):
+        try:
+            db_conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True)
+        except sqlite3.Error:
+            db_conn = None
+
     # Resolve session IDs for instances without -s flag
     by_cwd = defaultdict(list)
     for inst in instances:
@@ -468,19 +589,57 @@ def main():
                 sessions = port_sessions[inst["port"]]
                 break
 
+        lookup_dirs = session_lookup_directories(cwd)
         explicit_ids = {
             inst["session_id"]
             for inst in cwd_instances
             if inst["session_id"]
         }
 
+        candidate_by_id = {}
+
+        def add_candidates(session_rows):
+            for s in session_rows:
+                if s.get("directory") not in lookup_dirs:
+                    continue
+                if s.get("time", {}).get("archived"):
+                    continue
+
+                sid = s.get("id")
+                if not sid:
+                    continue
+
+                candidate_by_id[sid] = s
+                session_titles[sid] = s.get("title", "")
+                session_updated_times[sid] = (
+                    s.get("time", {}).get("updated", 0) or 0
+                )
+
+        add_candidates(sessions)
+
+        if not candidate_by_id:
+            for inst in cwd_instances:
+                port = inst.get("port")
+                if not port:
+                    continue
+
+                for lookup_dir in lookup_dirs:
+                    cache_key = (port, lookup_dir)
+                    if cache_key not in scoped_session_cache:
+                        encoded_dir = urllib.parse.quote(lookup_dir, safe="")
+                        scoped = api_get(
+                            port,
+                            f"/session?directory={encoded_dir}&limit=200",
+                            SESSION_HTTP_TIMEOUT,
+                        )
+                        if not isinstance(scoped, list):
+                            scoped = []
+                        scoped_session_cache[cache_key] = scoped
+
+                    add_candidates(scoped_session_cache[cache_key])
+
         candidates = sorted(
-            [
-                s
-                for s in sessions
-                if s.get("directory") == cwd
-                and not (s.get("time", {}).get("archived"))
-            ],
+            candidate_by_id.values(),
             key=lambda s: s.get("time", {}).get("updated", 0),
             reverse=True,
         )
@@ -491,6 +650,24 @@ def main():
             if sid and sid not in explicit_ids:
                 candidate_ids.append(sid)
 
+        if not candidate_ids:
+            for lookup_dir in lookup_dirs:
+                sid = db_latest_session_id(db_conn, lookup_dir, db_directory_cache)
+                if not sid or sid in explicit_ids:
+                    continue
+
+                if sid not in session_titles or sid not in session_updated_times:
+                    title, updated = db_session_meta(db_conn, sid, db_meta_cache)
+                    if sid not in session_titles:
+                        session_titles[sid] = title
+                    if sid not in session_updated_times:
+                        session_updated_times[sid] = updated
+
+                candidate_ids.append(sid)
+
+            seen = set()
+            candidate_ids = [sid for sid in candidate_ids if not (sid in seen or seen.add(sid))]
+
         unresolved = [inst for inst in cwd_instances if not inst["session_id"]]
         unresolved.sort(key=lambda i: i["start_ticks"], reverse=True)
 
@@ -500,8 +677,13 @@ def main():
             elif candidates:
                 inst["session_id"] = candidates[0].get("id", "")
 
+    if db_conn is not None:
+        db_conn.close()
+
     grouped = defaultdict(list)
     now_ms = int(datetime.now().timestamp() * 1000)
+    clock_ticks = os.sysconf(os.sysconf_names.get("SC_CLK_TCK", "SC_CLK_TCK"))
+    uptime_seconds = system_uptime_seconds()
 
     message_requests = {}
     for inst in instances:
@@ -541,13 +723,15 @@ def main():
         status = "starting"
         title = session_titles.get(session_id, "")
         age = "-"
+        child_count = child_counts.get(str(pid), 0)
+        proc_age_seconds = process_age_seconds(inst.get("start_ticks", 0), clock_ticks, uptime_seconds)
 
         if port and session_id:
             message_key = f"{port}:{session_id}"
             messages = message_cache[message_key]
             if messages is None:
                 updated_ms = session_updated_times.get(session_id, 0)
-                if child_counts.get(str(pid), 0) > 0:
+                if child_count > 0:
                     status = "generating"
                 elif updated_ms and now_ms - updated_ms < 30000:
                     status = "unknown"
@@ -582,19 +766,27 @@ def main():
                     msg_time,
                     latest_tool,
                     latest_tool_time,
-                    child_counts.get(str(pid), 0),
+                    child_count,
                     inst["is_run_mode"],
                 )
                 age = format_age(msg_time)
             else:
                 updated_ms = session_updated_times.get(session_id, 0)
-                if child_counts.get(str(pid), 0) > 0:
+                if child_count > 0:
                     status = "generating"
                 elif updated_ms and now_ms - updated_ms < 30000:
                     status = "unknown"
                 else:
                     status = "done"
                 age = format_age(updated_ms)
+        else:
+            if proc_age_seconds is not None and proc_age_seconds < 20:
+                status = "starting"
+            else:
+                status = "done"
+
+            if proc_age_seconds is not None:
+                age = format_age(now_ms - (proc_age_seconds * 1000))
 
         grouped[cwd].append(
             (
