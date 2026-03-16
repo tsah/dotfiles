@@ -82,14 +82,22 @@ if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     exit 1
 fi
 
+# Write prompt to a temp file to avoid quoting issues when passing
+# through tmux's command parser (tmux joins multi-word shell-command
+# arguments into a single string, destroying intermediate quoting).
+PROMPT_FILE=$(mktemp /tmp/oc-spawn-XXXXXX)
+trap 'rm -f "$PROMPT_FILE"' EXIT
+printf '%s' "$INITIAL_PROMPT" > "$PROMPT_FILE"
+
 WINDOW_NAME="opencode"
 
+# Pass a single command string so tmux forwards it intact to the shell.
 if [[ -n "$AGENT_NAME" ]]; then
     tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
-        bash -lc 'oc --agent "$1" --prompt "$2"' _ "$AGENT_NAME" "$INITIAL_PROMPT"
+        "bash -lc 'p=\$(cat \"$PROMPT_FILE\"); rm -f \"$PROMPT_FILE\"; exec oc --agent \"$AGENT_NAME\" --prompt \"\$p\"'"
 else
     tmux new-window -d -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" \
-        bash -lc 'oc --prompt "$1"' _ "$INITIAL_PROMPT"
+        "bash -lc 'p=\$(cat \"$PROMPT_FILE\"); rm -f \"$PROMPT_FILE\"; exec oc --prompt \"\$p\"'"
 fi
 
 tmux send-keys -t "$SESSION_NAME:1" "exit" Enter
