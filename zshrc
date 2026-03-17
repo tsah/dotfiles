@@ -27,6 +27,7 @@ path=(
   "$HOME/.opencode/bin"
   "$HOME/.cargo/bin"
   "$BUN_INSTALL/bin"
+  "$HOME/.local/node/node-v20.19.0-linux-arm64/bin"
   $path
 )
 
