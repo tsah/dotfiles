@@ -100,4 +100,9 @@ BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[
 
 cd "$START_PATH" || exit 1
 
-exec "$SCRIPT_DIR/wt" spawn "$BRANCH_NAME"
+"$SCRIPT_DIR/wt" spawn "$BRANCH_NAME"
+
+WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+if [[ -n "$WORKTREE_PATH" ]]; then
+    wt_compat_zoxide_add "$WORKTREE_PATH" || true
+fi

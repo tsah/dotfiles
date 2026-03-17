@@ -350,9 +350,7 @@ spawn_impl() {
         fi
     fi
 
-    if command -v zoxide >/dev/null 2>&1; then
-        zoxide add "$WORKTREE_PATH"
-    fi
+    wt_compat_zoxide_add "$WORKTREE_PATH" || true
 
     SESSION_NAME=$(wt_compat_session_name "$CONTAINER_ROOT" "$BRANCH_NAME")
 

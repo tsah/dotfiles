@@ -199,3 +199,31 @@ wt_compat_session_name() {
     WT_COMPAT_SESSION_BRANCH_SAFE=$(wt_compat_sanitize_branch "$WT_COMPAT_SESSION_BRANCH" | tr '@' '-')
     printf '%s@%s\n' "$(basename "$WT_COMPAT_SESSION_ROOT")" "$WT_COMPAT_SESSION_BRANCH_SAFE"
 }
+
+
+wt_compat_zoxide_bin() {
+    for candidate in "${ZOXIDE_BIN:-}" "$(command -v zoxide 2>/dev/null || true)" /usr/local/bin/zoxide /usr/bin/zoxide "$HOME/.local/bin/zoxide"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+
+wt_compat_zoxide_add() {
+    WT_COMPAT_ZOXIDE_PATH=$1
+
+    if [ -z "$WT_COMPAT_ZOXIDE_PATH" ] || [ ! -d "$WT_COMPAT_ZOXIDE_PATH" ]; then
+        return 1
+    fi
+
+    WT_COMPAT_ZOXIDE_BIN=$(wt_compat_zoxide_bin 2>/dev/null || true)
+    if [ -z "$WT_COMPAT_ZOXIDE_BIN" ]; then
+        return 1
+    fi
+
+    "$WT_COMPAT_ZOXIDE_BIN" add "$WT_COMPAT_ZOXIDE_PATH" >/dev/null 2>&1
+}
