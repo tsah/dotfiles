@@ -9,7 +9,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 WWT_BIN="$SCRIPT_DIR/wwt"
 
 usage() {
-    echo "Usage: $0 spawn <branch> [--new-window|-w] [--no-switch|-d] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
+    echo "Usage: $0 spawn <branch> [--new-window|-w] [--no-switch|-d] | $0 checkout <branch> [--no-switch|-d] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
     echo "Task-oriented worktree manager with dual legacy/bare Worktrunk support."
     echo ""
@@ -17,6 +17,7 @@ usage() {
     echo "  spawn <branch>    Create or connect to a task worktree and tmux session"
     echo "                    Worktree/session name: {repo}-{branch}"
     echo "                    Supports optional .wtconfig in the repo/container root"
+    echo "  checkout <branch> Fetch and create a worktree for an existing remote branch"
     echo "  destroy           Delete current worktree and tmux session, keep the branch"
     echo ""
     echo "Branch Commands:"
@@ -679,9 +680,9 @@ FIX_SESSION=false
 NEW_WINDOW=false
 NO_SWITCH=false
 
-while [ $# -gt 0 ]; do
+    while [ $# -gt 0 ]; do
     case $1 in
-        spawn|destroy)
+        spawn|destroy|checkout)
             COMMAND="$1"
             shift
             ;;
@@ -750,6 +751,35 @@ if [ "$COMMAND" = "spawn" ]; then
     fi
 
     spawn_impl "$BRANCH_NAME" "$NEW_WINDOW" "$NO_SWITCH"
+    exit $?
+fi
+
+if [ "$COMMAND" = "checkout" ]; then
+    if [ -z "$BRANCH_NAME" ]; then
+        echo "Error: checkout command requires a branch name"
+        usage
+        exit 1
+    fi
+    if [ "$FROM_MASTER" = true ] || [ "$FIX_SESSION" = true ] || [ "$NEW_WINDOW" = true ]; then
+        echo "Error: checkout only supports --no-switch"
+        usage
+        exit 1
+    fi
+
+    if ! wt_compat_resolve_context "$PWD"; then
+        echo "Error: Not in a supported git repository"
+        exit 1
+    fi
+
+    echo "Fetching latest from remote..."
+    git --git-dir="$WT_COMPAT_COMMON_DIR" fetch origin --quiet
+
+    if ! wt_compat_branch_exists_remote "$WT_COMPAT_COMMON_DIR" "$BRANCH_NAME"; then
+        echo "Error: Branch '$BRANCH_NAME' does not exist on remote"
+        exit 1
+    fi
+
+    spawn_impl "$BRANCH_NAME" false "$NO_SWITCH"
     exit $?
 fi
 
