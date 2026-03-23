@@ -24,8 +24,7 @@ COLORS = {
     "done": "\033[32m",
     "generating": "\033[33m",
     "waiting question": "\033[34m",
-    "waiting permission": "\033[35m",
-    "tool running": "\033[33m",
+    "tool running": "\033[35m",
     "starting": "\033[34m",
     "unknown": "\033[90m",
 }

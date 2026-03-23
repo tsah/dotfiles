@@ -2,7 +2,6 @@
 
 import json
 import os
-import sqlite3
 import shutil
 import subprocess
 import argparse
@@ -16,7 +15,6 @@ from datetime import datetime
 
 
 HOME = os.path.expanduser("~")
-OPENCODE_DB_PATH = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
 SESSION_HTTP_TIMEOUT = 1
 MESSAGE_HTTP_TIMEOUT = 0.5
 TSV_CACHE_TTL_SECONDS = 8
@@ -30,7 +28,7 @@ COLORS = {
     "age": "\033[90m",
     "generating": "\033[33m",
     "waiting question": "\033[36m",
-    "waiting permission": "\033[35m",
+    "tool running": "\033[35m",
     "done": "\033[32m",
     "starting": "\033[34m",
     "unknown": "\033[90m",
@@ -86,15 +84,6 @@ def extract_port(cmdline):
     return None
 
 
-def extract_session_id(cmdline):
-    for i, arg in enumerate(cmdline):
-        if arg in ("-s", "--session") and i + 1 < len(cmdline):
-            return cmdline[i + 1]
-        if arg.startswith("--session="):
-            return arg.split("=", 1)[1]
-    return ""
-
-
 def api_get(port, path, timeout):
     url = f"http://127.0.0.1:{port}{path}"
     try:
@@ -134,23 +123,6 @@ def get_opencode_pids():
 
     return pids
 
-
-def build_child_count_map():
-    counts = defaultdict(int)
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        stat = read_text(f"/proc/{entry}/stat")
-        if not stat:
-            continue
-        try:
-            rest = stat.rsplit(") ", 1)[1].split()
-            ppid = rest[1]
-            if ppid.isdigit():
-                counts[ppid] += 1
-        except (IndexError, ValueError):
-            continue
-    return counts
 
 
 def is_interactive_instance(cmdline):
@@ -198,33 +170,24 @@ def is_opencode_process(pid):
     return comm == "opencode"
 
 
-def infer_status(
-    latest_message,
-    latest_message_time,
-    latest_tool_part,
-    latest_tool_time,
-    pid_child_count,
-    is_run_mode,
-):
-    if latest_tool_part:
-        if (
-            latest_tool_part.get("type") == "tool"
-            and (latest_tool_part.get("state") or {}).get("status") == "running"
-            and latest_tool_time >= latest_message_time
-        ):
-            tool_name = latest_tool_part.get("tool", "tool")
-            if tool_name == "question":
-                return "waiting question", "question prompt"
-
-            if pid_child_count == 0:
-                return "waiting permission", f"{tool_name}"
-
-    if not latest_message:
+def infer_status(last_msg, is_run_mode):
+    """Derive status from the latest API message. Returns (status, detail)."""
+    if not last_msg:
         return "starting", ""
 
-    role = latest_message.get("role")
-    time_obj = latest_message.get("time") or {}
+    info = last_msg.get("info", {})
+    role = info.get("role")
+    time_obj = info.get("time") or {}
     completed = time_obj.get("completed")
+
+    # Check for a running tool in the message parts.
+    for part in reversed(last_msg.get("parts", [])):
+        state = part.get("state") or {}
+        if part.get("type") == "tool" and state.get("status") == "running":
+            tool_name = part.get("tool", "tool")
+            if tool_name == "question":
+                return "waiting question", tool_name
+            return "tool running", tool_name
 
     if role == "user":
         return "generating", "awaiting assistant"
@@ -241,7 +204,7 @@ def infer_status(
 
 def status_rank(status):
     order = {
-        "waiting permission": 0,
+        "tool running": 0,
         "waiting question": 1,
         "generating": 2,
         "starting": 3,
@@ -310,66 +273,6 @@ def session_lookup_directories(directory):
         add(parent)
 
     return dirs
-
-
-def db_latest_session_id(conn, directory, cache):
-    if not conn:
-        return ""
-
-    if directory in cache:
-        return cache[directory]
-
-    try:
-        cur = conn.execute(
-            """
-            SELECT id
-            FROM session
-            WHERE directory = ?
-              AND time_archived IS NULL
-            ORDER BY time_updated DESC
-            LIMIT 1
-            """,
-            (directory,),
-        )
-        row = cur.fetchone()
-    except sqlite3.Error:
-        cache[directory] = ""
-        return ""
-
-    cache[directory] = row[0] if row else ""
-    return cache[directory]
-
-
-def db_session_meta(conn, session_id, cache):
-    if not conn or not session_id:
-        return "", 0
-
-    if session_id in cache:
-        return cache[session_id]
-
-    try:
-        cur = conn.execute(
-            """
-            SELECT title, time_updated
-            FROM session
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (session_id,),
-        )
-        row = cur.fetchone()
-    except sqlite3.Error:
-        cache[session_id] = ("", 0)
-        return cache[session_id]
-
-    if not row:
-        cache[session_id] = ("", 0)
-        return cache[session_id]
-
-    title = row[0] or ""
-    updated = row[1] or 0
-    cache[session_id] = (title, updated)
-    return cache[session_id]
 
 
 def truncate_text(text, max_len=56):
@@ -494,7 +397,6 @@ def main():
 
     instances = []
     tty_lookup = tmux_tty_lookup()
-    child_counts = build_child_count_map()
 
     for pid in pids:
         cmdline = read_cmdline(pid)
@@ -523,7 +425,7 @@ def main():
                 "is_run_mode": is_run_mode,
                 "session_name": session_name,
                 "pane_target": pane_target,
-                "session_id": extract_session_id(cmdline),
+                "session_id": "",
                 "start_ticks": process_start_ticks(pid),
             }
         )
@@ -568,16 +470,9 @@ def main():
                             s.get("time", {}).get("updated", 0) or 0
                         )
 
-    db_conn = None
-    db_directory_cache = {}
-    db_meta_cache = {}
-    if os.path.isfile(OPENCODE_DB_PATH):
-        try:
-            db_conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True)
-        except sqlite3.Error:
-            db_conn = None
-
-    # Resolve session IDs for instances without -s flag
+    # Resolve session IDs — always pick the most recently active
+    # session for the directory rather than trusting the cmdline -s
+    # flag, which goes stale when the user switches sessions in the TUI.
     by_cwd = defaultdict(list)
     for inst in instances:
         by_cwd[inst["cwd"]].append(inst)
@@ -590,11 +485,6 @@ def main():
                 break
 
         lookup_dirs = session_lookup_directories(cwd)
-        explicit_ids = {
-            inst["session_id"]
-            for inst in cwd_instances
-            if inst["session_id"]
-        }
 
         candidate_by_id = {}
 
@@ -644,31 +534,12 @@ def main():
             reverse=True,
         )
 
-        candidate_ids = []
-        for s in candidates:
-            sid = s.get("id")
-            if sid and sid not in explicit_ids:
-                candidate_ids.append(sid)
+        candidate_ids = [s["id"] for s in candidates if s.get("id")]
 
-        if not candidate_ids:
-            for lookup_dir in lookup_dirs:
-                sid = db_latest_session_id(db_conn, lookup_dir, db_directory_cache)
-                if not sid or sid in explicit_ids:
-                    continue
-
-                if sid not in session_titles or sid not in session_updated_times:
-                    title, updated = db_session_meta(db_conn, sid, db_meta_cache)
-                    if sid not in session_titles:
-                        session_titles[sid] = title
-                    if sid not in session_updated_times:
-                        session_updated_times[sid] = updated
-
-                candidate_ids.append(sid)
-
-            seen = set()
-            candidate_ids = [sid for sid in candidate_ids if not (sid in seen or seen.add(sid))]
-
-        unresolved = [inst for inst in cwd_instances if not inst["session_id"]]
+        # All instances need resolution (session_id starts empty).
+        # Sort newest-first so the most recent instance gets the
+        # most recently updated session.
+        unresolved = list(cwd_instances)
         unresolved.sort(key=lambda i: i["start_ticks"], reverse=True)
 
         for idx, inst in enumerate(unresolved):
@@ -676,9 +547,6 @@ def main():
                 inst["session_id"] = candidate_ids[idx]
             elif candidates:
                 inst["session_id"] = candidates[0].get("id", "")
-
-    if db_conn is not None:
-        db_conn.close()
 
     grouped = defaultdict(list)
     now_ms = int(datetime.now().timestamp() * 1000)
@@ -723,68 +591,23 @@ def main():
         status = "starting"
         title = session_titles.get(session_id, "")
         age = "-"
-        child_count = child_counts.get(str(pid), 0)
         proc_age_seconds = process_age_seconds(inst.get("start_ticks", 0), clock_ticks, uptime_seconds)
 
         if port and session_id:
             message_key = f"{port}:{session_id}"
-            messages = message_cache[message_key]
-            if messages is None:
-                updated_ms = session_updated_times.get(session_id, 0)
-                if child_count > 0:
-                    status = "generating"
-                elif updated_ms and now_ms - updated_ms < 30000:
-                    status = "unknown"
-                else:
-                    status = "done"
-                age = format_age(updated_ms)
-            elif isinstance(messages, list) and messages:
+            messages = message_cache.get(message_key)
+            if isinstance(messages, list) and messages:
                 last_msg = messages[-1]
-                msg_info = last_msg.get("info", {})
-                msg_time = msg_info.get("time", {}).get("created", 0)
-
-                # Find latest tool part across recent messages
-                latest_tool = None
-                latest_tool_time = 0
-                for msg in reversed(messages):
-                    for part in reversed(msg.get("parts", [])):
-                        if part.get("type") == "tool":
-                            pt = (
-                                (part.get("state") or {})
-                                .get("time", {})
-                                .get("start", 0)
-                            ) or 0
-                            if pt > latest_tool_time:
-                                latest_tool = part
-                                latest_tool_time = pt
-                            break
-                    if latest_tool:
-                        break
-
-                status, _detail = infer_status(
-                    msg_info,
-                    msg_time,
-                    latest_tool,
-                    latest_tool_time,
-                    child_count,
-                    inst["is_run_mode"],
+                msg_time = (
+                    last_msg.get("info", {}).get("time", {}).get("created", 0)
                 )
+                status, _detail = infer_status(last_msg, inst["is_run_mode"])
                 age = format_age(msg_time)
             else:
-                updated_ms = session_updated_times.get(session_id, 0)
-                if child_count > 0:
-                    status = "generating"
-                elif updated_ms and now_ms - updated_ms < 30000:
-                    status = "unknown"
-                else:
-                    status = "done"
-                age = format_age(updated_ms)
+                status = "unknown"
+                age = format_age(session_updated_times.get(session_id, 0))
         else:
-            if proc_age_seconds is not None and proc_age_seconds < 20:
-                status = "starting"
-            else:
-                status = "done"
-
+            status = "unknown"
             if proc_age_seconds is not None:
                 age = format_age(now_ms - (proc_age_seconds * 1000))
 
