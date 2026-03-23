@@ -225,22 +225,67 @@ require('diffview').setup({
     },
 })
 
+local function _vd_git(repo_root, git_args)
+    local cmd = 'git -C ' .. vim.fn.shellescape(repo_root) .. ' ' .. git_args
+    return vim.fn.system(cmd):gsub('%s+$', '')
+end
+
+local function _vd_get_repo_root(repo_arg)
+    if repo_arg ~= '' then
+        local expanded = vim.fn.fnamemodify(repo_arg, ':p')
+        if vim.fn.isdirectory(expanded) == 1 then
+            return expanded:gsub('/$', '')
+        end
+        vim.notify('Vd: repository path does not exist: ' .. repo_arg, vim.log.levels.ERROR)
+        return nil
+    end
+
+    local repo_root = _vd_git(vim.fn.getcwd(), 'rev-parse --show-toplevel 2>/dev/null')
+    if vim.v.shell_error ~= 0 or repo_root == '' then
+        vim.notify('Vd: not inside a git repository', vim.log.levels.ERROR)
+        return nil
+    end
+
+    return repo_root
+end
+
 -- Vd: diff current branch against its fork point from master/main
-vim.api.nvim_create_user_command('Vd', function()
+vim.api.nvim_create_user_command('Vd', function(opts)
+    local repo_root = _vd_get_repo_root(opts.args)
+    if not repo_root then
+        return
+    end
+
     local base = 'master'
-    if vim.fn.system('git rev-parse --verify origin/master 2>/dev/null'):find('^fatal') or
-       vim.v.shell_error ~= 0 then
+    _vd_git(repo_root, 'rev-parse --verify origin/master 2>/dev/null')
+    if vim.v.shell_error ~= 0 then
         base = 'main'
     end
-    vim.fn.system('git fetch origin ' .. base .. ' --quiet 2>/dev/null')
-    local current = vim.fn.system('git branch --show-current'):gsub('%s+$', '')
-    if current == base then
-        vim.cmd('DiffviewOpen HEAD~1')
-    else
-        local fork = vim.fn.system('git merge-base HEAD origin/' .. base):gsub('%s+$', '')
-        vim.cmd('DiffviewOpen ' .. fork)
+
+    _vd_git(repo_root, 'rev-parse --verify origin/' .. base .. ' 2>/dev/null')
+    if vim.v.shell_error ~= 0 then
+        vim.notify('Vd: could not find origin/master or origin/main', vim.log.levels.ERROR)
+        return
     end
-end, { desc = 'Diff branch against fork point' })
+
+    vim.fn.system('git -C ' .. vim.fn.shellescape(repo_root) .. ' fetch origin ' .. base .. ' --quiet 2>/dev/null')
+
+    local current = _vd_git(repo_root, 'branch --show-current')
+    local cpath = '-C' .. vim.fn.fnameescape(repo_root)
+
+    if current == base then
+        vim.cmd('DiffviewOpen HEAD~1 ' .. cpath)
+        return
+    end
+
+    local fork = _vd_git(repo_root, 'merge-base HEAD origin/' .. base)
+    if vim.v.shell_error ~= 0 or fork == '' then
+        vim.notify('Vd: failed to compute merge-base with origin/' .. base, vim.log.levels.ERROR)
+        return
+    end
+
+    vim.cmd('DiffviewOpen ' .. fork .. ' ' .. cpath)
+end, { nargs = '?', complete = 'dir', desc = 'Diff branch against fork point' })
 
 -- Vdh: file history in diffview
 vim.api.nvim_create_user_command('Vdh', function(opts)

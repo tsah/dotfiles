@@ -7,9 +7,13 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     exit 1
 fi
 
+repo_root=$(git rev-parse --show-toplevel)
+repo_root_vim=${repo_root//\\/\\\\}
+repo_root_vim=${repo_root_vim// /\\ }
+
 if [[ -n "$NVIM" ]]; then
     # Inside nvim terminal — send command to parent nvim
-    nvim --server "$NVIM" --remote-send "<C-\\><C-n>:Vd<CR>"
+    nvim --server "$NVIM" --remote-send "<C-\\><C-n>:Vd ${repo_root_vim}<CR>"
 else
-    exec nvim -c "Vd"
+    exec nvim -c "Vd ${repo_root_vim}"
 fi
