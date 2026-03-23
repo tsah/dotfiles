@@ -138,16 +138,20 @@ wt_compat_branch_exists_remote() {
 
 
 wt_compat_find_worktree_for_branch() {
-    git --git-dir="$1" worktree list --porcelain 2>/dev/null | awk -v target="refs/heads/$2" '
+    WT_COMPAT_WORKTREE_LIST=$(git --git-dir="$1" worktree list --porcelain 2>/dev/null || true)
+
+    awk -v target="refs/heads/$2" '
         $1 == "worktree" {
             wt = substr($0, 10)
             next
         }
         $1 == "branch" && $2 == target {
-            print wt
-            exit
+            if (!printed) {
+                print wt
+                printed = 1
+            }
         }
-    '
+    ' <<< "$WT_COMPAT_WORKTREE_LIST"
 }
 
 

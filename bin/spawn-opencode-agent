@@ -86,8 +86,9 @@ fi
 # through tmux's command parser (tmux joins multi-word shell-command
 # arguments into a single string, destroying intermediate quoting).
 PROMPT_FILE=$(mktemp /tmp/oc-spawn-XXXXXX)
-trap 'rm -f "$PROMPT_FILE"' EXIT
 printf '%s' "$INITIAL_PROMPT" > "$PROMPT_FILE"
+# NOTE: no EXIT trap — the tmux command reads and removes the file
+# asynchronously; a trap here would race and delete it too early.
 
 WINDOW_NAME="opencode"
 
