@@ -72,7 +72,7 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
         --border-label " Spawn worktree in $REPO_NAME " \
         --prompt '🌿  ' \
         --header 'Enter: select | Ctrl-N: use typed text' \
-        --bind 'ctrl-n:become(echo "{q}")' \
+        --bind 'ctrl-n:become(printf "%s\n" {q})' \
         --preview "$BRANCH_PREVIEW")
 else
     BRANCH=$(echo "$BRANCHES" | fzf \
@@ -80,7 +80,7 @@ else
         --border-label " Spawn worktree in $REPO_NAME " \
         --prompt '🌿  ' \
         --header 'Enter: select | Ctrl-N: use typed text' \
-        --bind 'ctrl-n:become(echo "{q}")' \
+        --bind 'ctrl-n:become(printf "%s\n" {q})' \
         --preview "$BRANCH_PREVIEW")
 fi
 BRANCH_PICK_STATUS=$?
