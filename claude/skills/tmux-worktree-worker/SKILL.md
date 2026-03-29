@@ -1,12 +1,12 @@
 ---
-name: Tmux Worktree Worker
+name: Tworker
 description: >-
-  Use this skill when the user asks to spawn a new opencode process in a
-  separate tmux session and git worktree via the spawn-opencode-agent script.
-  This is NOT the built-in Task/subagent tool — it launches an external process.
+  Spawn a new opencode process in a separate tmux session and git worktree via
+  the spawn-opencode-agent script. This is orchestration only, not pane
+  automation.
 ---
 
-# Tmux Worktree Worker
+# Tworker
 
 This skill launches a **separate opencode process** in its own **tmux session**
 and **git worktree**. It is completely different from the built-in Task tool
@@ -16,10 +16,14 @@ like:
 - "spawn a worker"
 - "spin up another opencode session"
 - "create a worktree and run opencode there"
-- "launch a tmux worker for X"
+- "launch a tworker for X"
 
 Do NOT confuse this with the built-in Task tool. This skill runs a bash script
 that creates a real tmux session.
+
+Do NOT use this skill for interactive pane control (`send-keys`, `capture-pane`,
+prompt polling, REPL driving). Use the `Tmux Interactive Control` skill for
+that mode.
 
 ## Core Rule
 

@@ -71,7 +71,9 @@ ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
 mkdir -p ~/.claude/skills
 rm -rf ~/.claude/skills/opencode-spawn
 rm -rf ~/.claude/skills/tmux-worktree-worker
+rm -rf ~/.claude/skills/tmux-interactive-control
 ln -sf ~/dotfiles/claude/skills/tmux-worktree-worker ~/.claude/skills/tmux-worktree-worker
+ln -sf ~/dotfiles/claude/skills/tmux-interactive-control ~/.claude/skills/tmux-interactive-control
 
 # Setup jj (jujutsu) configuration
 mkdir -p ~/.config/jj

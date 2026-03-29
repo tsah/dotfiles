@@ -30,6 +30,12 @@ ln -sf "$DOTFILES_DIR/opencode/agents" "$HOME/.config/opencode/agents"
 rm -rf "$HOME/.config/opencode/commands"
 ln -sf "$DOTFILES_DIR/opencode/commands" "$HOME/.config/opencode/commands"
 
+mkdir -p "$HOME/.claude/skills"
+rm -rf "$HOME/.claude/skills/tmux-worktree-worker"
+rm -rf "$HOME/.claude/skills/tmux-interactive-control"
+ln -sf "$DOTFILES_DIR/claude/skills/tmux-worktree-worker" "$HOME/.claude/skills/tmux-worktree-worker"
+ln -sf "$DOTFILES_DIR/claude/skills/tmux-interactive-control" "$HOME/.claude/skills/tmux-interactive-control"
+
 mkdir -p "$HOME/.config/jj"
 ln -sf "$DOTFILES_DIR/jj-config.toml" "$HOME/.config/jj/config.toml"
 
