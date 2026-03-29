@@ -12,6 +12,7 @@
       }
     }
   },
+  "lsp": false,
   "tools": {
     "linear_*": false
   },
