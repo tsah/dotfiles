@@ -19,8 +19,9 @@ keybind = alt+9=text:\x1b9
 
 command = zsh
 
-# Enable shell integration for dynamic tab titles  
+# Enable shell integration but disable dynamic title (prevents pwd in tmux tab names)
 shell-integration = detect
+shell-integration-features = no-title
 window-decoration = none
 
 # Scrollback configuration
