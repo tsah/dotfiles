@@ -194,7 +194,7 @@ install_zsh_autosuggestions() {
 
 install_neovim() {
     local suffix="$1"
-    local channel="${2:-nightly}"
+    local channel="${2:-stable}"
     local url=""
     local tmp_dir=""
     local archive_path=""
@@ -310,7 +310,7 @@ print_versions() {
 install_base_packages
 install_zsh_autosuggestions
 
-NEOVIM_CHANNEL="${NEOVIM_CHANNEL:-nightly}"
+NEOVIM_CHANNEL="${NEOVIM_CHANNEL:-stable}"
 
 ARCH="$(uname -m)"
 
@@ -327,7 +327,7 @@ case "$ARCH" in
         LAZYGIT_SUFFIX="linux_arm64.tar.gz"
         STARSHIP_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
-        ATUIN_SUFFIX="atuin-aarch64-unknown-linux-gnu.tar.gz"
+        ATUIN_SUFFIX="atuin-aarch64-unknown-linux-musl.tar.gz"
         JJ_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         SESH_SUFFIX="sesh_Linux_arm64.tar.gz"
         ;;
@@ -343,7 +343,7 @@ case "$ARCH" in
         LAZYGIT_SUFFIX="linux_x86_64.tar.gz"
         STARSHIP_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
-        ATUIN_SUFFIX="atuin-x86_64-unknown-linux-gnu.tar.gz"
+        ATUIN_SUFFIX="atuin-x86_64-unknown-linux-musl.tar.gz"
         JJ_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         SESH_SUFFIX="sesh_Linux_x86_64.tar.gz"
         ;;

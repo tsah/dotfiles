@@ -15,6 +15,7 @@ Use the matching install scripts for each profile.
 ```
 
 - Installs desktop packages for Omarchy/Hyprland.
+- Ensures `neovim` stable is installed (and removes `neovim-git` if present).
 - Applies local symlinks and desktop config.
 - Bootstraps Neovim Mason LSP servers used by this config.
 
@@ -29,7 +30,7 @@ Use these scripts on Linux servers (Amazon Linux 2023 tested):
 
 - `install-server-packages.sh` installs shell and CLI tooling used by this repo.
 - `install-server-packages.sh` also installs an `xterm-ghostty` terminfo shim so tmux works when SSHing from Ghostty.
-- Neovim installs from `nightly` by default (`NEOVIM_CHANNEL=stable ./install-server-packages.sh` for stable).
+- Neovim installs from `stable` by default (`NEOVIM_CHANNEL=nightly ./install-server-packages.sh` to opt into nightly).
 - `install-server.sh` creates symlinks for dotfiles and config files and sets the default shell to fish.
 
 ## Notes

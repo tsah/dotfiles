@@ -21,10 +21,22 @@ if ! command -v yay &> /dev/null; then
 fi
 
 echo "📦 Installing core packages from official repos..."
+
+if pacman -Q neovim-git >/dev/null 2>&1; then
+    echo "🔄 Replacing neovim-git with stable neovim..."
+    sudo pacman -R --noconfirm neovim-git
+fi
+
+if [ -L /usr/local/bin/nvim ] && [ "$(readlink -f /usr/local/bin/nvim)" = "/opt/nvim/bin/nvim" ]; then
+    echo "🧹 Removing /usr/local/bin/nvim override from /opt/nvim..."
+    sudo rm -f /usr/local/bin/nvim
+fi
+
 sudo pacman -S --needed \
     fish \
     zsh \
     zsh-autosuggestions \
+    neovim \
     iwd \
     cliphist \
     wl-clipboard \
@@ -86,7 +98,7 @@ echo "   • fish - Fish shell"
 echo "   • zsh - Z shell"
 echo "   • zsh-autosuggestions - Fish-style command suggestions for Zsh"
 echo "   • iwd - Wireless daemon"
-echo "   • neovim-git - Neovim prerelease"
+echo "   • neovim - Neovim stable release"
 echo "   • cliphist - Clipboard history manager"
 echo "   • wl-clipboard - Wayland clipboard tools (wl-copy/wl-paste)"
 echo "   • xclip - X11 clipboard tools"
