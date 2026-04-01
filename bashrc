@@ -37,6 +37,7 @@ alias l='ls -ls'
 alias lg='lazygit'
 alias ocu='brew install sst/tap/opencode'
 alias occ='oc -c'
+alias worktrunk='wt'
 alias wtd='wt destroy'
 alias cmd="$HOME/bin/cmd"
 alias cmdyolo='cmd --yolo'
