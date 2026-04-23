@@ -2,17 +2,34 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+
 # Ensure ~/dotfiles/bin is in PATH — tmux run-shell doesn't source zshrc.
 export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
 
-FILTER='(_.*__(persistent|temp)| [0-9]+$)'
+PI_AGENT_HELPER="$SCRIPT_DIR/pi-agent-config"
+PI_AGENT_LAUNCHER="$SCRIPT_DIR/spawn-pi-agent"
+CLAUDE_LAUNCHER="$SCRIPT_DIR/spawn-claude-code"
+
+picker_cwd() {
+    if command -v tmux >/dev/null 2>&1 && [[ -n "${TMUX_PANE:-}" ]]; then
+        tmux display-message -p -t "$TMUX_PANE" '#{pane_current_path}' 2>/dev/null || pwd
+        return 0
+    fi
+
+    pwd
+}
 
 build_unified_rows() {
-    python3 - <<'PY'
+    local current_cwd="${1:-$(picker_cwd)}"
+
+    python3 - "$current_cwd" "$PI_AGENT_HELPER" <<'PY'
+import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 RESET = "\033[0m"
@@ -20,6 +37,8 @@ COLORS = {
     "tmux": "\033[34m",
     "opencode": "\033[35m",
     "dir": "\033[36m",
+    "pi": "\033[32m",
+    "claude": "\033[33m",
     "muted": "\033[90m",
     "done": "\033[32m",
     "generating": "\033[33m",
@@ -28,6 +47,9 @@ COLORS = {
     "starting": "\033[34m",
     "unknown": "\033[90m",
 }
+
+current_cwd = sys.argv[1]
+agent_helper = sys.argv[2]
 
 
 def run_lines(cmd):
@@ -38,6 +60,19 @@ def run_lines(cmd):
     if result.returncode != 0:
         return []
     return [line for line in result.stdout.splitlines() if line]
+
+
+def run_json(cmd):
+    try:
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
 
 
 def strip_ansi(text):
@@ -63,6 +98,50 @@ def session_last_attached():
         except ValueError:
             out[name] = 0
     return out
+
+
+def detect_session_markers():
+    out = {}
+    for raw in run_lines(["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_name}\t#{pane_current_command}\t#{pane_title}"]):
+        parts = raw.split("\t")
+        if len(parts) < 4:
+            continue
+
+        session_name, window_name, pane_cmd, pane_title = parts[:4]
+        markers = out.setdefault(session_name, set())
+
+        window_name_lc = window_name.strip().lower()
+        pane_cmd_lc = pane_cmd.strip().lower()
+        pane_title_lc = pane_title.strip().lower()
+
+        if pane_cmd_lc == "pi" or window_name_lc in {"pi", "pi-agent"} or window_name_lc.startswith("p:") or pane_title.startswith("π"):
+            markers.add("pi")
+
+        if pane_cmd_lc == "claude" or window_name_lc == "claude" or "claude code" in pane_title_lc:
+            markers.add("claude")
+
+    return out
+
+
+def marker_text_for_session(session_name, session_markers):
+    if not session_name:
+        return ""
+
+    markers = session_markers.get(session_name, set())
+    marker_text = []
+    if "pi" in markers:
+        marker_text.append("π")
+    if "claude" in markers:
+        marker_text.append("C")
+    return " ".join(marker_text)
+
+
+def marker_suffix_for_session(session_name, session_markers):
+    return marker_text_for_session(session_name, session_markers).replace(" ", "")
+
+
+def decorate_icon(base_icon, color_key, session_name, session_markers):
+    return f"{colorize(base_icon, color_key)}{marker_suffix_for_session(session_name, session_markers)}"
 
 
 def parse_sesh_label(raw):
@@ -100,6 +179,48 @@ def trunc(text, width):
     return text[: width - 3] + "..."
 
 
+def load_pi_agents(helper_path, cwd):
+    if not shutil.which("pi"):
+        return []
+    if not helper_path or not os.path.isfile(helper_path) or not os.access(helper_path, os.X_OK):
+        return []
+
+    payload = run_json([helper_path, "--agent-format", "pi", "--cwd", cwd, "--list", "--format", "json"])
+    if not isinstance(payload, list):
+        return []
+
+    agents = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+
+        agent_format = str(item.get("format", "")).strip().lower()
+        if not agent_format:
+            file_path = str(item.get("file", ""))
+            if "/.claude/" in file_path or "/claude/" in file_path:
+                agent_format = "claude"
+            else:
+                agent_format = "pi"
+
+        if agent_format != "pi":
+            continue
+
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+
+        agents.append(
+            {
+                "name": name,
+                "source": str(item.get("source", "")).strip(),
+                "description": str(item.get("description", "")).strip(),
+            }
+        )
+
+    agents.sort(key=lambda row: (row["source"] != "project", row["name"]))
+    return agents
+
+
 filter_re = re.compile(r"(_.*__(persistent|temp)| [0-9]+$)")
 tmux_rows = []
 for raw in run_lines(["sesh", "list", "-t", "--icons"]):
@@ -108,8 +229,8 @@ for raw in run_lines(["sesh", "list", "-t", "--icons"]):
     tmux_rows.append(raw)
 
 zoxide_rows = run_lines(["sesh", "list", "-z", "--icons"])
-
 opencode_rows = []
+
 if shutil.which("opencode-status"):
     for raw in run_lines(["opencode-status", "--tsv"]):
         parts = raw.split("\t")
@@ -138,6 +259,7 @@ if shutil.which("opencode-status"):
     opencode_rows = list(deduped.values())
 
 last_seen = session_last_attached()
+session_markers = detect_session_markers()
 
 term_width = shutil.get_terminal_size((120, 20)).columns
 prefix_w = 2
@@ -166,7 +288,7 @@ for raw in tmux_rows:
     if label in opencode_hides_tmux:
         continue
 
-    icon = colorize("", "tmux")
+    icon = decorate_icon("", "tmux", label, session_markers)
     name = trunc(shorten_path(label), name_w)
     status = ""
     title = ""
@@ -185,7 +307,7 @@ for raw in tmux_rows:
 
 for row in opencode_rows:
     session = row["session"] or ""
-    icon = colorize("󱚟", "opencode")
+    icon = decorate_icon("󱚟", "opencode", session, session_markers)
     name = trunc(shorten_path(row["directory"]), name_w)
     status_text = trunc(row["status"], status_w)
     title = trunc(row["title"], title_w)
@@ -239,12 +361,14 @@ PY
 
 # Allow re-invocation for fzf reload
 if [[ "${1:-}" == "--rows" ]]; then
-    build_unified_rows
+    build_unified_rows "${2:-$(picker_cwd)}"
     exit 0
 fi
 
 SELF="$(realpath "$0")"
 REFRESH_PORT=$(shuf -i 10000-60000 -n 1)
+PICKER_CWD=$(picker_cwd)
+PICKER_CWD_Q=$(printf '%q' "$PICKER_CWD")
 
 cleanup() {
     kill "$REFRESHER_PID" 2>/dev/null || true
@@ -252,7 +376,7 @@ cleanup() {
 trap cleanup EXIT
 
 (while sleep 10; do
-    curl -s -XPOST "localhost:$REFRESH_PORT" -d "reload($SELF --rows)" 2>/dev/null || break
+    curl -s -XPOST "localhost:$REFRESH_PORT" -d "reload($SELF --rows $PICKER_CWD_Q)" 2>/dev/null || break
 done) >/dev/null 2>&1 &
 REFRESHER_PID=$!
 
@@ -260,7 +384,7 @@ PICKER_STATUS=0
 
 if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
     set +e
-    SELECTED=$(build_unified_rows | fzf-tmux -p 95%,80% \
+    SELECTED=$(build_unified_rows "$PICKER_CWD" | fzf-tmux -p 95%,80% \
         --listen "$REFRESH_PORT" \
         --ansi \
         --no-sort \
@@ -273,7 +397,7 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
     set -e
 else
     set +e
-    SELECTED=$(build_unified_rows | fzf \
+    SELECTED=$(build_unified_rows "$PICKER_CWD" | fzf \
         --listen "$REFRESH_PORT" \
         --ansi \
         --no-sort \
