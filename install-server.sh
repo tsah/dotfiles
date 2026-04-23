@@ -36,6 +36,14 @@ rm -rf "$HOME/.claude/skills/tmux-interactive-control"
 ln -sf "$DOTFILES_DIR/claude/skills/tmux-worktree-worker" "$HOME/.claude/skills/tmux-worktree-worker"
 ln -sf "$DOTFILES_DIR/claude/skills/tmux-interactive-control" "$HOME/.claude/skills/tmux-interactive-control"
 
+mkdir -p "$HOME/.pi/agent/extensions"
+mkdir -p "$HOME/.pi/agent/agents"
+rm -rf "$HOME/.pi/agent/extensions/tmux-agents"
+ln -sf "$DOTFILES_DIR/pi/extensions/tmux-agents" "$HOME/.pi/agent/extensions/tmux-agents"
+ln -sf "$DOTFILES_DIR/pi/agents/plan.md" "$HOME/.pi/agent/agents/plan.md"
+ln -sf "$DOTFILES_DIR/pi/agents/build.md" "$HOME/.pi/agent/agents/build.md"
+ln -sf "$DOTFILES_DIR/pi/agents/fast.md" "$HOME/.pi/agent/agents/fast.md"
+
 mkdir -p "$HOME/.config/jj"
 ln -sf "$DOTFILES_DIR/jj-config.toml" "$HOME/.config/jj/config.toml"
 

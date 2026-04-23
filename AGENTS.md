@@ -2,10 +2,11 @@
 
 ## IMPORTANT: Edit Files in This Repository
 
-**All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/` directly.** The files here are symlinked to their destinations by `install-omarchy.sh`. For example:
+**All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/`, `~/.pi/`, or other live config directories directly.** The files here are symlinked to their destinations by `install-omarchy.sh`. For example:
 - Waybar config: edit `omarchy/waybar/config.jsonc` (NOT `~/.config/waybar/`)
 - Hyprland config: edit `omarchy/hypr/` (NOT `~/.config/hypr/`)
 - Neovim config: edit `nvim/` (NOT `~/.config/nvim/`)
+- Pi config: edit `pi/` (NOT `~/.pi/agent/`)
 
 ## Repository Overview
 
@@ -13,7 +14,7 @@ Personal dotfiles for Arch Linux with Hyprland (Omarchy), including configuratio
 - Neovim, tmux, zsh, starship prompt
 - Hyprland window manager (via Omarchy)
 - Terminal emulators (Ghostty, Alacritty, WezTerm)
-- Development tools (jj/jujutsu, sesh, lazygit, opencode)
+- Development tools (jj/jujutsu, sesh, lazygit, opencode, pi)
 
 ## Build/Lint/Test Commands
 
@@ -248,12 +249,24 @@ dotfiles/
 ├── omarchy/               # Hyprland/Omarchy configs
 │   ├── hypr/             # Hyprland config files
 │   └── waybar/           # Waybar config
+├── pi/                    # Pi agent extensions and agent definitions
 ├── *.toml                 # Various tool configs (starship, sesh, jj)
 ├── *.json                 # JSON configs (opencode)
 ├── zshrc                  # Zsh configuration
 ├── .tmux.conf            # Tmux configuration
 ├── install-omarchy.sh    # Symlink installer
 └── install-packages.sh   # Package installer (Arch)
+```
+
+## Pi Configuration
+
+Pi configs are in `~/dotfiles/pi/` and symlinked to `~/.pi/agent/`:
+
+```
+dotfiles/
+└── pi/
+    ├── agents/                # Reusable pi agent definitions (markdown frontmatter)
+    └── extensions/            # Pi extensions (TypeScript)
 ```
 
 ## OpenCode Configuration

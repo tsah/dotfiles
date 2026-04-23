@@ -81,6 +81,15 @@ rm -rf ~/.claude/skills/tmux-interactive-control
 ln -sf ~/dotfiles/claude/skills/tmux-worktree-worker ~/.claude/skills/tmux-worktree-worker
 ln -sf ~/dotfiles/claude/skills/tmux-interactive-control ~/.claude/skills/tmux-interactive-control
 
+# Setup pi configuration
+mkdir -p ~/.pi/agent/extensions
+mkdir -p ~/.pi/agent/agents
+rm -rf ~/.pi/agent/extensions/tmux-agents
+ln -sf ~/dotfiles/pi/extensions/tmux-agents ~/.pi/agent/extensions/tmux-agents
+ln -sf ~/dotfiles/pi/agents/plan.md ~/.pi/agent/agents/plan.md
+ln -sf ~/dotfiles/pi/agents/build.md ~/.pi/agent/agents/build.md
+ln -sf ~/dotfiles/pi/agents/fast.md ~/.pi/agent/agents/fast.md
+
 # Setup jj (jujutsu) configuration
 mkdir -p ~/.config/jj
 ln -sf ~/dotfiles/jj-config.toml ~/.config/jj/config.toml

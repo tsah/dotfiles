@@ -1,0 +1,246 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+AGENT_HELPER="$SCRIPT_DIR/pi-agent-config"
+WAIT_EXTENSION="$SCRIPT_DIR/../pi/extensions/tmux-agents/wait-signal.ts"
+WAIT_TIMEOUT_SECONDS="${PI_TMUX_WAIT_TIMEOUT:-600}"
+WINDOW_PREFIX="${PI_TMUX_WINDOW_PREFIX:-p:}"
+
+build_default_window_name() {
+    local base_name="$1"
+
+    if [[ -z "$base_name" ]]; then
+        base_name="pi"
+    fi
+
+    if [[ -n "$WINDOW_PREFIX" && "$base_name" == "$WINDOW_PREFIX"* ]]; then
+        printf '%s\n' "$base_name"
+        return 0
+    fi
+
+    printf '%s%s\n' "$WINDOW_PREFIX" "$base_name"
+}
+
+usage() {
+    echo "Usage: $0 [--agent <agent-name>] [--cwd <path>] [--window-name <name>] [--wait] <prompt...>"
+    echo ""
+    echo "Spawn a pi agent in a new tmux window within the current session."
+    echo "Use --wait to keep the spawned pi window interactive while waiting for its initial task to complete."
+}
+
+AGENT_NAME=""
+TARGET_CWD="$PWD"
+WINDOW_NAME=""
+WAIT_FOR_COMPLETION=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a|--agent)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --agent requires a value" >&2
+                exit 1
+            fi
+            AGENT_NAME="$2"
+            shift 2
+            ;;
+        -c|--cwd)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --cwd requires a value" >&2
+                exit 1
+            fi
+            TARGET_CWD="$2"
+            shift 2
+            ;;
+        -w|--window-name)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --window-name requires a value" >&2
+                exit 1
+            fi
+            WINDOW_NAME="$2"
+            shift 2
+            ;;
+        --wait)
+            WAIT_FOR_COMPLETION=true
+            shift
+            ;;
+        -s|--split)
+            # Backwards-compatible no-op: subagents now open in tmux windows.
+            if [[ $# -ge 2 ]]; then
+                shift 2
+            else
+                echo "Error: --split requires a value" >&2
+                exit 1
+            fi
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Error: Unknown option: $1" >&2
+            usage
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -lt 1 ]]; then
+    echo "Error: initial prompt is required" >&2
+    usage
+    exit 1
+fi
+
+INITIAL_PROMPT="$*"
+
+for required_cmd in tmux pi python3; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+        echo "Error: Required command not found: $required_cmd" >&2
+        exit 1
+    fi
+done
+
+if [[ ! -x "$AGENT_HELPER" ]]; then
+    echo "Error: Agent helper not found: $AGENT_HELPER" >&2
+    exit 1
+fi
+
+if [[ -z "${TMUX:-}" || -z "${TMUX_PANE:-}" ]]; then
+    echo "Error: spawn-pi-subagent must be run from inside tmux" >&2
+    exit 1
+fi
+
+if [[ ! -d "$TARGET_CWD" ]]; then
+    echo "Error: Target directory does not exist: $TARGET_CWD" >&2
+    exit 1
+fi
+
+SESSION_NAME=$(tmux display-message -p -t "$TMUX_PANE" '#S')
+CMD=(pi)
+RESOLVED_AGENT_NAME=""
+AGENT_SOURCE=""
+AGENT_MODEL=""
+AGENT_THINKING=""
+AGENT_TOOLS=""
+
+if [[ -n "$AGENT_NAME" ]]; then
+    AGENT_JSON=$($AGENT_HELPER --cwd "$TARGET_CWD" --format json "$AGENT_NAME")
+    mapfile -t AGENT_FIELDS < <(printf '%s' "$AGENT_JSON" | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data.get("name", "")); print(data.get("source", "")); print(data.get("model", "")); print(data.get("thinking", "")); print(",".join(data.get("tools", [])))')
+    RESOLVED_AGENT_NAME="${AGENT_FIELDS[0]:-}"
+    AGENT_SOURCE="${AGENT_FIELDS[1]:-}"
+    AGENT_MODEL="${AGENT_FIELDS[2]:-}"
+    AGENT_THINKING="${AGENT_FIELDS[3]:-}"
+    AGENT_TOOLS="${AGENT_FIELDS[4]:-}"
+
+    AGENT_BODY=$($AGENT_HELPER --cwd "$TARGET_CWD" --body "$AGENT_NAME")
+
+    if [[ -n "$AGENT_MODEL" ]]; then
+        CMD+=(--model "$AGENT_MODEL")
+    fi
+    if [[ -n "$AGENT_THINKING" ]]; then
+        CMD+=(--thinking "$AGENT_THINKING")
+    fi
+    if [[ -n "$AGENT_TOOLS" ]]; then
+        CMD+=(--tools "$AGENT_TOOLS")
+    fi
+    if [[ -n "$AGENT_BODY" ]]; then
+        CMD+=(--append-system-prompt "$AGENT_BODY")
+    fi
+fi
+
+if [[ -z "$WINDOW_NAME" ]]; then
+    WINDOW_NAME=$(build_default_window_name "${RESOLVED_AGENT_NAME:-pi}")
+fi
+
+if [[ "$WAIT_FOR_COMPLETION" == true ]]; then
+    if [[ ! -f "$WAIT_EXTENSION" ]]; then
+        echo "Error: Wait extension not found: $WAIT_EXTENSION" >&2
+        exit 1
+    fi
+    WAIT_DIR=$(mktemp -d /tmp/pi-subagent-wait-XXXXXX)
+    SIGNAL_FILE="$WAIT_DIR/completed.json"
+    CMD+=(--extension "$WAIT_EXTENSION")
+else
+    WAIT_DIR=""
+    SIGNAL_FILE=""
+fi
+
+CMD+=("$INITIAL_PROMPT")
+
+printf -v PI_COMMAND '%q ' "${CMD[@]}"
+WINDOW_COMMAND="$PI_COMMAND"
+
+if [[ "$WAIT_FOR_COMPLETION" == true ]]; then
+    printf -v WINDOW_COMMAND 'bash -lc %q' "export PI_TMUX_WAIT_SIGNAL_FILE=\"$SIGNAL_FILE\"; exec ${PI_COMMAND}"
+fi
+
+WINDOW_META=$(tmux new-window -d -P -F '#{window_id}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}' -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$TARGET_CWD" "$WINDOW_COMMAND")
+IFS='|' read -r WINDOW_ID WINDOW_INDEX ACTUAL_WINDOW_NAME PANE_ID PANE_INDEX <<< "$WINDOW_META"
+
+if [[ "$WAIT_FOR_COMPLETION" != true ]]; then
+    echo "Spawned pi subagent."
+    echo "Session: $SESSION_NAME"
+    echo "Window: $ACTUAL_WINDOW_NAME"
+    echo "Pane: $PANE_INDEX ($PANE_ID)"
+    if [[ -n "$RESOLVED_AGENT_NAME" ]]; then
+        echo "Agent: $RESOLVED_AGENT_NAME ($AGENT_SOURCE)"
+    fi
+    echo "Focus with: tmux select-window -t $SESSION_NAME:$WINDOW_INDEX"
+fi
+
+if [[ "$WAIT_FOR_COMPLETION" == true ]]; then
+    START_TS=$(date +%s)
+    while [[ ! -f "$SIGNAL_FILE" ]]; do
+        sleep 0.2
+
+        NOW_TS=$(date +%s)
+        if (( NOW_TS - START_TS >= WAIT_TIMEOUT_SECONDS )); then
+            echo "Wait: timed out after ${WAIT_TIMEOUT_SECONDS}s" >&2
+            echo "--- Window snapshot ($SESSION_NAME:$ACTUAL_WINDOW_NAME.$PANE_INDEX) ---" >&2
+            tmux capture-pane -p -J -t "$PANE_ID" -S -2000 >&2 2>/dev/null || true
+            rm -rf "$WAIT_DIR"
+            exit 124
+        fi
+
+        PANE_DEAD=$(tmux list-panes -t "$PANE_ID" -F '#{pane_dead}' 2>/dev/null || true)
+        if [[ "$PANE_DEAD" == "1" ]]; then
+            echo "Wait: spawned pane exited before signaling completion" >&2
+            echo "--- Window snapshot ($SESSION_NAME:$ACTUAL_WINDOW_NAME.$PANE_INDEX) ---" >&2
+            tmux capture-pane -p -J -t "$PANE_ID" -S -2000 >&2 2>/dev/null || true
+            rm -rf "$WAIT_DIR"
+            exit 1
+        fi
+    done
+
+    mapfile -t SIGNAL_FIELDS < <(python3 -c 'import json, sys; data = json.load(open(sys.argv[1])); print(data.get("status", 0)); print(data.get("stopReason", "")); print(data.get("errorMessage", "")); print(data.get("reply", ""))' "$SIGNAL_FILE")
+    SUBAGENT_STATUS="${SIGNAL_FIELDS[0]:-0}"
+    STOP_REASON="${SIGNAL_FIELDS[1]:-}"
+    ERROR_MESSAGE="${SIGNAL_FIELDS[2]:-}"
+    ASSISTANT_REPLY="${SIGNAL_FIELDS[3]:-}"
+
+    rm -rf "$WAIT_DIR"
+
+    if [[ "$SUBAGENT_STATUS" -eq 0 ]]; then
+        printf '%s\n' "$ASSISTANT_REPLY"
+        exit 0
+    fi
+
+    if [[ -n "$ERROR_MESSAGE" ]]; then
+        echo "$ERROR_MESSAGE" >&2
+    elif [[ -n "$STOP_REASON" ]]; then
+        echo "Subagent stopped with reason: $STOP_REASON" >&2
+    else
+        echo "Subagent failed" >&2
+    fi
+    echo "--- Window snapshot ($SESSION_NAME:$ACTUAL_WINDOW_NAME.$PANE_INDEX) ---" >&2
+    tmux capture-pane -p -J -t "$PANE_ID" -S -2000 >&2 2>/dev/null || true
+    exit "$SUBAGENT_STATUS"
+fi

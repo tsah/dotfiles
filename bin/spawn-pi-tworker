@@ -1,0 +1,352 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+AGENT_HELPER="$SCRIPT_DIR/pi-agent-config"
+WAIT_EXTENSION="$SCRIPT_DIR/../pi/extensions/tmux-agents/wait-signal.ts"
+WAIT_TIMEOUT_SECONDS="${PI_TMUX_WAIT_TIMEOUT:-600}"
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+usage() {
+    echo "Usage: $0 [--agent <agent-name>] [--window-name <name>] [--wait] <branch-name> <prompt...>"
+    echo ""
+    echo "Spawn a pi worker in a detached tmux session and git worktree."
+    echo "Use --wait to keep the spawned pi window interactive while waiting for its initial task to complete."
+}
+
+append_run_command() {
+    local cmd="$1"
+
+    if [[ -z "$cmd" ]]; then
+        return 0
+    fi
+
+    if [[ -z "$POST_SPAWN_RUN_COMMANDS" ]]; then
+        POST_SPAWN_RUN_COMMANDS="$cmd"
+    else
+        POST_SPAWN_RUN_COMMANDS="${POST_SPAWN_RUN_COMMANDS} && ${cmd}"
+    fi
+}
+
+collect_setup_run_commands() {
+    local setup_root="$1"
+    local container_root="$2"
+    local setup_mode="${WT_SPAWN_MODE:-manual}"
+    local setup_config="$setup_root/.wtconfig"
+    local post_spawn_file="$container_root/.wtcompat-post-spawn-run"
+
+    POST_SPAWN_RUN_COMMANDS=""
+
+    if [[ "$setup_mode" != "auto" ]]; then
+        setup_mode="manual"
+    fi
+
+    if [[ -f "$setup_config" ]]; then
+        while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+            local line="$raw_line"
+            local key=""
+            local value=""
+            local apply=false
+
+            line=${line#"${line%%[![:space:]]*}"}
+            line=${line%"${line##*[![:space:]]}"}
+
+            case "$line" in
+                ''|\#*)
+                    continue
+                    ;;
+            esac
+
+            key=${line%%[[:space:]]*}
+            value=${line#"$key"}
+            value=${value#"${value%%[![:space:]]*}"}
+            value=${value%"${value##*[![:space:]]}"}
+
+            case "$key" in
+                run)
+                    apply=true
+                    ;;
+                run-manual)
+                    [[ "$setup_mode" == "manual" ]] && apply=true
+                    ;;
+                run-auto)
+                    [[ "$setup_mode" == "auto" ]] && apply=true
+                    ;;
+                *)
+                    apply=false
+                    ;;
+            esac
+
+            if [[ "$apply" != true || -z "$value" ]]; then
+                continue
+            fi
+
+            if [[ "${WT_SKIP_RUN_OC:-0}" == "1" ]]; then
+                case "$value" in
+                    oc|oc\ *|opencode|opencode\ *)
+                        continue
+                        ;;
+                esac
+            fi
+
+            append_run_command "$value"
+        done < "$setup_config"
+    fi
+
+    if [[ -f "$post_spawn_file" ]]; then
+        while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+            local cmd="$raw_line"
+            cmd=${cmd#"${cmd%%[![:space:]]*}"}
+            cmd=${cmd%"${cmd##*[![:space:]]}"}
+
+            case "$cmd" in
+                ''|\#*)
+                    continue
+                    ;;
+            esac
+
+            if [[ "${WT_SKIP_RUN_OC:-0}" == "1" ]]; then
+                case "$cmd" in
+                    oc|oc\ *|opencode|opencode\ *)
+                        continue
+                        ;;
+                esac
+            fi
+
+            append_run_command "$cmd"
+        done < "$post_spawn_file"
+    fi
+}
+
+AGENT_NAME=""
+WINDOW_NAME=""
+WAIT_FOR_COMPLETION=false
+POST_SPAWN_RUN_COMMANDS=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a|--agent)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --agent requires a value" >&2
+                exit 1
+            fi
+            AGENT_NAME="$2"
+            shift 2
+            ;;
+        -w|--window-name)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --window-name requires a value" >&2
+                exit 1
+            fi
+            WINDOW_NAME="$2"
+            shift 2
+            ;;
+        --wait)
+            WAIT_FOR_COMPLETION=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Error: Unknown option: $1" >&2
+            usage
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -lt 2 ]]; then
+    echo "Error: branch name and prompt are required" >&2
+    usage
+    exit 1
+fi
+
+BRANCH_NAME="$1"
+shift
+INITIAL_PROMPT="$*"
+
+for required_cmd in git wt tmux pi python3; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+        echo "Error: Required command not found: $required_cmd" >&2
+        exit 1
+    fi
+done
+
+if [[ ! -x "$AGENT_HELPER" ]]; then
+    echo "Error: Agent helper not found: $AGENT_HELPER" >&2
+    exit 1
+fi
+
+if ! wt_compat_resolve_context "$PWD"; then
+    echo "Error: Not in a supported git repository" >&2
+    exit 1
+fi
+
+COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+CONTAINER_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+SESSION_NAME=$(wt_compat_session_name "$CONTAINER_ROOT" "$BRANCH_NAME")
+SESSION_ALREADY_EXISTS=false
+
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    SESSION_ALREADY_EXISTS=true
+fi
+
+WT_SPAWN_MODE=auto WT_SKIP_RUN_OC=1 WT_SKIP_RUN_COMMANDS=1 wt spawn "$BRANCH_NAME" --no-switch
+
+WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+if [[ -z "$WORKTREE_PATH" ]]; then
+    echo "Error: Could not resolve worktree path for branch '$BRANCH_NAME'" >&2
+    exit 1
+fi
+
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "Error: tmux session '$SESSION_NAME' was not created" >&2
+    exit 1
+fi
+
+CMD=(pi)
+RESOLVED_AGENT_NAME=""
+AGENT_SOURCE=""
+AGENT_MODEL=""
+AGENT_THINKING=""
+AGENT_TOOLS=""
+
+if [[ -n "$AGENT_NAME" ]]; then
+    AGENT_JSON=$($AGENT_HELPER --cwd "$WORKTREE_PATH" --format json "$AGENT_NAME")
+    mapfile -t AGENT_FIELDS < <(printf '%s' "$AGENT_JSON" | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data.get("name", "")); print(data.get("source", "")); print(data.get("model", "")); print(data.get("thinking", "")); print(",".join(data.get("tools", [])))')
+    RESOLVED_AGENT_NAME="${AGENT_FIELDS[0]:-}"
+    AGENT_SOURCE="${AGENT_FIELDS[1]:-}"
+    AGENT_MODEL="${AGENT_FIELDS[2]:-}"
+    AGENT_THINKING="${AGENT_FIELDS[3]:-}"
+    AGENT_TOOLS="${AGENT_FIELDS[4]:-}"
+
+    AGENT_BODY=$($AGENT_HELPER --cwd "$WORKTREE_PATH" --body "$AGENT_NAME")
+
+    if [[ -n "$AGENT_MODEL" ]]; then
+        CMD+=(--model "$AGENT_MODEL")
+    fi
+    if [[ -n "$AGENT_THINKING" ]]; then
+        CMD+=(--thinking "$AGENT_THINKING")
+    fi
+    if [[ -n "$AGENT_TOOLS" ]]; then
+        CMD+=(--tools "$AGENT_TOOLS")
+    fi
+    if [[ -n "$AGENT_BODY" ]]; then
+        CMD+=(--append-system-prompt "$AGENT_BODY")
+    fi
+fi
+
+if [[ -z "$WINDOW_NAME" ]]; then
+    WINDOW_NAME="pi-agent"
+fi
+
+SETUP_ROOT=$(wt_compat_setup_root "$CONTAINER_ROOT")
+collect_setup_run_commands "$SETUP_ROOT" "$CONTAINER_ROOT"
+
+if [[ "$WAIT_FOR_COMPLETION" == true ]]; then
+    if [[ ! -f "$WAIT_EXTENSION" ]]; then
+        echo "Error: Wait extension not found: $WAIT_EXTENSION" >&2
+        exit 1
+    fi
+    WAIT_DIR=$(mktemp -d /tmp/pi-tworker-wait-XXXXXX)
+    SIGNAL_FILE="$WAIT_DIR/completed.json"
+    CMD+=(--extension "$WAIT_EXTENSION")
+else
+    WAIT_DIR=""
+    SIGNAL_FILE=""
+fi
+
+CMD+=("$INITIAL_PROMPT")
+
+printf -v PI_COMMAND '%q ' "${CMD[@]}"
+WINDOW_COMMAND="$PI_COMMAND"
+SHELL_PREFIX='set -e; '
+
+if [[ -n "$POST_SPAWN_RUN_COMMANDS" ]]; then
+    SHELL_PREFIX+="${POST_SPAWN_RUN_COMMANDS} && "
+fi
+SHELL_PREFIX+="if [[ -f .venv/bin/activate ]]; then source .venv/bin/activate; elif [[ -f venv/bin/activate ]]; then source venv/bin/activate; fi; "
+
+printf -v WINDOW_COMMAND 'bash -lc %q' "cd \"$WORKTREE_PATH\" && ${SHELL_PREFIX}exec ${PI_COMMAND}"
+
+if [[ "$WAIT_FOR_COMPLETION" == true ]]; then
+    printf -v WINDOW_COMMAND 'bash -lc %q' "cd \"$WORKTREE_PATH\" && export PI_TMUX_WAIT_SIGNAL_FILE=\"$SIGNAL_FILE\"; ${SHELL_PREFIX}exec ${PI_COMMAND}"
+fi
+
+WINDOW_META=$(tmux new-window -d -P -F '#{window_id}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}' -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" "$WINDOW_COMMAND")
+IFS='|' read -r WINDOW_ID WINDOW_INDEX ACTUAL_WINDOW_NAME PANE_ID PANE_INDEX <<< "$WINDOW_META"
+
+if [[ "$SESSION_ALREADY_EXISTS" == false ]]; then
+    tmux send-keys -t "$SESSION_NAME:1" "exit" Enter
+fi
+
+if [[ "$WAIT_FOR_COMPLETION" != true ]]; then
+    echo "Spawned pi worker."
+    echo "Session: $SESSION_NAME"
+    echo "Window: $ACTUAL_WINDOW_NAME"
+    echo "Pane: $PANE_INDEX ($PANE_ID)"
+    if [[ -n "$RESOLVED_AGENT_NAME" ]]; then
+        echo "Agent: $RESOLVED_AGENT_NAME ($AGENT_SOURCE)"
+    fi
+    echo "Switch with Alt+k and select '$SESSION_NAME'."
+    echo "Direct switch: tmux switch-client -t \"$SESSION_NAME\""
+fi
+
+if [[ "$WAIT_FOR_COMPLETION" == true ]]; then
+    START_TS=$(date +%s)
+    while [[ ! -f "$SIGNAL_FILE" ]]; do
+        sleep 0.2
+
+        NOW_TS=$(date +%s)
+        if (( NOW_TS - START_TS >= WAIT_TIMEOUT_SECONDS )); then
+            echo "Wait: timed out after ${WAIT_TIMEOUT_SECONDS}s" >&2
+            echo "--- Window snapshot ($SESSION_NAME:$ACTUAL_WINDOW_NAME.$PANE_INDEX) ---" >&2
+            tmux capture-pane -p -J -t "$PANE_ID" -S -2000 >&2 2>/dev/null || true
+            rm -rf "$WAIT_DIR"
+            exit 124
+        fi
+
+        PANE_DEAD=$(tmux list-panes -t "$PANE_ID" -F '#{pane_dead}' 2>/dev/null || true)
+        if [[ "$PANE_DEAD" == "1" ]]; then
+            echo "Wait: spawned pane exited before signaling completion" >&2
+            echo "--- Window snapshot ($SESSION_NAME:$ACTUAL_WINDOW_NAME.$PANE_INDEX) ---" >&2
+            tmux capture-pane -p -J -t "$PANE_ID" -S -2000 >&2 2>/dev/null || true
+            rm -rf "$WAIT_DIR"
+            exit 1
+        fi
+    done
+
+    mapfile -t SIGNAL_FIELDS < <(python3 -c 'import json, sys; data = json.load(open(sys.argv[1])); print(data.get("status", 0)); print(data.get("stopReason", "")); print(data.get("errorMessage", "")); print(data.get("reply", ""))' "$SIGNAL_FILE")
+    SUBAGENT_STATUS="${SIGNAL_FIELDS[0]:-0}"
+    STOP_REASON="${SIGNAL_FIELDS[1]:-}"
+    ERROR_MESSAGE="${SIGNAL_FIELDS[2]:-}"
+    ASSISTANT_REPLY="${SIGNAL_FIELDS[3]:-}"
+
+    rm -rf "$WAIT_DIR"
+
+    if [[ "$SUBAGENT_STATUS" -eq 0 ]]; then
+        printf '%s\n' "$ASSISTANT_REPLY"
+        exit 0
+    fi
+
+    if [[ -n "$ERROR_MESSAGE" ]]; then
+        echo "$ERROR_MESSAGE" >&2
+    elif [[ -n "$STOP_REASON" ]]; then
+        echo "Worker stopped with reason: $STOP_REASON" >&2
+    else
+        echo "Worker failed" >&2
+    fi
+    echo "--- Window snapshot ($SESSION_NAME:$ACTUAL_WINDOW_NAME.$PANE_INDEX) ---" >&2
+    tmux capture-pane -p -J -t "$PANE_ID" -S -2000 >&2 2>/dev/null || true
+    exit "$SUBAGENT_STATUS"
+fi

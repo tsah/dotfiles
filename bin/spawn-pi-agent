@@ -1,0 +1,152 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+AGENT_HELPER="$SCRIPT_DIR/pi-agent-config"
+WINDOW_PREFIX="${PI_TMUX_WINDOW_PREFIX:-p:}"
+
+build_default_window_name() {
+    local base_name="$1"
+
+    if [[ -z "$base_name" ]]; then
+        base_name="pi"
+    fi
+
+    if [[ -n "$WINDOW_PREFIX" && "$base_name" == "$WINDOW_PREFIX"* ]]; then
+        printf '%s\n' "$base_name"
+        return 0
+    fi
+
+    printf '%s%s\n' "$WINDOW_PREFIX" "$base_name"
+}
+
+usage() {
+    echo "Usage: $0 [--agent <agent-name>] [--cwd <path>] [--window-name <name>] [--] [pi-args...]"
+    echo ""
+    echo "Open an interactive pi session in a new tmux window."
+}
+
+AGENT_NAME=""
+TARGET_CWD="$PWD"
+WINDOW_NAME=""
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a|--agent)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --agent requires a value" >&2
+                exit 1
+            fi
+            AGENT_NAME="$2"
+            shift 2
+            ;;
+        -c|--cwd)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --cwd requires a value" >&2
+                exit 1
+            fi
+            TARGET_CWD="$2"
+            shift 2
+            ;;
+        -w|--window-name)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --window-name requires a value" >&2
+                exit 1
+            fi
+            WINDOW_NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            EXTRA_ARGS=("$@")
+            break
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+for required_cmd in tmux pi python3; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+        echo "Error: Required command not found: $required_cmd" >&2
+        exit 1
+    fi
+done
+
+if [[ ! -x "$AGENT_HELPER" ]]; then
+    echo "Error: Agent helper not found: $AGENT_HELPER" >&2
+    exit 1
+fi
+
+if [[ -z "${TMUX:-}" || -z "${TMUX_PANE:-}" ]]; then
+    echo "Error: spawn-pi-agent must be run from inside tmux" >&2
+    exit 1
+fi
+
+if [[ ! -d "$TARGET_CWD" ]]; then
+    echo "Error: Target directory does not exist: $TARGET_CWD" >&2
+    exit 1
+fi
+
+SESSION_NAME=$(tmux display-message -p -t "$TMUX_PANE" '#S')
+CMD=(pi)
+RESOLVED_AGENT_NAME=""
+AGENT_SOURCE=""
+AGENT_FORMAT=""
+
+if [[ -n "$AGENT_NAME" ]]; then
+    AGENT_JSON=$($AGENT_HELPER --agent-format pi --cwd "$TARGET_CWD" --format json "$AGENT_NAME")
+    mapfile -t AGENT_FIELDS < <(printf '%s' "$AGENT_JSON" | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data.get("name", "")); print(data.get("source", "")); print(data.get("format", "")); print(data.get("model", "")); print(data.get("thinking", "")); print(",".join(data.get("tools", [])))')
+    RESOLVED_AGENT_NAME="${AGENT_FIELDS[0]:-}"
+    AGENT_SOURCE="${AGENT_FIELDS[1]:-}"
+    AGENT_FORMAT="${AGENT_FIELDS[2]:-}"
+    AGENT_MODEL="${AGENT_FIELDS[3]:-}"
+    AGENT_THINKING="${AGENT_FIELDS[4]:-}"
+    AGENT_TOOLS="${AGENT_FIELDS[5]:-}"
+
+    if [[ "$AGENT_FORMAT" != "pi" ]]; then
+        echo "Error: '$AGENT_NAME' is not a pi agent" >&2
+        exit 1
+    fi
+
+    AGENT_BODY=$($AGENT_HELPER --agent-format pi --cwd "$TARGET_CWD" --body "$AGENT_NAME")
+
+    if [[ -n "$AGENT_MODEL" ]]; then
+        CMD+=(--model "$AGENT_MODEL")
+    fi
+    if [[ -n "$AGENT_THINKING" ]]; then
+        CMD+=(--thinking "$AGENT_THINKING")
+    fi
+    if [[ -n "$AGENT_TOOLS" ]]; then
+        CMD+=(--tools "$AGENT_TOOLS")
+    fi
+    if [[ -n "$AGENT_BODY" ]]; then
+        CMD+=(--append-system-prompt "$AGENT_BODY")
+    fi
+fi
+
+CMD+=("${EXTRA_ARGS[@]}")
+
+if [[ -z "$WINDOW_NAME" ]]; then
+    WINDOW_NAME=$(build_default_window_name "${RESOLVED_AGENT_NAME:-pi}")
+fi
+
+printf -v PI_COMMAND '%q ' "${CMD[@]}"
+WINDOW_COMMAND="$PI_COMMAND"
+
+WINDOW_META=$(tmux new-window -P -F '#{window_id}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}' -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$TARGET_CWD" "$WINDOW_COMMAND")
+IFS='|' read -r _WINDOW_ID _WINDOW_INDEX ACTUAL_WINDOW_NAME _PANE_ID _PANE_INDEX <<< "$WINDOW_META"
+
+if [[ -n "$RESOLVED_AGENT_NAME" ]]; then
+    tmux display-message "Opened pi agent: $RESOLVED_AGENT_NAME ($AGENT_SOURCE)"
+else
+    tmux display-message "Opened pi"
+fi
