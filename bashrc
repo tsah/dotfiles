@@ -32,6 +32,11 @@ export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
 export NVM_DIR="$HOME/.nvm"
 export SHELL="$(command -v bash)"
 
+IS_INTERACTIVE_SHELL=false
+case $- in
+    *i*) IS_INTERACTIVE_SHELL=true ;;
+esac
+
 alias v='nvim'
 alias l='ls -ls'
 alias lg='lazygit'
@@ -86,7 +91,7 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
     . "$NVM_DIR/nvm.sh"
 fi
 
-if [ -s "$NVM_DIR/bash_completion" ]; then
+if [ "$IS_INTERACTIVE_SHELL" = true ] && [ -s "$NVM_DIR/bash_completion" ]; then
     # shellcheck disable=SC1090
     . "$NVM_DIR/bash_completion"
 fi
@@ -96,7 +101,7 @@ if [ -f "$HOME/google-cloud-sdk/path.bash.inc" ]; then
     . "$HOME/google-cloud-sdk/path.bash.inc"
 fi
 
-if [ -f "$HOME/google-cloud-sdk/completion.bash.inc" ]; then
+if [ "$IS_INTERACTIVE_SHELL" = true ] && [ -f "$HOME/google-cloud-sdk/completion.bash.inc" ]; then
     # shellcheck disable=SC1091
     . "$HOME/google-cloud-sdk/completion.bash.inc"
 fi
@@ -105,12 +110,20 @@ if command -v zoxide >/dev/null 2>&1; then
     eval "$(zoxide init bash)"
 fi
 
-if command -v starship >/dev/null 2>&1; then
+if [ "$IS_INTERACTIVE_SHELL" = true ] && command -v starship >/dev/null 2>&1; then
     eval "$(starship init bash)"
 fi
 
-if command -v atuin >/dev/null 2>&1; then
+if [ "$IS_INTERACTIVE_SHELL" = true ] && command -v atuin >/dev/null 2>&1; then
     eval "$(atuin init bash --disable-up-arrow)"
 fi
 
-set -o vi
+if [ "$IS_INTERACTIVE_SHELL" = true ]; then
+    set -o vi
+fi
+
+if [ "$IS_INTERACTIVE_SHELL" = true ] && command -v wt >/dev/null 2>&1; then
+    if WT_SHELL_INIT=$(command wt config shell init bash 2>/dev/null); then
+        eval "$WT_SHELL_INIT"
+    fi
+fi
