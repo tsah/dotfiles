@@ -1,0 +1,76 @@
+#!/bin/bash
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 [--cwd <path>] [--window-name <name>] [--] [claude-args...]"
+    echo ""
+    echo "Open Claude Code in a new tmux window."
+}
+
+TARGET_CWD="$PWD"
+WINDOW_NAME="claude"
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -c|--cwd)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --cwd requires a value" >&2
+                exit 1
+            fi
+            TARGET_CWD="$2"
+            shift 2
+            ;;
+        -w|--window-name)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --window-name requires a value" >&2
+                exit 1
+            fi
+            WINDOW_NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            EXTRA_ARGS=("$@")
+            break
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+for required_cmd in tmux claude; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+        echo "Error: Required command not found: $required_cmd" >&2
+        exit 1
+    fi
+done
+
+if [[ -z "${TMUX:-}" || -z "${TMUX_PANE:-}" ]]; then
+    echo "Error: spawn-claude-code must be run from inside tmux" >&2
+    exit 1
+fi
+
+if [[ ! -d "$TARGET_CWD" ]]; then
+    echo "Error: Target directory does not exist: $TARGET_CWD" >&2
+    exit 1
+fi
+
+SESSION_NAME=$(tmux display-message -p -t "$TMUX_PANE" '#S')
+CMD=(claude)
+CMD+=("${EXTRA_ARGS[@]}")
+
+printf -v CLAUDE_COMMAND '%q ' "${CMD[@]}"
+WINDOW_COMMAND="$CLAUDE_COMMAND"
+
+WINDOW_META=$(tmux new-window -P -F '#{window_id}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}' -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$TARGET_CWD" "$WINDOW_COMMAND")
+IFS='|' read -r _WINDOW_ID _WINDOW_INDEX ACTUAL_WINDOW_NAME _PANE_ID _PANE_INDEX <<< "$WINDOW_META"
+
+tmux display-message "Opened Claude Code"

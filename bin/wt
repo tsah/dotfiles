@@ -219,6 +219,10 @@ run_post_spawn_commands_in_tmux() {
     SESSION_NAME="$1"
     WORKTREE_PATH="$2"
 
+    if [ "${WT_SKIP_RUN_COMMANDS:-0}" = "1" ]; then
+        return 0
+    fi
+
     if [ -z "$POST_SPAWN_RUN_COMMANDS" ]; then
         return 0
     fi
@@ -405,7 +409,7 @@ spawn_impl() {
         return 0
     fi
 
-    if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ]; then
+    if [ "$WORKTREE_CREATED" = true ] && [ -n "$POST_SPAWN_RUN_COMMANDS" ] && [ "${WT_SKIP_RUN_COMMANDS:-0}" != "1" ]; then
         echo "Running post-spawn commands..."
         if ! (cd "$WORKTREE_PATH" && sh -c "$POST_SPAWN_RUN_COMMANDS"); then
             echo "Error: Post-spawn commands failed"
