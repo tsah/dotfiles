@@ -1,0 +1,383 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
+
+usage() {
+    cat <<'EOF'
+Usage: wt-teleport [options]
+
+Sync the current worktree to a remote machine, recreate the matching tmux
+session there, sync agent state, and optionally attach to the remote session.
+
+Options:
+  --host <host>             Remote SSH host (default: tsah-dev-frankfurt)
+  --remote-user <user>      Remote user (default: current user)
+  --remote-root <path>      Remote bare-container path (default: ~/dev/work/<repo>)
+  --no-agent-state          Skip OpenCode / Claude / Pi session-state sync
+  --no-agent-windows        Skip reopening agent windows on the remote tmux session
+  --no-attach               Do not attach after syncing
+  --force-remote-dirty      Overwrite a dirty remote worktree
+  -h, --help                Show this help
+EOF
+}
+
+require_arg() {
+    local flag="$1"
+    local value="${2:-}"
+
+    if [[ -z "$value" ]]; then
+        echo "Error: ${flag} requires a value" >&2
+        exit 1
+    fi
+}
+
+claude_project_dir_name() {
+    local cwd_path="$1"
+    printf '%s\n' "${cwd_path//\//-}"
+}
+
+pi_session_dir_name() {
+    local cwd_path="$1"
+    local trimmed="${cwd_path#/}"
+    printf -- '--%s--\n' "${trimmed//\//-}"
+}
+
+opencode_session_id_for_dir() {
+    local target_dir="$1"
+    local db_path="$HOME/.local/share/opencode/opencode.db"
+
+    [[ -f "$db_path" ]] || return 0
+
+    if command -v sqlite3 >/dev/null 2>&1; then
+        local escaped_dir
+        escaped_dir=${target_dir//\'/\'\'}
+        sqlite3 -readonly "$db_path" \
+            "SELECT id FROM session WHERE directory = '$escaped_dir' AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1;" \
+            2>/dev/null || true
+        return 0
+    fi
+
+    python3 - "$db_path" "$target_dir" <<'PY' 2>/dev/null || true
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+cur = conn.cursor()
+cur.execute(
+    """SELECT id
+       FROM session
+       WHERE directory = ?
+         AND time_archived IS NULL
+       ORDER BY time_updated DESC
+       LIMIT 1""",
+    (sys.argv[2],),
+)
+row = cur.fetchone()
+if row:
+    print(row[0])
+PY
+}
+
+sync_opencode_state() {
+    local target_dir="$1"
+    local host_name="$2"
+    local remote_home="$3"
+    local remote_tmp_path
+    local session_id
+    local export_path="$TMP_DIR/opencode-export.json"
+
+    command -v opencode >/dev/null 2>&1 || return 0
+
+    session_id=$(opencode_session_id_for_dir "$target_dir")
+    [[ -n "$session_id" ]] || return 0
+
+    echo "Syncing OpenCode session: $session_id"
+    opencode export "$session_id" > "$export_path"
+
+    remote_tmp_path="/tmp/opencode-teleport-${USER}-$$.json"
+    cat "$export_path" | ssh -o BatchMode=yes "$host_name" "cat > '$remote_tmp_path'"
+    ssh -o BatchMode=yes "$host_name" "export PATH='$remote_home/dotfiles/bin:$remote_home/.local/bin:$remote_home/.opencode/bin:'\"\$PATH\"; if command -v opencode >/dev/null 2>&1; then opencode import '$remote_tmp_path' >/dev/null; else '$remote_home/.opencode/bin/opencode' import '$remote_tmp_path' >/dev/null; fi; rm -f '$remote_tmp_path'"
+}
+
+sync_claude_state() {
+    local target_dir="$1"
+    local host_name="$2"
+    local remote_home="$3"
+    local project_name
+    local local_project_dir
+    local remote_project_dir
+
+    project_name=$(claude_project_dir_name "$target_dir")
+    local_project_dir="$HOME/.claude/projects/$project_name"
+    remote_project_dir="$remote_home/.claude/projects/$project_name"
+
+    [[ -d "$local_project_dir" ]] || return 0
+
+    echo "Syncing Claude project state: $project_name"
+    ssh -o BatchMode=yes "$host_name" "mkdir -p '$remote_project_dir'"
+    rsync -az --delete "$local_project_dir/" "$host_name:$remote_project_dir/"
+}
+
+sync_pi_state() {
+    local target_dir="$1"
+    local host_name="$2"
+    local remote_home="$3"
+    local session_dir_name
+    local local_session_dir
+    local remote_session_dir
+
+    session_dir_name=$(pi_session_dir_name "$target_dir")
+    local_session_dir="$HOME/.pi/agent/sessions/$session_dir_name"
+    remote_session_dir="$remote_home/.pi/agent/sessions/$session_dir_name"
+
+    [[ -d "$local_session_dir" ]] || return 0
+
+    echo "Syncing Pi session state: $session_dir_name"
+    ssh -o BatchMode=yes "$host_name" "mkdir -p '$remote_session_dir'"
+    rsync -az --delete "$local_session_dir/" "$host_name:$remote_session_dir/"
+}
+
+collect_local_agent_windows() {
+    local session_name="$1"
+    local pane_rows
+    local window_name
+    local pane_command
+    local pane_title
+
+    DETECT_HAS_OPENCODE=false
+    DETECT_HAS_CLAUDE=false
+    DETECT_PI_WINDOWS=()
+
+    if ! command -v tmux >/dev/null 2>&1 || ! tmux has-session -t "$session_name" 2>/dev/null; then
+        return 0
+    fi
+
+    pane_rows=$(tmux list-panes -t "$session_name" -F '#{window_name}\t#{pane_current_command}\t#{pane_title}' 2>/dev/null || true)
+    [[ -n "$pane_rows" ]] || return 0
+
+    while IFS=$'\t' read -r window_name pane_command pane_title; do
+        if [[ "$pane_command" == "opencode" || "$window_name" == "opencode" || "$pane_title" == *"opencode"* ]]; then
+            DETECT_HAS_OPENCODE=true
+        fi
+
+        if [[ "$pane_command" == "claude" || "$window_name" == "claude" || "$pane_title" == *"Claude Code"* ]]; then
+            DETECT_HAS_CLAUDE=true
+        fi
+
+        if [[ "$pane_command" == "pi" || "$window_name" == p:* || "$window_name" == "pi" || "$window_name" == "pi-agent" || "$pane_title" == π* ]]; then
+            if [[ ! " ${DETECT_PI_WINDOWS[*]} " =~ " ${window_name} " ]]; then
+                DETECT_PI_WINDOWS+=("$window_name")
+            fi
+        fi
+    done <<< "$pane_rows"
+}
+
+remote_branch_status_ref() {
+    local host_name="$1"
+    local branch_name="$2"
+    local safe_branch_name
+
+    safe_branch_name=$(wt_compat_sanitize_branch "$branch_name" | tr '@' '-')
+    printf 'refs/teleport/%s/%s\n' "$host_name" "$safe_branch_name"
+}
+
+sync_worktree_state() {
+    local local_worktree_path="$1"
+    local host_name="$2"
+    local remote_worktree_path="$3"
+    local branch_name="$4"
+    local tracked_patch_path="$TMP_DIR/tracked.patch"
+    local untracked_list_path="$TMP_DIR/untracked.list"
+
+    git -C "$local_worktree_path" diff --binary HEAD > "$tracked_patch_path"
+    git -C "$local_worktree_path" ls-files --others --exclude-standard -z > "$untracked_list_path"
+
+    ssh -o BatchMode=yes "$host_name" "cd '$remote_worktree_path' && git reset --hard 'refs/heads/$branch_name' >/dev/null && git clean -fd >/dev/null"
+
+    if [[ -s "$tracked_patch_path" ]]; then
+        echo "Applying tracked worktree diff on remote"
+        cat "$tracked_patch_path" | ssh -o BatchMode=yes "$host_name" "cd '$remote_worktree_path' && git apply --binary --whitespace=nowarn -"
+    fi
+
+    if [[ -s "$untracked_list_path" ]]; then
+        echo "Syncing untracked files to remote"
+        tar -C "$local_worktree_path" --null --files-from "$untracked_list_path" -cf - | \
+            ssh -o BatchMode=yes "$host_name" "tar -xf - -C '$remote_worktree_path'"
+    fi
+}
+
+reopen_remote_agent_windows() {
+    local host_name="$1"
+    local session_name="$2"
+    local remote_worktree_path="$3"
+    local has_opencode="$4"
+    local has_claude="$5"
+    local pi_windows_csv="$6"
+
+    ssh -o BatchMode=yes "$host_name" bash -s -- \
+        "$session_name" \
+        "$remote_worktree_path" \
+        "$has_opencode" \
+        "$has_claude" \
+        "$pi_windows_csv" < "$SCRIPT_DIR/wt-teleport-remote-agent-windows.sh"
+}
+
+HOST_NAME="${WT_TELEPORT_HOST:-tsah-dev-frankfurt}"
+REMOTE_USER_NAME="$USER"
+REMOTE_ROOT=""
+SYNC_AGENT_STATE=true
+SYNC_AGENT_WINDOWS=true
+ATTACH_REMOTE=true
+FORCE_REMOTE_DIRTY=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --host)
+            require_arg "$1" "${2:-}"
+            HOST_NAME="$2"
+            shift 2
+            ;;
+        --remote-user)
+            require_arg "$1" "${2:-}"
+            REMOTE_USER_NAME="$2"
+            shift 2
+            ;;
+        --remote-root)
+            require_arg "$1" "${2:-}"
+            REMOTE_ROOT="$2"
+            shift 2
+            ;;
+        --no-agent-state)
+            SYNC_AGENT_STATE=false
+            shift
+            ;;
+        --no-agent-windows)
+            SYNC_AGENT_WINDOWS=false
+            shift
+            ;;
+        --no-attach)
+            ATTACH_REMOTE=false
+            shift
+            ;;
+        --force-remote-dirty)
+            FORCE_REMOTE_DIRTY=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+PANE_PATH="$PWD"
+if ! wt_compat_resolve_context "$PANE_PATH"; then
+    echo "Error: Not in a supported git repository" >&2
+    exit 1
+fi
+
+if [[ -z "$WT_COMPAT_WORKTREE_ROOT" ]]; then
+    echo "Error: wt-teleport must be run from inside a worktree" >&2
+    exit 1
+fi
+
+LOCAL_WORKTREE_PATH="$WT_COMPAT_WORKTREE_ROOT"
+COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+CONTAINER_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+REPO_NAME="$WT_COMPAT_REPO_NAME"
+BRANCH_NAME=$(git -C "$LOCAL_WORKTREE_PATH" branch --show-current)
+SAFE_BRANCH_NAME=$(wt_compat_sanitize_branch "$BRANCH_NAME")
+SESSION_NAME=$(wt_compat_session_name "$CONTAINER_ROOT" "$BRANCH_NAME")
+LOCAL_HEAD=$(git -C "$LOCAL_WORKTREE_PATH" rev-parse HEAD)
+REMOTE_HOME="/home/${REMOTE_USER_NAME}"
+
+if [[ -z "$REMOTE_ROOT" ]]; then
+    REMOTE_ROOT="$REMOTE_HOME/dev/work/$REPO_NAME"
+fi
+REMOTE_ROOT=$(python3 - "$REMOTE_ROOT" <<'PY'
+import os
+import sys
+print(os.path.normpath(sys.argv[1]))
+PY
+)
+REMOTE_WORKTREE_PATH=$(wt_compat_bare_worktree_path "$REMOTE_ROOT" "$BRANCH_NAME")
+REMOTE_GIT_URL="ssh://${REMOTE_USER_NAME}@${HOST_NAME}${REMOTE_ROOT}/.git"
+TMP_DIR=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/wt-teleport.XXXXXX")
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST_NAME" "test -d '$REMOTE_ROOT/.git'" >/dev/null 2>&1; then
+    echo "Error: Remote repo container not found: ${HOST_NAME}:${REMOTE_ROOT}" >&2
+    exit 1
+fi
+
+REMOTE_STATUS_REF=$(remote_branch_status_ref "$HOST_NAME" "$BRANCH_NAME")
+git --git-dir="$COMMON_DIR" update-ref -d "$REMOTE_STATUS_REF" >/dev/null 2>&1 || true
+REMOTE_BRANCH_EXISTS=false
+if git --git-dir="$COMMON_DIR" fetch --quiet "$REMOTE_GIT_URL" "refs/heads/$BRANCH_NAME:$REMOTE_STATUS_REF" >/dev/null 2>&1; then
+    REMOTE_BRANCH_EXISTS=true
+fi
+
+if [[ "$REMOTE_BRANCH_EXISTS" == true ]]; then
+    REMOTE_HEAD=$(git --git-dir="$COMMON_DIR" rev-parse "$REMOTE_STATUS_REF")
+    if [[ "$REMOTE_HEAD" != "$LOCAL_HEAD" ]]; then
+        if git --git-dir="$COMMON_DIR" merge-base --is-ancestor "$REMOTE_STATUS_REF" "$LOCAL_HEAD" >/dev/null 2>&1; then
+            :
+        elif git --git-dir="$COMMON_DIR" merge-base --is-ancestor "$LOCAL_HEAD" "$REMOTE_STATUS_REF" >/dev/null 2>&1; then
+            echo "Error: Remote branch is ahead of local HEAD. Reconcile local changes before teleporting." >&2
+            exit 1
+        else
+            echo "Error: Local and remote branches have diverged. Reconcile them before teleporting." >&2
+            exit 1
+        fi
+    fi
+fi
+
+git --git-dir="$COMMON_DIR" update-ref -d "$REMOTE_STATUS_REF" >/dev/null 2>&1 || true
+
+echo "Pushing branch state to ${HOST_NAME}:${REMOTE_ROOT}"
+git --git-dir="$COMMON_DIR" push "$REMOTE_GIT_URL" "HEAD:refs/heads/$BRANCH_NAME"
+
+echo "Ensuring remote worktree + tmux session exist"
+printf -v REMOTE_BRANCH_Q '%q' "$BRANCH_NAME"
+ssh -o BatchMode=yes "$HOST_NAME" "cd '$REMOTE_ROOT' && WT_SKIP_RUN_OC=1 WT_SKIP_RUN_COMMANDS=1 ~/dotfiles/bin/wt spawn $REMOTE_BRANCH_Q --no-switch >/dev/null"
+
+REMOTE_STATUS=$(ssh -o BatchMode=yes "$HOST_NAME" "git -C '$REMOTE_WORKTREE_PATH' status --porcelain" 2>/dev/null || true)
+if [[ -n "$REMOTE_STATUS" && "$FORCE_REMOTE_DIRTY" != true ]]; then
+    echo "Error: Remote worktree is dirty. Re-run with --force-remote-dirty to overwrite it." >&2
+    exit 1
+fi
+
+sync_worktree_state "$LOCAL_WORKTREE_PATH" "$HOST_NAME" "$REMOTE_WORKTREE_PATH" "$BRANCH_NAME"
+
+if [[ "$SYNC_AGENT_STATE" == true ]]; then
+    sync_opencode_state "$LOCAL_WORKTREE_PATH" "$HOST_NAME" "$REMOTE_HOME"
+    sync_claude_state "$LOCAL_WORKTREE_PATH" "$HOST_NAME" "$REMOTE_HOME"
+    sync_pi_state "$LOCAL_WORKTREE_PATH" "$HOST_NAME" "$REMOTE_HOME"
+fi
+
+if [[ "$SYNC_AGENT_WINDOWS" == true ]]; then
+    collect_local_agent_windows "$SESSION_NAME"
+    PI_WINDOWS_CSV=""
+    if [[ ${#DETECT_PI_WINDOWS[@]} -gt 0 ]]; then
+        PI_WINDOWS_CSV=$(IFS=,; printf '%s' "${DETECT_PI_WINDOWS[*]}")
+    fi
+    reopen_remote_agent_windows "$HOST_NAME" "$SESSION_NAME" "$REMOTE_WORKTREE_PATH" "$DETECT_HAS_OPENCODE" "$DETECT_HAS_CLAUDE" "$PI_WINDOWS_CSV"
+fi
+
+if [[ "$ATTACH_REMOTE" == true ]]; then
+    "$SCRIPT_DIR/tmux-attach-remote-session" "$HOST_NAME" "$SESSION_NAME"
+else
+    printf -v SESSION_NAME_Q '%q' "$SESSION_NAME"
+    echo "Remote session ready: ${HOST_NAME}:${SESSION_NAME}"
+    echo "Attach with: ssh -t ${HOST_NAME} 'tmux attach-session -t ${SESSION_NAME_Q}'"
+fi

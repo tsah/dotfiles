@@ -1,0 +1,227 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+usage() {
+    echo "Usage: $0 [--agent <agent-name>] [--window-name <name>] <branch-name> <prompt...>"
+    echo ""
+    echo "Spawn an interactive Claude Code worker in a detached tmux session and git worktree."
+}
+
+append_run_command() {
+    local cmd="$1"
+
+    if [[ -z "$cmd" ]]; then
+        return 0
+    fi
+
+    if [[ -z "$POST_SPAWN_RUN_COMMANDS" ]]; then
+        POST_SPAWN_RUN_COMMANDS="$cmd"
+    else
+        POST_SPAWN_RUN_COMMANDS="${POST_SPAWN_RUN_COMMANDS} && ${cmd}"
+    fi
+}
+
+collect_setup_run_commands() {
+    local setup_root="$1"
+    local container_root="$2"
+    local setup_mode="${WT_SPAWN_MODE:-manual}"
+    local setup_config="$setup_root/.wtconfig"
+    local post_spawn_file="$container_root/.wtcompat-post-spawn-run"
+
+    POST_SPAWN_RUN_COMMANDS=""
+
+    if [[ "$setup_mode" != "auto" ]]; then
+        setup_mode="manual"
+    fi
+
+    if [[ -f "$setup_config" ]]; then
+        while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+            local line="$raw_line"
+            local key=""
+            local value=""
+            local apply=false
+
+            line=${line#"${line%%[![:space:]]*}"}
+            line=${line%"${line##*[![:space:]]}"}
+
+            case "$line" in
+                ''|\#*)
+                    continue
+                    ;;
+            esac
+
+            key=${line%%[[:space:]]*}
+            value=${line#"$key"}
+            value=${value#"${value%%[![:space:]]*}"}
+            value=${value%"${value##*[![:space:]]}"}
+
+            case "$key" in
+                run)
+                    apply=true
+                    ;;
+                run-manual)
+                    [[ "$setup_mode" == "manual" ]] && apply=true
+                    ;;
+                run-auto)
+                    [[ "$setup_mode" == "auto" ]] && apply=true
+                    ;;
+                *)
+                    apply=false
+                    ;;
+            esac
+
+            if [[ "$apply" != true || -z "$value" ]]; then
+                continue
+            fi
+
+            case "$value" in
+                oc|oc\ *|opencode|opencode\ *|claude|claude\ *|pi|pi\ *)
+                    continue
+                    ;;
+            esac
+
+            append_run_command "$value"
+        done < "$setup_config"
+    fi
+
+    if [[ -f "$post_spawn_file" ]]; then
+        while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+            local cmd="$raw_line"
+            cmd=${cmd#"${cmd%%[![:space:]]*}"}
+            cmd=${cmd%"${cmd##*[![:space:]]}"}
+
+            case "$cmd" in
+                ''|\#*)
+                    continue
+                    ;;
+                oc|oc\ *|opencode|opencode\ *|claude|claude\ *|pi|pi\ *)
+                    continue
+                    ;;
+            esac
+
+            append_run_command "$cmd"
+        done < "$post_spawn_file"
+    fi
+}
+
+AGENT_NAME=""
+WINDOW_NAME="claude"
+POST_SPAWN_RUN_COMMANDS=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a|--agent)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --agent requires a value" >&2
+                exit 1
+            fi
+            AGENT_NAME="$2"
+            shift 2
+            ;;
+        -w|--window-name)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --window-name requires a value" >&2
+                exit 1
+            fi
+            WINDOW_NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Error: Unknown option: $1" >&2
+            usage
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -lt 2 ]]; then
+    echo "Error: branch name and prompt are required" >&2
+    usage
+    exit 1
+fi
+
+BRANCH_NAME="$1"
+shift
+INITIAL_PROMPT="$*"
+
+for required_cmd in git wt tmux claude; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+        echo "Error: Required command not found: $required_cmd" >&2
+        exit 1
+    fi
+done
+
+if ! wt_compat_resolve_context "$PWD"; then
+    echo "Error: Not in a supported git repository" >&2
+    exit 1
+fi
+
+COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+CONTAINER_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+SESSION_NAME=$(wt_compat_session_name "$CONTAINER_ROOT" "$BRANCH_NAME")
+SESSION_ALREADY_EXISTS=false
+
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    SESSION_ALREADY_EXISTS=true
+fi
+
+WT_SPAWN_MODE=auto WT_SKIP_RUN_OC=1 WT_SKIP_RUN_COMMANDS=1 wt spawn "$BRANCH_NAME" --no-switch
+
+WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+if [[ -z "$WORKTREE_PATH" ]]; then
+    echo "Error: Could not resolve worktree path for branch '$BRANCH_NAME'" >&2
+    exit 1
+fi
+
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "Error: tmux session '$SESSION_NAME' was not created" >&2
+    exit 1
+fi
+
+SETUP_ROOT=$(wt_compat_setup_root "$CONTAINER_ROOT")
+collect_setup_run_commands "$SETUP_ROOT" "$CONTAINER_ROOT"
+
+PROMPT_FILE=$(mktemp /tmp/claude-tworker-XXXXXX)
+printf '%s' "$INITIAL_PROMPT" > "$PROMPT_FILE"
+
+CMD=(claude)
+if [[ -n "$AGENT_NAME" ]]; then
+    CMD+=(--agent "$AGENT_NAME")
+fi
+printf -v CLAUDE_COMMAND '%q ' "${CMD[@]}"
+
+SHELL_PREFIX='set -e; '
+if [[ -n "$POST_SPAWN_RUN_COMMANDS" ]]; then
+    SHELL_PREFIX+="${POST_SPAWN_RUN_COMMANDS} && "
+fi
+SHELL_PREFIX+='if [[ -f .venv/bin/activate ]]; then source .venv/bin/activate; elif [[ -f venv/bin/activate ]]; then source venv/bin/activate; fi; '
+
+printf -v WINDOW_COMMAND 'bash -lc %q' "cd \"$WORKTREE_PATH\" && ${SHELL_PREFIX}p=\$(cat \"$PROMPT_FILE\"); rm -f \"$PROMPT_FILE\"; exec ${CLAUDE_COMMAND} \"\$p\""
+
+WINDOW_META=$(tmux new-window -d -P -F '#{window_id}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}' -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" "$WINDOW_COMMAND")
+IFS='|' read -r _WINDOW_ID WINDOW_INDEX ACTUAL_WINDOW_NAME _PANE_ID _PANE_INDEX <<< "$WINDOW_META"
+
+if [[ "$SESSION_ALREADY_EXISTS" == false ]]; then
+    tmux send-keys -t "$SESSION_NAME:1" "exit" Enter
+fi
+
+echo "Spawned Claude Code worker."
+echo "Session: $SESSION_NAME"
+echo "Window: $ACTUAL_WINDOW_NAME"
+echo "Switch with Alt+k and select '$SESSION_NAME'."
+echo "Direct switch: tmux switch-client -t \"$SESSION_NAME\""

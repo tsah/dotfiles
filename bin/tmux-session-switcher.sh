@@ -221,7 +221,7 @@ def load_pi_agents(helper_path, cwd):
     return agents
 
 
-filter_re = re.compile(r"(_.*__(persistent|temp)| [0-9]+$)")
+filter_re = re.compile(r"(\barchived-|_.*__(persistent|temp)| [0-9]+$)")
 tmux_rows = []
 for raw in run_lines(["sesh", "list", "-t", "--icons"]):
     if filter_re.search(strip_ansi(raw)):

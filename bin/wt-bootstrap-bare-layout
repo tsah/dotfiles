@@ -1,0 +1,289 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+usage() {
+    cat <<'EOF'
+Usage: wt-bootstrap-bare-layout --repo <path> [options]
+
+Archive an existing legacy repo + sibling worktrees, then recreate the repo in a
+bare-container layout:
+  <repo>/
+    .git/
+    <default-branch>/
+    <other-worktrees...>
+
+Options:
+  --repo <path>             Existing repository root to migrate.
+  --default-branch <name>   Default branch worktree to create.
+  --archive-root <path>     Archive destination.
+  --reference-host <host>   Copy .worktrunk-user.toml and .wtcompat-post-spawn-run
+                            from this host.
+  --reference-path <path>   Remote container path used with --reference-host.
+  --no-session              Do not create a tmux session for the default branch.
+  --yes                     Skip confirmation prompt.
+  -h, --help                Show this help.
+EOF
+}
+
+require_arg() {
+    local flag="$1"
+    local value="${2:-}"
+
+    if [[ -z "$value" ]]; then
+        echo "Error: ${flag} requires a value" >&2
+        exit 1
+    fi
+}
+
+collect_legacy_paths() {
+    local repo_path="$1"
+    local repo_parent="$2"
+    local repo_name="$3"
+    local candidate
+
+    if [[ -e "$repo_path" ]]; then
+        printf '%s\n' "$repo_path"
+    fi
+
+    for candidate in "$repo_parent/${repo_name}-"* "$repo_parent/${repo_name}."*; do
+        [[ -e "$candidate" ]] || continue
+        [[ "$candidate" == "$repo_path" ]] && continue
+        printf '%s\n' "$candidate"
+    done
+}
+
+rename_tmux_sessions() {
+    local repo_name="$1"
+    local manifest_path="$2"
+    local session_name
+    local archived_name
+    local suffix=1
+
+    if ! command -v tmux >/dev/null 2>&1; then
+        return 0
+    fi
+
+    while IFS= read -r session_name; do
+        [[ -z "$session_name" ]] && continue
+
+        archived_name="archived-${session_name}"
+        while tmux has-session -t "$archived_name" 2>/dev/null; do
+            archived_name="archived-${session_name}-${suffix}"
+            suffix=$((suffix + 1))
+        done
+
+        if tmux rename-session -t "$session_name" "$archived_name" >/dev/null 2>&1; then
+            printf 'tmux-session\t%s\t%s\n' "$session_name" "$archived_name" >> "$manifest_path"
+        fi
+    done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null | awk -v prefix="${repo_name}@" '$0 ~ ("^" prefix) { print }')
+}
+
+copy_reference_file() {
+    local host_name="$1"
+    local remote_root="$2"
+    local file_name="$3"
+    local destination_path="$4"
+
+    if [[ -z "$host_name" || -z "$remote_root" ]]; then
+        return 1
+    fi
+
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$host_name" "test -f '$remote_root/$file_name'" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$host_name" "cat '$remote_root/$file_name'" > "$destination_path"
+}
+
+REPO_PATH=""
+DEFAULT_BRANCH=""
+ARCHIVE_ROOT=""
+REFERENCE_HOST=""
+REFERENCE_PATH=""
+CREATE_SESSION=true
+ASSUME_YES=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --repo)
+            require_arg "$1" "${2:-}"
+            REPO_PATH="$2"
+            shift 2
+            ;;
+        --default-branch)
+            require_arg "$1" "${2:-}"
+            DEFAULT_BRANCH="$2"
+            shift 2
+            ;;
+        --archive-root)
+            require_arg "$1" "${2:-}"
+            ARCHIVE_ROOT="$2"
+            shift 2
+            ;;
+        --reference-host)
+            require_arg "$1" "${2:-}"
+            REFERENCE_HOST="$2"
+            shift 2
+            ;;
+        --reference-path)
+            require_arg "$1" "${2:-}"
+            REFERENCE_PATH="$2"
+            shift 2
+            ;;
+        --no-session)
+            CREATE_SESSION=false
+            shift
+            ;;
+        --yes)
+            ASSUME_YES=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$REPO_PATH" ]]; then
+    echo "Error: --repo is required" >&2
+    usage >&2
+    exit 1
+fi
+
+REPO_PATH=$(realpath -m "$REPO_PATH")
+REPO_PARENT=$(dirname "$REPO_PATH")
+REPO_NAME=$(basename "$REPO_PATH")
+
+mapfile -t LEGACY_PATHS < <(collect_legacy_paths "$REPO_PATH" "$REPO_PARENT" "$REPO_NAME")
+if [[ ${#LEGACY_PATHS[@]} -eq 0 ]]; then
+    echo "Error: No repo/worktree paths found for $REPO_PATH" >&2
+    exit 1
+fi
+
+SOURCE_REPO_PATH=""
+for candidate_path in "${LEGACY_PATHS[@]}"; do
+    if [[ "$candidate_path" == "$REPO_PATH" ]]; then
+        SOURCE_REPO_PATH="$candidate_path"
+        break
+    fi
+done
+
+if [[ -z "$SOURCE_REPO_PATH" ]]; then
+    echo "Error: Could not find the main repository at $REPO_PATH" >&2
+    exit 1
+fi
+
+if [[ ! -d "$SOURCE_REPO_PATH/.git" ]]; then
+    echo "Error: Expected a non-bare git repo at $SOURCE_REPO_PATH" >&2
+    exit 1
+fi
+
+if [[ -z "$DEFAULT_BRANCH" ]]; then
+    DEFAULT_BRANCH=$(git -C "$SOURCE_REPO_PATH" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+    DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
+fi
+
+if [[ -z "$DEFAULT_BRANCH" ]]; then
+    DEFAULT_BRANCH=$(git -C "$SOURCE_REPO_PATH" branch --show-current 2>/dev/null || true)
+fi
+
+if [[ -z "$DEFAULT_BRANCH" ]]; then
+    echo "Error: Could not determine default branch" >&2
+    exit 1
+fi
+
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+if [[ -z "$ARCHIVE_ROOT" ]]; then
+    ARCHIVE_ROOT="$REPO_PARENT/.archive/${REPO_NAME}-legacy-${TIMESTAMP}"
+fi
+ARCHIVE_ROOT=$(realpath -m "$ARCHIVE_ROOT")
+MANIFEST_PATH="$ARCHIVE_ROOT/manifest.tsv"
+
+if [[ "$ASSUME_YES" != true ]]; then
+    echo "Repo: $REPO_PATH"
+    echo "Default branch: $DEFAULT_BRANCH"
+    echo "Archive root: $ARCHIVE_ROOT"
+    echo "Paths to archive:"
+    printf '  %s\n' "${LEGACY_PATHS[@]}"
+    printf 'Proceed? [y/N] '
+    read -r response
+    case "$response" in
+        [yY]|[yY][eE][sS])
+            ;;
+        *)
+            echo "Aborted."
+            exit 0
+            ;;
+    esac
+fi
+
+mkdir -p "$ARCHIVE_ROOT"
+printf 'type\told\tnew\n' > "$MANIFEST_PATH"
+
+rename_tmux_sessions "$REPO_NAME" "$MANIFEST_PATH"
+
+for legacy_path in "${LEGACY_PATHS[@]}"; do
+    destination_path="$ARCHIVE_ROOT/$(basename "$legacy_path")"
+    mv "$legacy_path" "$destination_path"
+    printf 'path\t%s\t%s\n' "$legacy_path" "$destination_path" >> "$MANIFEST_PATH"
+done
+
+mkdir -p "$REPO_PATH"
+
+SOURCE_ORIGIN_URL=$(git -C "$ARCHIVE_ROOT/$REPO_NAME" remote get-url origin 2>/dev/null || true)
+
+git clone --bare "$ARCHIVE_ROOT/$REPO_NAME" "$REPO_PATH/.git" >/dev/null
+
+if [[ -n "$SOURCE_ORIGIN_URL" ]]; then
+    git --git-dir="$REPO_PATH/.git" remote set-url origin "$SOURCE_ORIGIN_URL"
+    git --git-dir="$REPO_PATH/.git" remote set-url --push origin "$SOURCE_ORIGIN_URL"
+    git --git-dir="$REPO_PATH/.git" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+fi
+
+git --git-dir="$REPO_PATH/.git" fetch origin --prune >/dev/null 2>&1 || true
+git --git-dir="$REPO_PATH/.git" remote set-head origin -a >/dev/null 2>&1 || true
+git --git-dir="$REPO_PATH/.git" symbolic-ref HEAD "refs/heads/$DEFAULT_BRANCH" >/dev/null 2>&1 || true
+
+if git --git-dir="$REPO_PATH/.git" show-ref --verify --quiet "refs/heads/$DEFAULT_BRANCH"; then
+    git --git-dir="$REPO_PATH/.git" worktree add "$REPO_PATH/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null
+elif git --git-dir="$REPO_PATH/.git" show-ref --verify --quiet "refs/remotes/origin/$DEFAULT_BRANCH"; then
+    git --git-dir="$REPO_PATH/.git" worktree add -b "$DEFAULT_BRANCH" "$REPO_PATH/$DEFAULT_BRANCH" "origin/$DEFAULT_BRANCH" >/dev/null
+    wt_compat_set_upstream "$REPO_PATH/.git" "$DEFAULT_BRANCH" origin
+else
+    echo "Error: Could not create default worktree for $DEFAULT_BRANCH" >&2
+    exit 1
+fi
+
+if ! copy_reference_file "$REFERENCE_HOST" "$REFERENCE_PATH" ".worktrunk-user.toml" "$REPO_PATH/.worktrunk-user.toml"; then
+    cat > "$REPO_PATH/.worktrunk-user.toml" <<'EOF'
+worktree-path = "../{{ branch | sanitize }}"
+
+[switch]
+no-cd = true
+EOF
+fi
+
+copy_reference_file "$REFERENCE_HOST" "$REFERENCE_PATH" ".wtcompat-post-spawn-run" "$REPO_PATH/.wtcompat-post-spawn-run" || true
+
+if [[ "$CREATE_SESSION" == true ]] && command -v tmux >/dev/null 2>&1; then
+    SESSION_NAME=$(wt_compat_session_name "$REPO_PATH" "$DEFAULT_BRANCH")
+    if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        tmux new-session -d -s "$SESSION_NAME" -c "$REPO_PATH/$DEFAULT_BRANCH" >/dev/null 2>&1 || true
+        tmux rename-window -t "$SESSION_NAME:1" 'opencode' >/dev/null 2>&1 || true
+    fi
+fi
+
+printf 'Created bare-layout repo: %s\n' "$REPO_PATH"
+printf 'Default worktree: %s\n' "$REPO_PATH/$DEFAULT_BRANCH"
+printf 'Archive: %s\n' "$ARCHIVE_ROOT"
+printf 'Manifest: %s\n' "$MANIFEST_PATH"

@@ -1,0 +1,379 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+usage() {
+    cat <<'EOF'
+Usage: remote-tworker [global-options] <command> [options]
+
+Global options:
+  --host <host>             Remote SSH host (default: tsah-dev-frankfurt)
+  --remote-user <user>      Remote user (default: current user)
+  --remote-root <path>      Remote repo root for spawn/list (defaults to ~/dev/work/<repo>)
+
+Commands:
+  spawn    Launch a remote worker in a git worktree + tmux session
+  status   Show job status as JSON
+  tail     Show recent pane output
+  attach   Attach to the job's tmux session
+  collect  Show manifest + status + tail as JSON
+  cancel   Kill the remote job session; optionally remove the worktree
+  list     List known jobs on the remote host as JSON
+EOF
+}
+
+spawn_usage() {
+    cat <<'EOF'
+Usage: remote-tworker [globals] spawn --agent <agent> --branch <branch> [options]
+
+Options:
+  --agent <pi|opencode|claude>  Agent to run.
+  --agent-name <name>           Optional named agent.
+  --branch <branch>             Branch/worktree name.
+  --prompt <text>               Prompt text.
+  --prompt-file <path|- >       Prompt file or stdin.
+  --window-name <name>          Explicit tmux window name.
+  --job-id <id>                 Explicit job id.
+EOF
+}
+
+fail() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+HOST_NAME="${REMOTE_TWORKER_HOST:-tsah-dev-frankfurt}"
+REMOTE_USER_NAME="$USER"
+REMOTE_ROOT=""
+SSH_ARGS=(-o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR)
+RSYNC_SSH='ssh -o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR'
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --host)
+            [[ $# -ge 2 ]] || fail "--host requires a value"
+            HOST_NAME="$2"
+            shift 2
+            ;;
+        --remote-user)
+            [[ $# -ge 2 ]] || fail "--remote-user requires a value"
+            REMOTE_USER_NAME="$2"
+            shift 2
+            ;;
+        --remote-root)
+            [[ $# -ge 2 ]] || fail "--remote-root requires a value"
+            REMOTE_ROOT="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+COMMAND="${1:-}"
+[[ -n "$COMMAND" ]] || { usage >&2; exit 1; }
+shift || true
+
+REMOTE_HOME="/home/${REMOTE_USER_NAME}"
+
+stage_remote_scripts() {
+    local remote_stage_root
+
+    remote_stage_root=$(ssh "${SSH_ARGS[@]}" "$HOST_NAME" 'mktemp -d /tmp/remote-tworker-bin.XXXXXX')
+    ssh "${SSH_ARGS[@]}" "$HOST_NAME" "mkdir -p '$remote_stage_root/bin/lib'"
+    rsync -az -e "$RSYNC_SSH" \
+        "$SCRIPT_DIR/remote-tworker-job" \
+        "$SCRIPT_DIR/spawn-claude-tworker" \
+        "$SCRIPT_DIR/spawn-opencode-agent" \
+        "$SCRIPT_DIR/spawn-pi-tworker" \
+        "$SCRIPT_DIR/pi-agent-config" \
+        "$HOST_NAME:$remote_stage_root/bin/" >/dev/null
+    rsync -az -e "$RSYNC_SSH" \
+        "$SCRIPT_DIR/lib/wt-compat.sh" \
+        "$HOST_NAME:$remote_stage_root/bin/lib/" >/dev/null
+    printf '%s\n' "$remote_stage_root"
+}
+
+build_remote_command() {
+    local remote_script_path="$1"
+    shift
+
+    local cmd=""
+    printf -v cmd '%q' "$remote_script_path"
+    for arg in "$@"; do
+        local q
+        printf -v q ' %q' "$arg"
+        cmd+="$q"
+    done
+    printf '%s\n' "$cmd"
+}
+
+remote_exec() {
+    local remote_stage_root
+    local remote_script_path
+    local remote_cmd
+    local remote_wrapper
+    local exit_code=0
+
+    remote_stage_root=$(stage_remote_scripts)
+    remote_script_path="$remote_stage_root/bin/remote-tworker-job"
+    remote_cmd=$(build_remote_command "$remote_script_path" "$@")
+    printf -v remote_wrapper 'bash -lc %q' "$remote_cmd"
+
+    if ! ssh "${SSH_ARGS[@]}" "$HOST_NAME" "$remote_wrapper"; then
+        exit_code=$?
+    fi
+
+    ssh "${SSH_ARGS[@]}" "$HOST_NAME" "rm -rf '$remote_stage_root'" >/dev/null 2>&1 || true
+    return "$exit_code"
+}
+
+repo_root_for_spawn() {
+    if [[ -n "$REMOTE_ROOT" ]]; then
+        printf '%s\n' "$REMOTE_ROOT"
+        return 0
+    fi
+
+    if ! wt_compat_resolve_context "$PWD"; then
+        fail "--remote-root is required when not inside a supported git repository"
+    fi
+
+    printf '%s\n' "$REMOTE_HOME/dev/work/$WT_COMPAT_REPO_NAME"
+}
+
+json_field() {
+    local key="$1"
+    python3 - "$key" <<'PY'
+import json
+import sys
+payload = json.load(sys.stdin)
+value = payload.get(sys.argv[1], "")
+if isinstance(value, bool):
+    print("true" if value else "false")
+else:
+    print(value)
+PY
+}
+
+spawn_cmd() {
+    local agent=""
+    local agent_name=""
+    local branch_name=""
+    local prompt_text=""
+    local prompt_file=""
+    local window_name=""
+    local job_id=""
+    local repo_root
+    local prompt_tmp
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --agent)
+                [[ $# -ge 2 ]] || fail "--agent requires a value"
+                agent="$2"
+                shift 2
+                ;;
+            --agent-name)
+                [[ $# -ge 2 ]] || fail "--agent-name requires a value"
+                agent_name="$2"
+                shift 2
+                ;;
+            --branch)
+                [[ $# -ge 2 ]] || fail "--branch requires a value"
+                branch_name="$2"
+                shift 2
+                ;;
+            --prompt)
+                [[ $# -ge 2 ]] || fail "--prompt requires a value"
+                prompt_text="$2"
+                shift 2
+                ;;
+            --prompt-file)
+                [[ $# -ge 2 ]] || fail "--prompt-file requires a value"
+                prompt_file="$2"
+                shift 2
+                ;;
+            --window-name)
+                [[ $# -ge 2 ]] || fail "--window-name requires a value"
+                window_name="$2"
+                shift 2
+                ;;
+            --job-id)
+                [[ $# -ge 2 ]] || fail "--job-id requires a value"
+                job_id="$2"
+                shift 2
+                ;;
+            -h|--help)
+                spawn_usage
+                exit 0
+                ;;
+            *)
+                fail "Unknown spawn option: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "$agent" ]] || fail "--agent is required"
+    [[ -n "$branch_name" ]] || fail "--branch is required"
+
+    if [[ -n "$prompt_file" ]]; then
+        if [[ "$prompt_file" == "-" ]]; then
+            prompt_text=$(cat)
+        else
+            [[ -f "$prompt_file" ]] || fail "Prompt file not found: $prompt_file"
+            prompt_text=$(cat "$prompt_file")
+        fi
+    fi
+
+    [[ -n "$prompt_text" ]] || fail "Prompt text is required"
+
+    repo_root=$(repo_root_for_spawn)
+    prompt_tmp=$(mktemp)
+    trap 'rm -f "$prompt_tmp"' RETURN
+    printf '%s' "$prompt_text" > "$prompt_tmp"
+
+    local -a args=(spawn --agent "$agent" --branch "$branch_name" --repo-root "$repo_root" --prompt-file - --host-label "$HOST_NAME")
+    if [[ -n "$agent_name" ]]; then
+        args+=(--agent-name "$agent_name")
+    fi
+    if [[ -n "$window_name" ]]; then
+        args+=(--window-name "$window_name")
+    fi
+    if [[ -n "$job_id" ]]; then
+        args+=(--job-id "$job_id")
+    fi
+
+    local remote_stage_root
+    local remote_script_path
+    local remote_cmd
+    local remote_wrapper
+    local exit_code=0
+
+    remote_stage_root=$(stage_remote_scripts)
+    remote_script_path="$remote_stage_root/bin/remote-tworker-job"
+    remote_cmd=$(build_remote_command "$remote_script_path" "${args[@]}")
+    printf -v remote_wrapper 'bash -lc %q' "$remote_cmd"
+
+    if ! ssh "${SSH_ARGS[@]}" "$HOST_NAME" "$remote_wrapper" < "$prompt_tmp"; then
+        exit_code=$?
+    fi
+
+    ssh "${SSH_ARGS[@]}" "$HOST_NAME" "rm -rf '$remote_stage_root'" >/dev/null 2>&1 || true
+    return "$exit_code"
+}
+
+status_cmd() {
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker status <job-id>"
+    remote_exec status "$1"
+}
+
+tail_cmd() {
+    local lines=200
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --lines)
+                [[ $# -ge 2 ]] || fail "--lines requires a value"
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker tail [--lines N] <job-id>"
+    remote_exec tail --lines "$lines" "$1"
+}
+
+attach_cmd() {
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker attach <job-id>"
+    local status_json
+    local session_name
+
+    status_json=$(remote_exec status "$1")
+    session_name=$(printf '%s' "$status_json" | json_field session_name)
+    [[ -n "$session_name" ]] || fail "Could not determine session name for $1"
+    "$SCRIPT_DIR/tmux-attach-remote-session" "$HOST_NAME" "$session_name"
+}
+
+collect_cmd() {
+    local lines=200
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --lines)
+                [[ $# -ge 2 ]] || fail "--lines requires a value"
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker collect [--lines N] <job-id>"
+    remote_exec collect --lines "$lines" "$1"
+}
+
+cancel_cmd() {
+    local delete_worktree=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --delete-worktree)
+                delete_worktree=true
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker cancel [--delete-worktree] <job-id>"
+    if [[ "$delete_worktree" == true ]]; then
+        remote_exec cancel --delete-worktree "$1"
+    else
+        remote_exec cancel "$1"
+    fi
+}
+
+list_cmd() {
+    remote_exec list
+}
+
+case "$COMMAND" in
+    spawn)
+        spawn_cmd "$@"
+        ;;
+    status)
+        status_cmd "$@"
+        ;;
+    tail)
+        tail_cmd "$@"
+        ;;
+    attach)
+        attach_cmd "$@"
+        ;;
+    collect)
+        collect_cmd "$@"
+        ;;
+    cancel)
+        cancel_cmd "$@"
+        ;;
+    list)
+        list_cmd "$@"
+        ;;
+    *)
+        fail "Unknown command: $COMMAND"
+        ;;
+esac

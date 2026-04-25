@@ -6,13 +6,14 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/lib/wt-compat.sh"
 
 usage() {
-    echo "Usage: $0 [--agent <agent-name>] <branch-name> <prompt...>"
+    echo "Usage: $0 [--agent <agent-name>] [--window-name <name>] <branch-name> <prompt...>"
     echo ""
     echo "Spawn an interactive opencode worker in a detached tmux session."
     echo "The worker starts immediately with the provided prompt."
 }
 
 AGENT_NAME="${OPENCODE_SPAWN_AGENT:-}"
+WINDOW_NAME="opencode"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -22,6 +23,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             AGENT_NAME="$2"
+            shift 2
+            ;;
+        -w|--window-name)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --window-name requires a value" >&2
+                exit 1
+            fi
+            WINDOW_NAME="$2"
             shift 2
             ;;
         -h|--help)
@@ -89,8 +98,6 @@ PROMPT_FILE=$(mktemp /tmp/oc-spawn-XXXXXX)
 printf '%s' "$INITIAL_PROMPT" > "$PROMPT_FILE"
 # NOTE: no EXIT trap — the tmux command reads and removes the file
 # asynchronously; a trap here would race and delete it too early.
-
-WINDOW_NAME="opencode"
 
 # Pass a single command string so tmux forwards it intact to the shell.
 if [[ -n "$AGENT_NAME" ]]; then

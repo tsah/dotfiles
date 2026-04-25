@@ -234,6 +234,63 @@ run_post_spawn_commands_in_tmux() {
 }
 
 
+spawn_bare_worktree_with_git() {
+    SPAWN_COMMON_DIR="$1"
+    SPAWN_CONTAINER_ROOT="$2"
+    SPAWN_REPO_NAME="$3"
+    SPAWN_BRANCH_NAME="$4"
+    SPAWN_WORKTREE_PATH=$(wt_compat_bare_worktree_path "$SPAWN_CONTAINER_ROOT" "$SPAWN_BRANCH_NAME")
+
+    echo "Spawning bare-layout worktree for task: $SPAWN_BRANCH_NAME"
+    echo "  Repository: $SPAWN_REPO_NAME"
+    echo "  Worktree: $SPAWN_WORKTREE_PATH"
+
+    if [ -e "$SPAWN_WORKTREE_PATH" ]; then
+        echo "Error: Worktree directory already exists: $SPAWN_WORKTREE_PATH"
+        return 1
+    fi
+
+    if wt_compat_branch_exists_local "$SPAWN_COMMON_DIR" "$SPAWN_BRANCH_NAME"; then
+        echo "  Branch: $SPAWN_BRANCH_NAME (existing local)"
+        git --git-dir="$SPAWN_COMMON_DIR" worktree add "$SPAWN_WORKTREE_PATH" "$SPAWN_BRANCH_NAME"
+        return $?
+    fi
+
+    if wt_compat_branch_exists_remote "$SPAWN_COMMON_DIR" "$SPAWN_BRANCH_NAME"; then
+        echo "  Branch: $SPAWN_BRANCH_NAME (tracking origin/$SPAWN_BRANCH_NAME)"
+        git --git-dir="$SPAWN_COMMON_DIR" worktree add -b "$SPAWN_BRANCH_NAME" "$SPAWN_WORKTREE_PATH" "origin/$SPAWN_BRANCH_NAME"
+        wt_compat_set_upstream "$SPAWN_COMMON_DIR" "$SPAWN_BRANCH_NAME" origin
+        return $?
+    fi
+
+    SPAWN_BASE_REF=$(wt_compat_default_base_ref "$SPAWN_COMMON_DIR" 2>/dev/null || true)
+    if [ -z "$SPAWN_BASE_REF" ]; then
+        echo "Error: Could not determine a default branch"
+        return 1
+    fi
+
+    echo "  Branch: $SPAWN_BRANCH_NAME (from $SPAWN_BASE_REF)"
+    git --git-dir="$SPAWN_COMMON_DIR" worktree add -b "$SPAWN_BRANCH_NAME" "$SPAWN_WORKTREE_PATH" "$SPAWN_BASE_REF"
+    wt_compat_set_upstream "$SPAWN_COMMON_DIR" "$SPAWN_BRANCH_NAME" origin
+    echo "Worktree created successfully (upstream configured for git push)"
+}
+
+
+remove_bare_worktree_preserve_branch() {
+    REMOVE_COMMON_DIR="$1"
+    REMOVE_CONTAINER_ROOT="$2"
+    REMOVE_WORKTREE_PATH="$3"
+    REMOVE_BRANCH_NAME="$4"
+
+    if wt_compat_has_native_bin; then
+        "$WWT_BIN" -C "$REMOVE_CONTAINER_ROOT" remove --foreground --force --no-delete-branch "$REMOVE_BRANCH_NAME"
+        return $?
+    fi
+
+    git --git-dir="$REMOVE_COMMON_DIR" worktree remove "$REMOVE_WORKTREE_PATH" --force
+}
+
+
 spawn_impl() {
     BRANCH_NAME="$1"
     NEW_WINDOW="$2"
@@ -315,22 +372,29 @@ spawn_impl() {
                 echo "Worktree created successfully (upstream configured for git push)"
             fi
         else
-            echo "Spawning bare-layout worktree for task: $BRANCH_NAME"
-            echo "  Repository: $REPO_NAME"
+            if wt_compat_has_native_bin; then
+                echo "Spawning bare-layout worktree for task: $BRANCH_NAME"
+                echo "  Repository: $REPO_NAME"
 
-            if wt_compat_branch_exists_local "$COMMON_DIR" "$BRANCH_NAME" || wt_compat_branch_exists_remote "$COMMON_DIR" "$BRANCH_NAME"; then
-                if ! "$WWT_BIN" -C "$CONTAINER_ROOT" switch "$BRANCH_NAME" --no-cd; then
-                    echo "Error: Failed to create or locate bare-layout worktree"
-                    exit 1
+                if wt_compat_branch_exists_local "$COMMON_DIR" "$BRANCH_NAME" || wt_compat_branch_exists_remote "$COMMON_DIR" "$BRANCH_NAME"; then
+                    if ! "$WWT_BIN" -C "$CONTAINER_ROOT" switch "$BRANCH_NAME" --no-cd; then
+                        echo "Error: Failed to create or locate bare-layout worktree"
+                        exit 1
+                    fi
+                else
+                    if ! "$WWT_BIN" -C "$CONTAINER_ROOT" switch --create "$BRANCH_NAME" --no-cd; then
+                        echo "Error: Failed to create bare-layout worktree"
+                        exit 1
+                    fi
+
+                    wt_compat_set_upstream "$COMMON_DIR" "$BRANCH_NAME" origin
+                    echo "Worktree created successfully (upstream configured for git push)"
                 fi
             else
-                if ! "$WWT_BIN" -C "$CONTAINER_ROOT" switch --create "$BRANCH_NAME" --no-cd; then
+                if ! spawn_bare_worktree_with_git "$COMMON_DIR" "$CONTAINER_ROOT" "$REPO_NAME" "$BRANCH_NAME"; then
                     echo "Error: Failed to create bare-layout worktree"
                     exit 1
                 fi
-
-                wt_compat_set_upstream "$COMMON_DIR" "$BRANCH_NAME" origin
-                echo "Worktree created successfully (upstream configured for git push)"
             fi
 
             WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
@@ -467,7 +531,7 @@ destroy_impl() {
     esac
 
     if [ "$WT_COMPAT_MODE" = "bare" ]; then
-        if ! "$WWT_BIN" -C "$WT_COMPAT_CONTAINER_ROOT" remove --foreground --force --no-delete-branch "$CURRENT_BRANCH"; then
+        if ! remove_bare_worktree_preserve_branch "$WT_COMPAT_COMMON_DIR" "$WT_COMPAT_CONTAINER_ROOT" "$WORKTREE_ROOT" "$CURRENT_BRANCH"; then
             echo "Error: Failed to remove worktree"
             exit 1
         fi

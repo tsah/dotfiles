@@ -1,0 +1,52 @@
+#!/bin/bash
+
+set -euo pipefail
+
+HOST_SPECS_RAW="${TMUX_REMOTE_HOSTS:-fra=tsah-dev-frankfurt}"
+TMP_FILE=$(mktemp)
+trap 'rm -f "$TMP_FILE"' EXIT
+
+shorten_path() {
+    local raw_path="$1"
+    local short_path="$raw_path"
+
+    short_path=${short_path#"${HOME}"}
+    if [[ "$raw_path" == "$HOME"* ]]; then
+        short_path="~${raw_path#"$HOME"}"
+    fi
+
+    short_path=${short_path/#~\/dev\/work\//w/}
+    printf '%s\n' "$short_path"
+}
+
+IFS=',' read -r -a HOST_SPECS <<< "$HOST_SPECS_RAW"
+
+for host_spec in "${HOST_SPECS[@]}"; do
+    [[ -z "$host_spec" ]] && continue
+
+    host_label="$host_spec"
+    host_name="$host_spec"
+    if [[ "$host_spec" == *=* ]]; then
+        host_label="${host_spec%%=*}"
+        host_name="${host_spec#*=}"
+    fi
+
+    rows=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$host_name" 'tmux list-sessions -F "#{session_name}|#{session_last_attached}|#{session_path}" 2>/dev/null || true' 2>/dev/null || true)
+    [[ -z "$rows" ]] && continue
+
+    while IFS='|' read -r session_name last_attached session_path; do
+        [[ -z "$session_name" ]] && continue
+        printf '%s\t%s\t%s\t%s\t%s\n' "$host_label" "$host_name" "${last_attached:-0}" "$session_name" "$session_path" >> "$TMP_FILE"
+    done <<< "$rows"
+done
+
+if [[ ! -s "$TMP_FILE" ]]; then
+    exit 0
+fi
+
+sort -t $'\t' -k3,3nr -k1,1 -k4,4 "$TMP_FILE" | while IFS=$'\t' read -r host_label host_name _last_attached session_name session_path; do
+    short_path=$(shorten_path "$session_path")
+    display=$(printf '\033[36m☁\033[0m  %-4s %-28s  \033[90m%s\033[0m' "$host_label" "$session_name" "$short_path")
+    row_id="remote:${host_name}:${session_name}"
+    printf '%s\tremote_tmux\t%s\t%s\t%s\t%s\t%s\n' "$display" "$host_name" "$session_name" "$row_id" "$session_path" "$session_name"
+done

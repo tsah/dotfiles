@@ -20,6 +20,8 @@ WORKER_DISABLED="${TMUX_SWITCHER_DISABLE_WORKER:-0}"
 PI_AGENT_HELPER="$SCRIPT_DIR/pi-agent-config"
 PI_AGENT_LAUNCHER="$SCRIPT_DIR/spawn-pi-agent"
 CLAUDE_LAUNCHER="$SCRIPT_DIR/spawn-claude-code"
+REMOTE_ROWS_SCRIPT="$SCRIPT_DIR/tmux-remote-session-rows"
+REMOTE_ATTACH_SCRIPT="$SCRIPT_DIR/tmux-attach-remote-session"
 
 
 picker_cwd() {
@@ -97,6 +99,28 @@ worktree_dirty_state() {
         printf 'dirty\n'
     else
         printf 'clean\n'
+    fi
+}
+
+
+remove_worktree_preserve_branch() {
+    local common_dir="$1"
+    local container_root="$2"
+    local worktree_path="$3"
+    local branch_name="$4"
+
+    if wt_compat_has_native_bin; then
+        "$SCRIPT_DIR/wwt" -C "$container_root" remove --foreground --force --no-delete-branch "$branch_name"
+        return $?
+    fi
+
+    git --git-dir="$common_dir" worktree remove "$worktree_path" --force
+}
+
+
+print_remote_rows() {
+    if [[ -x "$REMOTE_ROWS_SCRIPT" ]]; then
+        "$REMOTE_ROWS_SCRIPT"
     fi
 }
 
@@ -202,7 +226,7 @@ PY
     dirty_state=$(worktree_dirty_state "$worktree_path")
 
     if [[ "$mode" == 'bare' ]]; then
-        if ! "$SCRIPT_DIR/wwt" -C "$container_root" remove --foreground --force --no-delete-branch "$branch_name" >/dev/null 2>&1; then
+        if ! remove_worktree_preserve_branch "$common_dir" "$container_root" "$worktree_path" "$branch_name" >/dev/null 2>&1; then
             notify "Failed deleting $branch_name"
             return 1
         fi
@@ -459,7 +483,7 @@ def load_pi_agents(helper_path, cwd):
 
 cache = load_cache(cache_file)
 
-filter_re = re.compile(r"(_.*__(persistent|temp)| [0-9]+$)")
+filter_re = re.compile(r"(\barchived-|_.*__(persistent|temp)| [0-9]+$)")
 tmux_rows = []
 for raw in run_lines(["sesh", "list", "-t", "--icons"]):
     if filter_re.search(strip_ansi(raw)):
@@ -721,6 +745,7 @@ PY
 
 if [[ "${1:-}" == "--rows" ]]; then
     build_unified_rows "${2:-}" "${3:-}" "${4:-1}" "${5:-$(picker_cwd)}"
+    print_remote_rows
     exit 0
 fi
 
@@ -840,7 +865,10 @@ if [[ ! -f "$CACHE_FILE" ]]; then
 fi
 : > "$CANDIDATES_FILE"
 
-build_unified_rows "$CACHE_FILE" "$CANDIDATES_FILE" 1 "$PICKER_CWD" > "$ROWS_FILE"
+{
+    build_unified_rows "$CACHE_FILE" "$CANDIDATES_FILE" 1 "$PICKER_CWD"
+    print_remote_rows
+} > "$ROWS_FILE"
 
 SELF_Q=$(printf '%q' "$SELF")
 CACHE_Q=$(printf '%q' "$CACHE_FILE")
@@ -925,7 +953,7 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
         --bind "ctrl-d:execute-silent($SELF_Q --destroy {5} $CACHE_Q)+reload($ROWS_CMD)" \
         --bind 'alt-k:abort' \
         --color='header:5,prompt:4,info:8,border:8' \
-        --header 'Enter: open | Ctrl-D: destroy stale wt+session | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
+        --header 'Enter: open | Ctrl-D: destroy stale wt+session | remote rows open over SSH | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
     PICKER_STATUS=$?
     set -e
 else
@@ -939,7 +967,7 @@ else
         --bind "ctrl-d:execute-silent($SELF_Q --destroy {5} $CACHE_Q)+reload($ROWS_CMD)" \
         --bind 'alt-k:abort' \
         --color='header:5,prompt:4,info:8,border:8' \
-        --header 'Enter: open | Ctrl-D: destroy stale wt+session | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
+        --header 'Enter: open | Ctrl-D: destroy stale wt+session | remote rows open over SSH | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
     PICKER_STATUS=$?
     set -e
 fi
@@ -952,6 +980,11 @@ IFS=$'\t' read -r _display TYPE ARG1 ARG2 _row_id _row_path _row_session <<< "$S
 
 if [[ "$TYPE" == "opencode" ]]; then
     opencode-attach-target "$ARG1" "$ARG2"
+    exit 0
+fi
+
+if [[ "$TYPE" == "remote_tmux" ]]; then
+    "$REMOTE_ATTACH_SCRIPT" "$ARG1" "$ARG2"
     exit 0
 fi
 

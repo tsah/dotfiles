@@ -1,0 +1,670 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/wt-compat.sh"
+
+export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.cargo/bin:$PATH"
+
+STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/remote-tworkers"
+mkdir -p "$STATE_ROOT"
+
+usage() {
+    cat <<'EOF'
+Usage: remote-tworker-job <command> [options]
+
+Commands:
+  spawn    Create/update a remote worktree and launch an agent worker
+  status   Print current job status as JSON
+  tail     Print recent tmux pane output for a job
+  collect  Print a JSON snapshot (manifest + status + tail + git info)
+  cancel   Kill the tmux session; optionally remove the worktree
+  list     List known jobs as JSON
+EOF
+}
+
+usage_spawn() {
+    cat <<'EOF'
+Usage: remote-tworker-job spawn --agent <agent> --branch <branch> [options]
+
+Options:
+  --agent <pi|opencode|claude>  Agent to launch.
+  --agent-name <name>           Optional named agent.
+  --branch <name>               Branch / worktree name.
+  --repo-root <path>            Bare/legacy repo root (default: current repo context).
+  --prompt <text>               Prompt text.
+  --prompt-file <path|- >       Read prompt from file or stdin.
+  --window-name <name>          Explicit tmux window name.
+  --job-id <id>                 Explicit job id.
+  --host-label <label>          Host label to store in the manifest.
+EOF
+}
+
+iso_now() {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+sanitize_job_component() {
+    python3 - "$1" <<'PY'
+import re
+import sys
+
+text = re.sub(r'[/:\\\s]+', '-', sys.argv[1])
+text = re.sub(r'[^A-Za-z0-9.@_-]+', '', text).strip('-')
+print(text or 'job')
+PY
+}
+
+default_window_name() {
+    local agent="$1"
+    local job_id="$2"
+    local short_id
+
+    short_id=$(python3 - "$job_id" <<'PY'
+import hashlib
+import sys
+print(hashlib.sha1(sys.argv[1].encode('utf-8')).hexdigest()[:6])
+PY
+)
+    if [[ -z "$short_id" ]]; then
+        short_id="job"
+    fi
+
+    case "$agent" in
+        opencode)
+            printf 'rtw:oc:%s\n' "$short_id"
+            ;;
+        claude)
+            printf 'rtw:cc:%s\n' "$short_id"
+            ;;
+        pi)
+            printf 'rtw:pi:%s\n' "$short_id"
+            ;;
+        *)
+            printf 'rtw:%s:%s\n' "$agent" "$short_id"
+            ;;
+    esac
+}
+
+fail() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+write_manifest_env() {
+    {
+        printf 'JOB_ID=%q\n' "$JOB_ID"
+        printf 'CREATED_AT=%q\n' "$CREATED_AT"
+        printf 'HOST_LABEL=%q\n' "$HOST_LABEL"
+        printf 'REPO_ROOT=%q\n' "$REPO_ROOT"
+        printf 'REPO_NAME=%q\n' "$REPO_NAME"
+        printf 'BRANCH_NAME=%q\n' "$BRANCH_NAME"
+        printf 'AGENT=%q\n' "$AGENT"
+        printf 'AGENT_NAME=%q\n' "$AGENT_NAME"
+        printf 'SESSION_NAME=%q\n' "$SESSION_NAME"
+        printf 'WORKTREE_PATH=%q\n' "$WORKTREE_PATH"
+        printf 'WINDOW_NAME=%q\n' "$WINDOW_NAME"
+        printf 'LAUNCHER=%q\n' "$LAUNCHER"
+        printf 'PROMPT_PREVIEW=%q\n' "$PROMPT_PREVIEW"
+        printf 'PROMPT_PATH=%q\n' "$PROMPT_PATH"
+        printf 'SPAWN_LOG_PATH=%q\n' "$SPAWN_LOG_PATH"
+    } > "$MANIFEST_ENV"
+}
+
+write_manifest_json() {
+    python3 - "$MANIFEST_JSON" "$JOB_ID" "$CREATED_AT" "$HOST_LABEL" "$REPO_ROOT" "$REPO_NAME" "$BRANCH_NAME" "$AGENT" "$AGENT_NAME" "$SESSION_NAME" "$WORKTREE_PATH" "$WINDOW_NAME" "$LAUNCHER" "$PROMPT_PREVIEW" "$PROMPT_PATH" "$SPAWN_LOG_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+(
+    out_path,
+    job_id,
+    created_at,
+    host_label,
+    repo_root,
+    repo_name,
+    branch_name,
+    agent,
+    agent_name,
+    session_name,
+    worktree_path,
+    window_name,
+    launcher,
+    prompt_preview,
+    prompt_path,
+    spawn_log_path,
+) = sys.argv[1:]
+
+payload = {
+    "job_id": job_id,
+    "created_at": created_at,
+    "host": host_label,
+    "repo_root": repo_root,
+    "repo_name": repo_name,
+    "branch": branch_name,
+    "agent": agent,
+    "agent_name": agent_name,
+    "session_name": session_name,
+    "worktree_path": worktree_path,
+    "window_name": window_name,
+    "launcher": launcher,
+    "prompt_preview": prompt_preview,
+    "prompt_path": prompt_path,
+    "spawn_log_path": spawn_log_path,
+}
+
+Path(out_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+load_manifest() {
+    JOB_ID="$1"
+    JOB_DIR="$STATE_ROOT/$JOB_ID"
+    MANIFEST_ENV="$JOB_DIR/manifest.env"
+    MANIFEST_JSON="$JOB_DIR/manifest.json"
+    STATUS_JSON="$JOB_DIR/status.json"
+
+    [[ -f "$MANIFEST_ENV" ]] || fail "Unknown job id: $JOB_ID"
+
+    # shellcheck disable=SC1090
+    source "$MANIFEST_ENV"
+}
+
+write_status_json() {
+    python3 - "$STATUS_JSON" "$JOB_ID" "$STATUS_UPDATED_AT" "$STATE" "$SESSION_NAME" "$SESSION_OPEN" "$WINDOW_NAME" "$WINDOW_EXISTS" "$PANE_ID" "$PANE_CURRENT_COMMAND" "$PANE_DEAD" "$PANE_EXIT_STATUS" "$WORKTREE_PATH" "$WORKTREE_EXISTS" "$DIRTY_STATE" "$HEAD_COMMIT" "$HEAD_SUBJECT" "$BRANCH_NAME" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+(
+    out_path,
+    job_id,
+    updated_at,
+    state,
+    session_name,
+    session_open,
+    window_name,
+    window_exists,
+    pane_id,
+    pane_current_command,
+    pane_dead,
+    pane_exit_status,
+    worktree_path,
+    worktree_exists,
+    dirty_state,
+    head_commit,
+    head_subject,
+    branch_name,
+) = sys.argv[1:]
+
+payload = {
+    "job_id": job_id,
+    "updated_at": updated_at,
+    "state": state,
+    "session_name": session_name,
+    "session_open": session_open == "true",
+    "window_name": window_name,
+    "window_exists": window_exists == "true",
+    "pane_id": pane_id,
+    "pane_current_command": pane_current_command,
+    "pane_dead": pane_dead == "true",
+    "pane_exit_status": pane_exit_status,
+    "worktree_path": worktree_path,
+    "worktree_exists": worktree_exists == "true",
+    "dirty_state": dirty_state,
+    "head_commit": head_commit,
+    "head_subject": head_subject,
+    "branch": branch_name,
+}
+
+Path(out_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+refresh_status_file() {
+    STATUS_UPDATED_AT=$(iso_now)
+    SESSION_OPEN=false
+    WINDOW_EXISTS=false
+    PANE_ID=""
+    PANE_CURRENT_COMMAND=""
+    PANE_DEAD=false
+    PANE_EXIT_STATUS=""
+    WORKTREE_EXISTS=false
+    DIRTY_STATE="missing"
+    HEAD_COMMIT=""
+    HEAD_SUBJECT=""
+
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        SESSION_OPEN=true
+        PANE_ROW=$(tmux list-panes -t "$SESSION_NAME:$WINDOW_NAME" -F '#{pane_id}|#{pane_current_command}|#{pane_dead}|#{pane_exit_status}' 2>/dev/null | head -1 || true)
+        if [[ -n "$PANE_ROW" ]]; then
+            WINDOW_EXISTS=true
+            IFS='|' read -r PANE_ID PANE_CURRENT_COMMAND PANE_DEAD_RAW PANE_EXIT_STATUS <<< "$PANE_ROW"
+            if [[ "$PANE_DEAD_RAW" == "1" ]]; then
+                PANE_DEAD=true
+            fi
+        fi
+    fi
+
+    if [[ -d "$WORKTREE_PATH" ]]; then
+        WORKTREE_EXISTS=true
+        if git -C "$WORKTREE_PATH" status --porcelain >/tmp/remote-tworker-status.$$ 2>/dev/null; then
+            if [[ -s /tmp/remote-tworker-status.$$ ]]; then
+                DIRTY_STATE="dirty"
+            else
+                DIRTY_STATE="clean"
+            fi
+            rm -f /tmp/remote-tworker-status.$$
+        fi
+        HEAD_COMMIT=$(git -C "$WORKTREE_PATH" rev-parse HEAD 2>/dev/null || true)
+        HEAD_SUBJECT=$(git -C "$WORKTREE_PATH" log -1 --pretty=%s 2>/dev/null || true)
+    fi
+
+    if [[ "$SESSION_OPEN" != true ]]; then
+        STATE="session-missing"
+    elif [[ "$WINDOW_EXISTS" != true ]]; then
+        STATE="window-missing"
+    elif [[ "$PANE_DEAD" == true ]]; then
+        STATE="exited"
+    elif [[ "$PANE_CURRENT_COMMAND" == "bash" || "$PANE_CURRENT_COMMAND" == "zsh" || "$PANE_CURRENT_COMMAND" == "sh" || "$PANE_CURRENT_COMMAND" == "fish" ]]; then
+        STATE="idle"
+    else
+        STATE="running"
+    fi
+
+    write_status_json
+}
+
+print_json_file() {
+    local path="$1"
+    python3 - "$path" <<'PY'
+import json
+import sys
+print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), ensure_ascii=False))
+PY
+}
+
+resolve_repo_context() {
+    local root_path="$1"
+    if ! wt_compat_resolve_context "$root_path"; then
+        fail "Not in a supported git repository: $root_path"
+    fi
+    REPO_ROOT="$WT_COMPAT_CONTAINER_ROOT"
+    REPO_NAME="$WT_COMPAT_REPO_NAME"
+    COMMON_DIR="$WT_COMPAT_COMMON_DIR"
+}
+
+spawn_job() {
+    local repo_root_input="$PWD"
+    local prompt_text=""
+    local prompt_file_arg=""
+    local explicit_job_id=""
+
+    AGENT=""
+    AGENT_NAME=""
+    BRANCH_NAME=""
+    WINDOW_NAME=""
+    HOST_LABEL=$(hostname -s)
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --agent)
+                [[ $# -ge 2 ]] || fail "--agent requires a value"
+                AGENT="$2"
+                shift 2
+                ;;
+            --agent-name)
+                [[ $# -ge 2 ]] || fail "--agent-name requires a value"
+                AGENT_NAME="$2"
+                shift 2
+                ;;
+            --branch)
+                [[ $# -ge 2 ]] || fail "--branch requires a value"
+                BRANCH_NAME="$2"
+                shift 2
+                ;;
+            --repo-root)
+                [[ $# -ge 2 ]] || fail "--repo-root requires a value"
+                repo_root_input="$2"
+                shift 2
+                ;;
+            --prompt)
+                [[ $# -ge 2 ]] || fail "--prompt requires a value"
+                prompt_text="$2"
+                shift 2
+                ;;
+            --prompt-file)
+                [[ $# -ge 2 ]] || fail "--prompt-file requires a value"
+                prompt_file_arg="$2"
+                shift 2
+                ;;
+            --window-name)
+                [[ $# -ge 2 ]] || fail "--window-name requires a value"
+                WINDOW_NAME="$2"
+                shift 2
+                ;;
+            --job-id)
+                [[ $# -ge 2 ]] || fail "--job-id requires a value"
+                explicit_job_id="$2"
+                shift 2
+                ;;
+            --host-label)
+                [[ $# -ge 2 ]] || fail "--host-label requires a value"
+                HOST_LABEL="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage_spawn
+                exit 0
+                ;;
+            *)
+                fail "Unknown spawn option: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "$AGENT" ]] || fail "--agent is required"
+    [[ -n "$BRANCH_NAME" ]] || fail "--branch is required"
+
+    case "$AGENT" in
+        pi|opencode|claude)
+            ;;
+        *)
+            fail "Unsupported agent: $AGENT"
+            ;;
+    esac
+
+    if [[ -n "$prompt_file_arg" ]]; then
+        if [[ "$prompt_file_arg" == "-" ]]; then
+            prompt_text=$(cat)
+        else
+            [[ -f "$prompt_file_arg" ]] || fail "Prompt file not found: $prompt_file_arg"
+            prompt_text=$(cat "$prompt_file_arg")
+        fi
+    fi
+
+    [[ -n "$prompt_text" ]] || fail "Prompt text is required"
+
+    resolve_repo_context "$repo_root_input"
+
+    SESSION_NAME=$(wt_compat_session_name "$REPO_ROOT" "$BRANCH_NAME")
+    WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+    if [[ -z "$WORKTREE_PATH" ]]; then
+        WORKTREE_PATH=$(wt_compat_bare_worktree_path "$REPO_ROOT" "$BRANCH_NAME")
+    fi
+
+    if [[ -z "$explicit_job_id" ]]; then
+        JOB_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(sanitize_job_component "$REPO_NAME")-$(sanitize_job_component "$BRANCH_NAME")-$(sanitize_job_component "$AGENT")"
+    else
+        JOB_ID="$explicit_job_id"
+    fi
+
+    JOB_DIR="$STATE_ROOT/$JOB_ID"
+    [[ ! -e "$JOB_DIR" ]] || fail "Job already exists: $JOB_ID"
+    mkdir -p "$JOB_DIR"
+
+    if [[ -z "$WINDOW_NAME" ]]; then
+        WINDOW_NAME=$(default_window_name "$AGENT" "$JOB_ID")
+    fi
+
+    PROMPT_PATH="$JOB_DIR/prompt.txt"
+    printf '%s' "$prompt_text" > "$PROMPT_PATH"
+    PROMPT_PREVIEW=$(python3 - "$PROMPT_PATH" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+text = " ".join(text.split())
+print(text[:140])
+PY
+)
+
+    CREATED_AT=$(iso_now)
+    SPAWN_LOG_PATH="$JOB_DIR/spawn.log"
+    MANIFEST_ENV="$JOB_DIR/manifest.env"
+    MANIFEST_JSON="$JOB_DIR/manifest.json"
+    STATUS_JSON="$JOB_DIR/status.json"
+
+    case "$AGENT" in
+        pi)
+            LAUNCHER="$SCRIPT_DIR/spawn-pi-tworker"
+            LAUNCH_ARGS=(--window-name "$WINDOW_NAME")
+            if [[ -n "$AGENT_NAME" ]]; then
+                LAUNCH_ARGS+=(--agent "$AGENT_NAME")
+            fi
+            ;;
+        opencode)
+            LAUNCHER="$SCRIPT_DIR/spawn-opencode-agent"
+            LAUNCH_ARGS=(--window-name "$WINDOW_NAME")
+            if [[ -n "$AGENT_NAME" ]]; then
+                LAUNCH_ARGS+=(--agent "$AGENT_NAME")
+            fi
+            ;;
+        claude)
+            LAUNCHER="$SCRIPT_DIR/spawn-claude-tworker"
+            LAUNCH_ARGS=(--window-name "$WINDOW_NAME")
+            if [[ -n "$AGENT_NAME" ]]; then
+                LAUNCH_ARGS+=(--agent "$AGENT_NAME")
+            fi
+            ;;
+    esac
+
+    write_manifest_env
+    write_manifest_json
+
+    if ! (
+        cd "$REPO_ROOT"
+        "$LAUNCHER" "${LAUNCH_ARGS[@]}" "$BRANCH_NAME" "$prompt_text"
+    ) >"$SPAWN_LOG_PATH" 2>&1; then
+        refresh_status_file
+        echo "Spawn failed. See: $SPAWN_LOG_PATH" >&2
+        print_json_file "$STATUS_JSON"
+        exit 1
+    fi
+
+    WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
+    [[ -n "$WORKTREE_PATH" ]] || fail "Could not resolve worktree path after spawn"
+
+    write_manifest_env
+    write_manifest_json
+    refresh_status_file
+    print_json_file "$MANIFEST_JSON"
+}
+
+status_job() {
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker-job status <job-id>"
+    load_manifest "$1"
+    refresh_status_file
+    print_json_file "$STATUS_JSON"
+}
+
+tail_job() {
+    local lines=200
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --lines)
+                [[ $# -ge 2 ]] || fail "--lines requires a value"
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker-job tail [--lines N] <job-id>"
+    load_manifest "$1"
+    refresh_status_file
+
+    if [[ -n "$PANE_ID" ]]; then
+        tmux capture-pane -p -J -t "$PANE_ID" -S "-$lines" 2>/dev/null || true
+        return 0
+    fi
+
+    tail -n "$lines" "$SPAWN_LOG_PATH" 2>/dev/null || true
+}
+
+collect_job() {
+    local lines=200
+    local tail_file
+    local git_status_file
+    local recent_commits_file
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --lines)
+                [[ $# -ge 2 ]] || fail "--lines requires a value"
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker-job collect [--lines N] <job-id>"
+    load_manifest "$1"
+    refresh_status_file
+
+    tail_file=$(mktemp)
+    git_status_file=$(mktemp)
+    recent_commits_file=$(mktemp)
+    trap 'rm -f "$tail_file" "$git_status_file" "$recent_commits_file"' RETURN
+
+    if [[ -n "$PANE_ID" ]]; then
+        tmux capture-pane -p -J -t "$PANE_ID" -S "-$lines" > "$tail_file" 2>/dev/null || true
+    else
+        tail -n "$lines" "$SPAWN_LOG_PATH" > "$tail_file" 2>/dev/null || true
+    fi
+
+    if [[ -d "$WORKTREE_PATH" ]]; then
+        git -C "$WORKTREE_PATH" status --short > "$git_status_file" 2>/dev/null || true
+        git -C "$WORKTREE_PATH" log --oneline -5 > "$recent_commits_file" 2>/dev/null || true
+    fi
+
+    python3 - "$MANIFEST_JSON" "$STATUS_JSON" "$tail_file" "$git_status_file" "$recent_commits_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+status = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+tail_text = Path(sys.argv[3]).read_text(encoding="utf-8")
+git_status = Path(sys.argv[4]).read_text(encoding="utf-8")
+recent_commits = [line for line in Path(sys.argv[5]).read_text(encoding="utf-8").splitlines() if line]
+
+payload = {
+    "manifest": manifest,
+    "status": status,
+    "tail": tail_text,
+    "git_status": git_status,
+    "recent_commits": recent_commits,
+}
+print(json.dumps(payload, ensure_ascii=False))
+PY
+}
+
+cancel_job() {
+    local delete_worktree=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --delete-worktree)
+                delete_worktree=true
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -eq 1 ]] || fail "Usage: remote-tworker-job cancel [--delete-worktree] <job-id>"
+    load_manifest "$1"
+
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
+    fi
+
+    if [[ "$delete_worktree" == true ]]; then
+        resolve_repo_context "$REPO_ROOT"
+        if [[ -d "$WORKTREE_PATH" ]]; then
+            git --git-dir="$COMMON_DIR" worktree remove "$WORKTREE_PATH" --force >/dev/null 2>&1 || true
+        fi
+    fi
+
+    refresh_status_file
+    print_json_file "$STATUS_JSON"
+}
+
+list_jobs() {
+    local job_dir
+    local rows=()
+
+    shopt -s nullglob
+    for job_dir in "$STATE_ROOT"/*; do
+        [[ -f "$job_dir/manifest.env" ]] || continue
+        JOB_ID=$(basename "$job_dir")
+        load_manifest "$JOB_ID"
+        refresh_status_file
+        rows+=("$job_dir")
+    done
+    shopt -u nullglob
+
+    python3 - "$STATE_ROOT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+state_root = Path(sys.argv[1])
+rows = []
+for job_dir in sorted(state_root.iterdir()):
+    manifest_path = job_dir / "manifest.json"
+    status_path = job_dir / "status.json"
+    if not manifest_path.is_file() or not status_path.is_file():
+        continue
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    rows.append({"manifest": manifest, "status": status})
+
+print(json.dumps(rows, ensure_ascii=False))
+PY
+}
+
+COMMAND="${1:-}"
+if [[ -z "$COMMAND" ]]; then
+    usage >&2
+    exit 1
+fi
+shift || true
+
+case "$COMMAND" in
+    spawn)
+        spawn_job "$@"
+        ;;
+    status)
+        status_job "$@"
+        ;;
+    tail)
+        tail_job "$@"
+        ;;
+    collect)
+        collect_job "$@"
+        ;;
+    cancel)
+        cancel_job "$@"
+        ;;
+    list)
+        list_jobs "$@"
+        ;;
+    -h|--help)
+        usage
+        ;;
+    *)
+        fail "Unknown command: $COMMAND"
+        ;;
+esac

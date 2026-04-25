@@ -80,6 +80,21 @@ worktree_dirty_state() {
 }
 
 
+remove_worktree_preserve_branch() {
+    local common_dir="$1"
+    local container_root="$2"
+    local worktree_path="$3"
+    local branch_name="$4"
+
+    if wt_compat_has_native_bin; then
+        "$SCRIPT_DIR/wwt" -C "$container_root" remove --foreground --force --no-delete-branch "$branch_name"
+        return $?
+    fi
+
+    git --git-dir="$common_dir" worktree remove "$worktree_path" --force
+}
+
+
 build_stale_rows() {
     local common_dir="$1"
     local container_root="$2"
@@ -235,7 +250,7 @@ delete_worktree() {
     dirty_state=$(worktree_dirty_state "$worktree_path")
 
     if [[ "$mode" == 'bare' ]]; then
-        if ! "$SCRIPT_DIR/wwt" -C "$container_root" remove --foreground --force --no-delete-branch "$branch_name" >/dev/null 2>&1; then
+        if ! remove_worktree_preserve_branch "$common_dir" "$container_root" "$worktree_path" "$branch_name" >/dev/null 2>&1; then
             notify "Failed deleting $branch_name"
             return 1
         fi

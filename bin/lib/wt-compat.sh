@@ -36,6 +36,18 @@ wt_compat_native_bin() {
 }
 
 
+wt_compat_has_native_bin() {
+    wt_compat_native_bin >/dev/null 2>&1
+}
+
+
+wt_compat_bare_worktree_path() {
+    WT_COMPAT_BARE_ROOT=$1
+    WT_COMPAT_BARE_BRANCH_SAFE=$(wt_compat_sanitize_branch "$2")
+    printf '%s\n' "${WT_COMPAT_BARE_ROOT}/${WT_COMPAT_BARE_BRANCH_SAFE}"
+}
+
+
 wt_compat_clear_context() {
     WT_COMPAT_MODE=""
     WT_COMPAT_CONTAINER_ROOT=""
