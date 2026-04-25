@@ -1,0 +1,87 @@
+#!/bin/bash
+
+set -u
+
+CARD_NAME="${HEADSET_CARD_NAME:-bluez_card.F4_9D_8A_A0_D0_DE}"
+SINK_NAME="${HEADSET_SINK_NAME:-bluez_output.F4_9D_8A_A0_D0_DE.1}"
+SOURCE_NAME="${HEADSET_SOURCE_NAME:-bluez_input.F4:9D:8A:A0:D0:DE}"
+PROFILE_NAME="${HEADSET_PROFILE_NAME:-headset-head-unit-cvsd}"
+SINK_VOLUME="${HEADSET_SINK_VOLUME:-55%}"
+SOURCE_VOLUME="${HEADSET_SOURCE_VOLUME:-80%}"
+COOLDOWN_SECONDS="${HEADSET_APPLY_COOLDOWN_SECONDS:-1}"
+LOG_FILE="${HEADSET_CVSD_ENFORCER_LOG:-/tmp/headset-cvsd-enforcer.log}"
+
+log_message() {
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
+}
+
+has_card() {
+    pactl list cards short 2>/dev/null | awk '{print $2}' | grep -qx "$CARD_NAME"
+}
+
+has_sink() {
+    pactl list sinks short 2>/dev/null | awk '{print $2}' | grep -qx "$SINK_NAME"
+}
+
+has_source() {
+    pactl list sources short 2>/dev/null | awk '{print $2}' | grep -qx "$SOURCE_NAME"
+}
+
+apply_audio_settings() {
+    local attempts=0
+
+    if ! has_card; then
+        return
+    fi
+
+    if ! pactl set-card-profile "$CARD_NAME" "$PROFILE_NAME" >/dev/null 2>&1; then
+        return
+    fi
+
+    while [ "$attempts" -lt 10 ]; do
+        if has_sink && has_source; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 0.2
+    done
+
+    pactl set-default-sink "$SINK_NAME" >/dev/null 2>&1 || true
+    pactl set-default-source "$SOURCE_NAME" >/dev/null 2>&1 || true
+    pactl set-sink-volume "$SINK_NAME" "$SINK_VOLUME" >/dev/null 2>&1 || true
+    pactl set-source-volume "$SOURCE_NAME" "$SOURCE_VOLUME" >/dev/null 2>&1 || true
+    log_message "Applied profile=$PROFILE_NAME sink=$SINK_NAME source=$SOURCE_NAME"
+}
+
+main() {
+    local command_name
+    local last_apply=0
+
+    for command_name in pactl; do
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            log_message "Missing required command: $command_name"
+            exit 1
+        fi
+    done
+
+    log_message "Starting headset CVSD enforcer"
+    apply_audio_settings
+
+    while read -r event; do
+        case "$event" in
+            *"on card #"*|*"on sink #"*|*"on source #"*|*"on server"*)
+                if [ "$COOLDOWN_SECONDS" -gt 0 ]; then
+                    local now
+                    now=$(date +%s)
+                    if [ $((now - last_apply)) -lt "$COOLDOWN_SECONDS" ]; then
+                        continue
+                    fi
+                    last_apply=$now
+                fi
+                apply_audio_settings
+                ;;
+        esac
+    done < <(pactl subscribe 2>/dev/null)
+}
+
+main "$@"

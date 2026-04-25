@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep headset on stable CVSD call profile
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+ExecStart=/home/tsah/dotfiles/bin/enforce-headset-cvsd
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

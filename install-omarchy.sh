@@ -109,6 +109,15 @@ ln -sf ~/dotfiles/voxtype-config.toml ~/.config/voxtype/config.toml
 mkdir -p ~/.config/starship-jj
 ln -sf ~/dotfiles/starship-jj.toml ~/.config/starship-jj/starship-jj.toml
 
+# Setup user systemd services
+mkdir -p ~/.config/systemd/user
+ln -sf ~/dotfiles/headset-cvsd-enforcer.service ~/.config/systemd/user/headset-cvsd-enforcer.service
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user enable --now headset-cvsd-enforcer.service >/dev/null 2>&1 || true
+fi
+
 # Setup niri configuration symlink
 # rm -rf ~/.config/niri
 # ln -sf ~/dotfiles/arch-niri ~/.config/niri
