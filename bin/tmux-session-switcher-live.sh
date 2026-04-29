@@ -3,9 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/bootstrap-path.sh"
 . "$SCRIPT_DIR/lib/wt-compat.sh"
-
-export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
 
 WORKER_SCRIPT="$SCRIPT_DIR/tmux-session-switcher-worker.py"
 SERVICECTL_SCRIPT="$SCRIPT_DIR/tmux-session-switcher-servicectl.py"
@@ -46,6 +45,85 @@ notify() {
     else
         printf '%s\n' "$message"
     fi
+}
+
+
+copy_pr_url() {
+    local row_id="$1"
+    local cache_file="$2"
+    local fallback_cwd="$3"
+    local repo_path="$fallback_cwd"
+    local branch_name=""
+    local pr_url=""
+
+    [[ -z "$row_id" ]] && return 1
+
+    case "$row_id" in
+        branch:*)
+            branch_name=${row_id#branch:}
+            ;;
+        *)
+            if [[ -n "$cache_file" && -f "$cache_file" ]]; then
+                local entry
+                entry=$(python3 - "$cache_file" "$row_id" <<'PY'
+import json
+import sys
+
+cache_path = sys.argv[1]
+row_id = sys.argv[2]
+
+try:
+    with open(cache_path, "r", encoding="utf-8") as handle:
+        cache = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+
+item = cache.get(row_id)
+if not isinstance(item, dict):
+    raise SystemExit(0)
+
+print("\t".join([str(item.get("worktree_path", "")), str(item.get("branch_name", ""))]))
+PY
+)
+                if [[ -n "$entry" ]]; then
+                    IFS=$'\t' read -r repo_path branch_name <<< "$entry"
+                fi
+            fi
+
+            if [[ -z "$branch_name" && -d "$repo_path" ]]; then
+                branch_name=$(git -C "$repo_path" branch --show-current 2>/dev/null || true)
+            fi
+            ;;
+    esac
+
+    if [[ -z "$branch_name" ]]; then
+        notify "Could not determine branch for PR URL"
+        return 1
+    fi
+
+    if [[ ! -d "$repo_path" ]]; then
+        repo_path="$fallback_cwd"
+    fi
+
+    if ! command -v gh >/dev/null 2>&1; then
+        notify "gh is not installed"
+        return 1
+    fi
+
+    pr_url=$(cd "$repo_path" && gh pr view "$branch_name" --json url --jq .url 2>/dev/null || true)
+
+    if [[ -z "$pr_url" ]]; then
+        notify "No PR found for $branch_name"
+        return 1
+    fi
+
+    if [[ -n "${TMUX:-}" ]] && tmux -V >/dev/null 2>&1; then
+        printf '%s' "$pr_url" | tmux load-buffer -w -
+    else
+        printf '%s' "$pr_url" | "$SCRIPT_DIR/wl-copy"
+    fi
+
+    notify "Copied PR URL for $branch_name"
 }
 
 
@@ -282,6 +360,7 @@ COLORS = {
     "tmux": "\033[34m",
     "opencode": "\033[35m",
     "dir": "\033[36m",
+    "branch": "\033[33m",
     "pi": "\033[32m",
     "claude": "\033[33m",
     "muted": "\033[90m",
@@ -370,6 +449,10 @@ def marker_suffix_for_session(session_name, session_markers):
 
 def decorate_icon(base_icon, color_key, session_name, session_markers):
     return f"{colorize(base_icon, color_key)}{marker_suffix_for_session(session_name, session_markers)}"
+
+
+def has_agent_marker(session_name, session_markers):
+    return bool(session_markers.get(session_name, set()) & {"pi", "claude"})
 
 
 def parse_sesh_label(raw):
@@ -481,6 +564,45 @@ def load_pi_agents(helper_path, cwd):
     return agents
 
 
+def git_common_dir(cwd):
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--git-common-dir"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return ""
+
+    if result.returncode != 0:
+        return ""
+
+    common_dir = result.stdout.strip()
+    if not common_dir:
+        return ""
+    if not os.path.isabs(common_dir):
+        common_dir = os.path.join(cwd, common_dir)
+    return os.path.realpath(common_dir)
+
+
+def git_branches(cwd):
+    common_dir = git_common_dir(cwd)
+    if not common_dir:
+        return []
+
+    branches = set()
+    for ref in run_lines(["git", "--git-dir", common_dir, "branch", "-a", "--format=%(refname:short)"]):
+        branch = ref.strip()
+        if branch.startswith("origin/"):
+            branch = branch.removeprefix("origin/")
+        if branch in {"", "HEAD", "origin"}:
+            continue
+        branches.add(branch)
+
+    return sorted(branches)
+
+
 cache = load_cache(cache_file)
 
 filter_re = re.compile(r"(\barchived-|_.*__(persistent|temp)| [0-9]+$)")
@@ -491,6 +613,7 @@ for raw in run_lines(["sesh", "list", "-t", "--icons"]):
     tmux_rows.append(raw)
 
 zoxide_rows = run_lines(["sesh", "list", "-z", "--icons"])
+branch_rows = git_branches(current_cwd)
 
 opencode_rows = []
 if shutil.which("opencode-status"):
@@ -555,7 +678,7 @@ candidates = []
 opencode_hides_tmux = set()
 opencode_dirs = set()
 for row in opencode_rows:
-    if row["session"]:
+    if row["session"] and not has_agent_marker(row["session"], session_markers):
         opencode_hides_tmux.add(row["session"])
     normalized = normalize_opencode_directory_label(row["directory"])
     opencode_dirs.add(normalized)
@@ -644,6 +767,9 @@ for raw in tmux_rows:
 
 for row in opencode_rows:
     session = row["session"] or ""
+    if has_agent_marker(session, session_markers):
+        continue
+
     directory_label = normalize_opencode_directory_label(row["directory"])
     row_id = f"opencode:{session}"
     row_path = directory_label
@@ -673,7 +799,7 @@ for row in opencode_rows:
             "row_id": row_id,
             "row_path": row_path,
             "row_session": row_session,
-            "sort_group": 0,
+            "sort_group": 1,
             "sort_ts": last_seen.get(session, 0),
             "sort_name": row["directory"],
         }
@@ -716,6 +842,37 @@ for raw in zoxide_rows:
         }
     )
 
+for branch in branch_rows:
+    row_id = f"branch:{branch}"
+    row_path = current_cwd
+    row_session = ""
+
+    icon = colorize("", "branch")
+    name = trunc(branch, name_w)
+    flags = "branch"
+    status = ""
+    title = ""
+    age = ""
+
+    entries.append(
+        {
+            "display": (
+                f"{icon}  {name:<{name_w}}  "
+                f"{flags:<{meta_w}}  "
+                f"{status:<{status_w}}  {title:<{title_w}}  {age:>{age_w}}"
+            ),
+            "type": "branch",
+            "arg1": branch,
+            "arg2": current_cwd,
+            "row_id": row_id,
+            "row_path": row_path,
+            "row_session": row_session,
+            "sort_group": 3,
+            "sort_ts": 0,
+            "sort_name": branch,
+        }
+    )
+
 entries.sort(key=lambda e: (e["sort_group"], -e["sort_ts"], e["sort_name"]))
 
 deduped_candidates = {}
@@ -751,6 +908,33 @@ fi
 
 if [[ "${1:-}" == "--destroy" ]]; then
     destroy_from_cache "${2:-}" "${3:-}"
+    exit 0
+fi
+
+if [[ "${1:-}" == "--copy-pr-url" ]]; then
+    copy_pr_url "${2:-}" "${3:-}" "${4:-$(picker_cwd)}"
+    exit $?
+fi
+
+if [[ "${1:-}" == "--destroy-confirm-action" ]]; then
+    if [[ -n "${TMUX:-}" ]]; then
+        if ! tmux confirm-before -p "Destroy selected worktree?" "run-shell true" >/dev/null 2>&1; then
+            exit 0
+        fi
+    else
+        printf 'Destroy selected worktree? [y/N] ' > /dev/tty
+        read -r response < /dev/tty
+        case "$response" in
+            [yY]|[yY][eE][sS]) ;;
+            *) exit 0 ;;
+        esac
+    fi
+
+    if destroy_from_cache "${2:-}" "${3:-}" >/dev/null 2>&1; then
+        printf 'exclude\n'
+    else
+        printf 'change-header(Failed to destroy selected row)\n'
+    fi
     exit 0
 fi
 
@@ -950,10 +1134,11 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
         --no-sort \
         --delimiter=$'\t' \
         --with-nth=1 \
-        --bind "ctrl-d:execute-silent($SELF_Q --destroy {5} $CACHE_Q)+reload($ROWS_CMD)" \
+        --bind "ctrl-d:transform($SELF_Q --destroy-confirm-action {5} $CACHE_Q)" \
+        --bind "ctrl-y:execute-silent($SELF_Q --copy-pr-url {5} $CACHE_Q $PICKER_CWD_Q)" \
         --bind 'alt-k:abort' \
         --color='header:5,prompt:4,info:8,border:8' \
-        --header 'Enter: open | Ctrl-D: destroy stale wt+session | remote rows open over SSH | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
+        --header 'Enter: open | Ctrl-Y: copy PR URL | Ctrl-D: destroy stale wt+session | remote rows open over SSH | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
     PICKER_STATUS=$?
     set -e
 else
@@ -964,10 +1149,11 @@ else
         --no-sort \
         --delimiter=$'\t' \
         --with-nth=1 \
-        --bind "ctrl-d:execute-silent($SELF_Q --destroy {5} $CACHE_Q)+reload($ROWS_CMD)" \
+        --bind "ctrl-d:transform($SELF_Q --destroy-confirm-action {5} $CACHE_Q)" \
+        --bind "ctrl-y:execute-silent($SELF_Q --copy-pr-url {5} $CACHE_Q $PICKER_CWD_Q)" \
         --bind 'alt-k:abort' \
         --color='header:5,prompt:4,info:8,border:8' \
-        --header 'Enter: open | Ctrl-D: destroy stale wt+session | remote rows open over SSH | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
+        --header 'Enter: open | Ctrl-Y: copy PR URL | Ctrl-D: destroy stale wt+session | remote rows open over SSH | flags: wt[/merged|squash][/dirty|missing], checking' < "$ROWS_FILE")
     PICKER_STATUS=$?
     set -e
 fi
@@ -990,4 +1176,10 @@ fi
 
 if [[ "$TYPE" == "sesh" ]]; then
     sesh connect "$ARG1"
+    exit 0
+fi
+
+if [[ "$TYPE" == "branch" ]]; then
+    cd "$ARG2" || exit 1
+    "$SCRIPT_DIR/wt" spawn "$ARG1"
 fi

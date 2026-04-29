@@ -518,17 +518,21 @@ destroy_impl() {
     echo "  Branch: $CURRENT_BRANCH"
     echo "  Mode: $WT_COMPAT_MODE"
 
-    printf "Are you sure you want to delete this worktree? [y/N] "
-    read -r response
-    case "$response" in
-        [yY]|[yY][eE][sS])
-            echo "Proceeding with destruction..."
-            ;;
-        *)
-            echo "Aborted."
-            exit 0
-            ;;
-    esac
+    if [ "${WT_DESTROY_ASSUME_YES:-0}" = "1" ]; then
+        echo "Proceeding with destruction..."
+    else
+        printf "Are you sure you want to delete this worktree? [y/N] "
+        read -r response
+        case "$response" in
+            [yY]|[yY][eE][sS])
+                echo "Proceeding with destruction..."
+                ;;
+            *)
+                echo "Aborted."
+                exit 0
+                ;;
+        esac
+    fi
 
     if [ "$WT_COMPAT_MODE" = "bare" ]; then
         if ! remove_bare_worktree_preserve_branch "$WT_COMPAT_COMMON_DIR" "$WT_COMPAT_CONTAINER_ROOT" "$WORKTREE_ROOT" "$CURRENT_BRANCH"; then
@@ -548,7 +552,10 @@ destroy_impl() {
         CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
         EXPECTED_SESSION=$(wt_compat_session_name "$WT_COMPAT_CONTAINER_ROOT" "$CURRENT_BRANCH")
 
-        if [ -n "${TMUX:-}" ] && [ -n "$CURRENT_SESSION" ]; then
+        if [ -n "${WT_DESTROY_TMUX_SESSION:-}" ]; then
+            echo "Killing tmux session '$WT_DESTROY_TMUX_SESSION'..."
+            tmux kill-session -t "$WT_DESTROY_TMUX_SESSION"
+        elif [ -n "${TMUX:-}" ] && [ -n "$CURRENT_SESSION" ]; then
             echo "Switching to another session..."
             if tmux switch-client -p 2>/dev/null || \
                tmux switch-client -t "$WT_COMPAT_REPO_NAME" 2>/dev/null || \
