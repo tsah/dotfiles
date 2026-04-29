@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-# Ensure ~/dotfiles/bin is in PATH — tmux run-shell doesn't source zshrc.
-export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
+# Ensure common user-installed tools are available — tmux run-shell doesn't source zshrc.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/bootstrap-path.sh"
 
 if ! command -v opencode-status >/dev/null 2>&1; then
     echo "opencode-status not found in PATH." >&2

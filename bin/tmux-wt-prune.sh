@@ -3,9 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/bootstrap-path.sh"
 . "$SCRIPT_DIR/lib/wt-compat.sh"
-
-export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
 
 notify() {
     local message="$1"

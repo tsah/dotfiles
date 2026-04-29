@@ -235,10 +235,3 @@ fi
 
 # Optional local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
-
-if command -v wt >/dev/null 2>&1; then
-  if _wt_shell_init="$(command wt config shell init zsh 2>/dev/null)"; then
-    eval "$_wt_shell_init"
-  fi
-  unset _wt_shell_init
-fi

@@ -4,8 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 
-# Ensure ~/dotfiles/bin is in PATH — tmux run-shell doesn't source zshrc.
-export PATH="$HOME/dotfiles/bin:$HOME/.local/bin:$PATH"
+# Ensure common user-installed tools are available — tmux run-shell doesn't source zshrc.
+. "$SCRIPT_DIR/lib/bootstrap-path.sh"
 
 PI_AGENT_HELPER="$SCRIPT_DIR/pi-agent-config"
 PI_AGENT_LAUNCHER="$SCRIPT_DIR/spawn-pi-agent"
