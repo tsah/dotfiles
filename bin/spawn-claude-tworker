@@ -25,6 +25,18 @@ append_run_command() {
     fi
 }
 
+is_interactive_agent_command() {
+    local cmd="$1"
+
+    case "$cmd" in
+        oc|oc\ *|opencode|opencode\ *|claude|claude\ *|pi|pi\ *)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 collect_setup_run_commands() {
     local setup_root="$1"
     local container_root="$2"
@@ -78,11 +90,9 @@ collect_setup_run_commands() {
                 continue
             fi
 
-            case "$value" in
-                oc|oc\ *|opencode|opencode\ *|claude|claude\ *|pi|pi\ *)
-                    continue
-                    ;;
-            esac
+            if is_interactive_agent_command "$value"; then
+                continue
+            fi
 
             append_run_command "$value"
         done < "$setup_config"
@@ -98,10 +108,11 @@ collect_setup_run_commands() {
                 ''|\#*)
                     continue
                     ;;
-                oc|oc\ *|opencode|opencode\ *|claude|claude\ *|pi|pi\ *)
-                    continue
-                    ;;
             esac
+
+            if is_interactive_agent_command "$cmd"; then
+                continue
+            fi
 
             append_run_command "$cmd"
         done < "$post_spawn_file"
@@ -214,7 +225,7 @@ SHELL_PREFIX+='if [[ -f .venv/bin/activate ]]; then source .venv/bin/activate; e
 printf -v WINDOW_COMMAND 'bash -lc %q' "cd \"$WORKTREE_PATH\" && ${SHELL_PREFIX}p=\$(cat \"$PROMPT_FILE\"); rm -f \"$PROMPT_FILE\"; exec ${CLAUDE_COMMAND} \"\$p\""
 
 WINDOW_META=$(tmux new-window -d -P -F '#{window_id}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}' -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$WORKTREE_PATH" "$WINDOW_COMMAND")
-IFS='|' read -r _WINDOW_ID WINDOW_INDEX ACTUAL_WINDOW_NAME _PANE_ID _PANE_INDEX <<< "$WINDOW_META"
+IFS='|' read -r _WINDOW_ID WINDOW_INDEX ACTUAL_WINDOW_NAME PANE_ID PANE_INDEX <<< "$WINDOW_META"
 
 if [[ "$SESSION_ALREADY_EXISTS" == false ]]; then
     tmux send-keys -t "$SESSION_NAME:1" "exit" Enter
@@ -223,5 +234,11 @@ fi
 echo "Spawned Claude Code worker."
 echo "Session: $SESSION_NAME"
 echo "Window: $ACTUAL_WINDOW_NAME"
+echo "Pane: $PANE_INDEX ($PANE_ID)"
+
+if [[ -n "$AGENT_NAME" ]]; then
+    echo "Agent: $AGENT_NAME"
+fi
+
 echo "Switch with Alt+k and select '$SESSION_NAME'."
 echo "Direct switch: tmux switch-client -t \"$SESSION_NAME\""

@@ -1,81 +1,47 @@
 ---
-name: Tworker
+name: tmux-worktree-worker
 description: >-
-  Spawn a new opencode process in a separate tmux session and git worktree via
-  the spawn-opencode-agent script. This is orchestration only, not pane
-  automation.
+  Legacy manual reference for harness-native tmux worktree workers. Kept only
+  as documentation; use the native tworker mechanism for the current harness.
+disable-model-invocation: true
 ---
 
-# Tworker
+# Tmux Worktree Worker Reference
 
-This skill launches a **separate opencode process** in its own **tmux session**
-and **git worktree**. It is completely different from the built-in Task tool
-(which runs an in-process subagent). Use this skill when the user says things
-like:
+This file is a **manual reference only**.
 
-- "spawn a worker"
-- "spin up another opencode session"
-- "create a worktree and run opencode there"
-- "launch a tworker for X"
+Do **not** auto-load this skill for generic worker requests. Each harness should
+spawn its own native worker:
 
-Do NOT confuse this with the built-in Task tool. This skill runs a bash script
-that creates a real tmux session.
-
-Do NOT use this skill for interactive pane control (`send-keys`, `capture-pane`,
-prompt polling, REPL driving). Use the `Tmux Interactive Control` skill for
-that mode.
+- **Claude Code** → `/tworker` or `spawn-claude-tworker`
+- **OpenCode** → `/tworker` or `spawn-opencode-agent`
+- **pi** → `tworker` / `tmux_tworker` or `spawn-pi-tworker`
 
 ## Core Rule
 
-Always use the helper script:
+Stay inside the current harness unless the user explicitly asks for another
+one.
+
+- Do not launch OpenCode workers from pi.
+- Do not launch pi workers from OpenCode.
+- Do not launch OpenCode workers from Claude Code.
+
+## Manual Launcher Reference
+
+### Claude Code
 
 ```bash
-spawn-opencode-agent "<branch-name>" "<initial-prompt>"
+spawn-claude-tworker [--agent <agent-name>] <branch-name> <initial-prompt>
 ```
 
-If a specific opencode agent is requested:
+### OpenCode
 
 ```bash
-spawn-opencode-agent --agent "<agent-name>" "<branch-name>" "<initial-prompt>"
+spawn-opencode-agent [--agent <agent-name>] <branch-name> <initial-prompt>
 ```
 
-## Operating Constraints
+### pi
 
-- Do not run preflight commands (`ls`, `git worktree list`, `git fetch`).
-- Do not create worktrees manually (`git worktree add`).
-- For N independent jobs, run exactly N spawn commands in parallel.
-- Run extra commands only if a spawn command fails.
-- The spawning agent must not do planning for the worker.
-
-## Delegation Boundary
-
-- The spawning agent is an orchestrator only.
-- Only pass requirements, context, constraints, and success criteria.
-- Do not include step-by-step implementation plans or execution breakdowns.
-- Let the spawned worker own planning, approach selection, and execution.
-
-## Branch Naming
-
-- Use lowercase kebab-case.
-- Keep names short and task-specific.
-- Example: `investigate-startup-health-check`.
-
-## Initial Prompt Quality
-
-Include:
-- concrete objective
-- relevant context (repo area, issue/ticket, known facts)
-- constraints from the user
-- definition of done / expected output (summary, files changed, tests run)
-
-Avoid:
-- implementation steps
-- task decomposition
-- micro-management of how to solve it
-
-## Response Format
-
-After spawning, report:
-- tmux session name
-- tmux window name
-- switch hint (`Alt+k` picker or `tmux switch-client -t "<session>"`)
+```bash
+spawn-pi-tworker [--agent <agent-name>] <branch-name> <initial-prompt>
+```

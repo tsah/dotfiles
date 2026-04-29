@@ -17,8 +17,11 @@ Use this skill when you need to:
 - capture pane output to inspect progress
 - poll for prompts/readiness text before sending next commands
 
-Do NOT use this skill to spawn worktree-backed opencode workers.
-Use `Tworker` and `spawn-opencode-agent` for that workflow.
+Do NOT use this skill to spawn worktree-backed workers.
+Use the harness-native tworker mechanism instead:
+- Claude Code: `/tworker` or `spawn-claude-tworker`
+- OpenCode: `/tworker` or `spawn-opencode-agent`
+- pi: `tworker` / `tmux_tworker` or `spawn-pi-tworker`
 
 ## Core Rules
 
@@ -33,7 +36,7 @@ Use `Tworker` and `spawn-opencode-agent` for that workflow.
 ### Existing tmux server (default for your repo workflow)
 
 Use plain `tmux ...` commands when interacting with sessions created by
-`wt`/`spawn-opencode-agent`.
+`wt`, `spawn-opencode-agent`, `spawn-claude-tworker`, or `spawn-pi-tworker`.
 
 ```bash
 tmux list-sessions

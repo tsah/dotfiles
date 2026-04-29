@@ -29,6 +29,18 @@ append_run_command() {
     fi
 }
 
+is_interactive_agent_command() {
+    local cmd="$1"
+
+    case "$cmd" in
+        oc|oc\ *|opencode|opencode\ *|claude|claude\ *|pi|pi\ *)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 collect_setup_run_commands() {
     local setup_root="$1"
     local container_root="$2"
@@ -82,12 +94,8 @@ collect_setup_run_commands() {
                 continue
             fi
 
-            if [[ "${WT_SKIP_RUN_OC:-0}" == "1" ]]; then
-                case "$value" in
-                    oc|oc\ *|opencode|opencode\ *)
-                        continue
-                        ;;
-                esac
+            if is_interactive_agent_command "$value"; then
+                continue
             fi
 
             append_run_command "$value"
@@ -106,12 +114,8 @@ collect_setup_run_commands() {
                     ;;
             esac
 
-            if [[ "${WT_SKIP_RUN_OC:-0}" == "1" ]]; then
-                case "$cmd" in
-                    oc|oc\ *|opencode|opencode\ *)
-                        continue
-                        ;;
-                esac
+            if is_interactive_agent_command "$cmd"; then
+                continue
             fi
 
             append_run_command "$cmd"

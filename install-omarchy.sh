@@ -73,22 +73,34 @@ ln -sf ~/dotfiles/opencode/agents ~/.config/opencode/agents
 rm -rf ~/.config/opencode/commands
 ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
 
-# Setup Claude/OpenCode shared skills
+# Setup Claude Code commands and shared skills
+mkdir -p ~/.claude/commands
 mkdir -p ~/.claude/skills
+ln -sf ~/dotfiles/claude/commands/tworker.md ~/.claude/commands/tworker.md
+ln -sf ~/dotfiles/claude/commands/tw.md ~/.claude/commands/tw.md
 rm -rf ~/.claude/skills/opencode-spawn
 rm -rf ~/.claude/skills/tmux-worktree-worker
 rm -rf ~/.claude/skills/tmux-interactive-control
+rm -rf ~/.claude/skills/grill-me
+rm -rf ~/.claude/skills/tdd
 ln -sf ~/dotfiles/claude/skills/tmux-worktree-worker ~/.claude/skills/tmux-worktree-worker
 ln -sf ~/dotfiles/claude/skills/tmux-interactive-control ~/.claude/skills/tmux-interactive-control
+ln -sf ~/dotfiles/claude/skills/grill-me ~/.claude/skills/grill-me
+ln -sf ~/dotfiles/claude/skills/tdd ~/.claude/skills/tdd
 
 # Setup pi configuration
 mkdir -p ~/.pi/agent/extensions
 mkdir -p ~/.pi/agent/agents
+mkdir -p ~/.pi/agent/skills
 rm -rf ~/.pi/agent/extensions/tmux-agents
+rm -rf ~/.pi/agent/skills/grill-me
+rm -rf ~/.pi/agent/skills/tdd
 ln -sf ~/dotfiles/pi/extensions/tmux-agents ~/.pi/agent/extensions/tmux-agents
 ln -sf ~/dotfiles/pi/agents/plan.md ~/.pi/agent/agents/plan.md
 ln -sf ~/dotfiles/pi/agents/build.md ~/.pi/agent/agents/build.md
 ln -sf ~/dotfiles/pi/agents/fast.md ~/.pi/agent/agents/fast.md
+ln -sf ~/dotfiles/claude/skills/grill-me ~/.pi/agent/skills/grill-me
+ln -sf ~/dotfiles/claude/skills/tdd ~/.pi/agent/skills/tdd
 
 # Setup jj (jujutsu) configuration
 mkdir -p ~/.config/jj

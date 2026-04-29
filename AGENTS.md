@@ -243,6 +243,7 @@ When adding new configs:
 ```
 dotfiles/
 ├── bin/                    # Executable scripts (added to PATH)
+├── claude/                 # Claude Code commands and shared skills
 ├── nvim/                   # Neovim config (symlinked to ~/.config/nvim)
 │   ├── plugin/            # Auto-loaded plugin configs
 │   └── lsp/               # LSP server configurations
@@ -268,6 +269,16 @@ dotfiles/
     ├── agents/                # Reusable pi agent definitions (markdown frontmatter)
     └── extensions/            # Pi extensions (TypeScript)
 ```
+
+## Claude Code Configuration
+
+Claude Code commands are in `~/dotfiles/claude/commands/` and symlinked to `~/.claude/commands/`.
+Shared skills live in `~/dotfiles/claude/skills/` and are symlinked to `~/.claude/skills/`.
+
+Harness-native worker launchers:
+- Claude Code: `spawn-claude-tworker`
+- OpenCode: `spawn-opencode-agent`
+- pi: `spawn-pi-tworker`
 
 ## OpenCode Configuration
 

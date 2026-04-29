@@ -86,6 +86,22 @@ function resultFromExec(result: { stdout: string; stderr: string; code: number }
 	};
 }
 
+function buildTworkerArgs(params: { agent?: string; branch?: string; prompt: string; windowName?: string; wait?: boolean }) {
+	const branch = params.branch && params.branch.trim().length > 0 ? params.branch.trim() : deriveBranchName(params.prompt);
+	const args: string[] = [];
+	if (params.agent) {
+		args.push("--agent", params.agent);
+	}
+	if (params.windowName) {
+		args.push("--window-name", params.windowName);
+	}
+	if (params.wait) {
+		args.push("--wait");
+	}
+	args.push(branch, params.prompt);
+	return { args, branch };
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "tmux_subagent",
@@ -131,46 +147,41 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
-		name: "tmux_tworker",
-		label: "Tmux Tworker",
-		description:
-			"Launch a separate pi worker in a new tmux session backed by a git worktree. Use this when the user wants an isolated worker/task branch instead of a same-session window. If wait is true, keep the spawned pi window interactive and wait until its initial task completes.",
-		promptSnippet: "Launch a separate pi worker in a new tmux session and git worktree.",
-		promptGuidelines: [
-			"Use tmux_tworker when the user wants an isolated worker or task branch in a separate tmux session.",
-			"Set wait=true when the parent agent needs to block until the worker completes its assigned task.",
-			"Prefer short lowercase kebab-case branch names.",
-			"Pass objectives, context, constraints, and definition of done to the worker.",
-			"Do not do extra preflight work when tmux_tworker is the right tool; call it directly.",
-		],
-		parameters: TworkerParams,
-		async execute(_toolCallId, params, signal, onUpdate) {
-			onUpdate?.({ content: [{ type: "text", text: "Launching tmux tworker..." }] });
+	function registerTworkerTool(name: string, label: string) {
+		pi.registerTool({
+			name,
+			label,
+			description:
+				"Launch a separate pi worker in a new tmux session backed by a git worktree. Use this when the user wants an isolated worker/task branch instead of a same-session window. If wait is true, keep the spawned pi window interactive and wait until its initial task completes.",
+			promptSnippet: "Launch a separate pi worker in a new tmux session and git worktree.",
+			promptGuidelines: [
+				"Use the tworker or tmux_tworker tool when the user asks for a tworker from pi.",
+				"Do not run spawn-opencode-agent or spawn-claude-tworker unless the user explicitly asks for OpenCode or Claude Code.",
+				"Set wait=true when the parent agent needs to block until the worker completes its assigned task.",
+				"Prefer short lowercase kebab-case branch names.",
+				"Pass objectives, context, constraints, and definition of done to the worker.",
+				"Do not do extra preflight work when the tworker or tmux_tworker tool is the right tool; call it directly.",
+			],
+			parameters: TworkerParams,
+			async execute(_toolCallId, params, signal, onUpdate) {
+				onUpdate?.({ content: [{ type: "text", text: "Launching tmux tworker..." }] });
 
-			const branch = params.branch && params.branch.trim().length > 0 ? params.branch.trim() : deriveBranchName(params.prompt);
-			const args: string[] = [];
-			if (params.agent) {
-				args.push("--agent", params.agent);
-			}
-			if (params.windowName) {
-				args.push("--window-name", params.windowName);
-			}
-			if (params.wait) {
-				args.push("--wait");
-			}
-			args.push(branch, params.prompt);
+				const { args, branch } = buildTworkerArgs(params);
 
-			try {
-				const result = await runScript(pi, "spawn-pi-tworker", args, signal);
-				return resultFromExec(result, `tmux tworker launched on ${branch}`);
-			} catch (error) {
-				return {
-					content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-					details: {},
-					isError: true,
-				};
-			}
-		},
-	});
+				try {
+					const result = await runScript(pi, "spawn-pi-tworker", args, signal);
+					return resultFromExec(result, `tmux tworker launched on ${branch}`);
+				} catch (error) {
+					return {
+						content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+						details: {},
+						isError: true,
+					};
+				}
+			},
+		});
+	}
+
+	registerTworkerTool("tworker", "Tworker");
+	registerTworkerTool("tmux_tworker", "Tmux Tworker");
 }
