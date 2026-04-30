@@ -3,7 +3,8 @@
   "autoupdate": true,
   "default_agent": "plan",
   "plugin": [
-    ["@ishaksebsib/opencode-tree", { "storageScope": "global" }]
+    ["@ishaksebsib/opencode-tree", { "storageScope": "global" }],
+    ["@plannotator/opencode@latest", {}]
   ],
   "mcp": {
     "linear": {
