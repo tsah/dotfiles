@@ -1,0 +1,108 @@
+#!/bin/bash
+
+set -u
+
+checks=0
+warnings=0
+failures=0
+
+supports_color() {
+    [[ -t 1 && -z "${NO_COLOR:-}" ]]
+}
+
+if supports_color; then
+    green=$'\033[32m'
+    yellow=$'\033[33m'
+    red=$'\033[31m'
+    reset=$'\033[0m'
+else
+    green=""
+    yellow=""
+    red=""
+    reset=""
+fi
+
+ok() {
+    checks=$((checks + 1))
+    printf '%sOK%s   %s\n' "$green" "$reset" "$1"
+}
+
+warn() {
+    checks=$((checks + 1))
+    warnings=$((warnings + 1))
+    printf '%sWARN%s %s\n' "$yellow" "$reset" "$1"
+}
+
+fail() {
+    checks=$((checks + 1))
+    failures=$((failures + 1))
+    printf '%sFAIL%s %s\n' "$red" "$reset" "$1"
+}
+
+check_cmd() {
+    local cmd="$1"
+    local level="${2:-warn}"
+
+    if command -v "$cmd" >/dev/null 2>&1; then
+        ok "command available: $cmd"
+    elif [[ "$level" == "critical" ]]; then
+        fail "missing critical command: $cmd"
+    else
+        warn "missing optional command: $cmd"
+    fi
+}
+
+check_link() {
+    local link="$1"
+    local expected_prefix="$2"
+    local target
+    local resolved
+
+    if [[ ! -e "$link" && ! -L "$link" ]]; then
+        fail "missing link: $link"
+        return
+    fi
+
+    if [[ ! -L "$link" ]]; then
+        fail "not a symlink: $link"
+        return
+    fi
+
+    target=$(readlink "$link")
+    if [[ "$target" == /* ]]; then
+        resolved="$target"
+    else
+        resolved="$(dirname "$link")/$target"
+    fi
+    resolved=$(realpath -m "$resolved")
+
+    if [[ "$resolved" == "$expected_prefix" || "$resolved" == "$expected_prefix"/* ]]; then
+        ok "link target valid: $link -> $target"
+    else
+        fail "wrong target: $link -> $target (expected under $expected_prefix)"
+    fi
+}
+
+dotfiles_root="$(realpath -m "$HOME/dotfiles")"
+
+printf 'Dotfiles doctor\n'
+printf 'Repository: %s\n\n' "$dotfiles_root"
+
+check_cmd git critical
+check_cmd tmux
+check_cmd nvim
+check_cmd opencode
+
+check_link "$HOME/.config/opencode/opencode.json" "$dotfiles_root"
+check_link "$HOME/.config/nvim" "$dotfiles_root"
+check_link "$HOME/.config/hypr" "$dotfiles_root"
+check_link "$HOME/.tmux.conf" "$dotfiles_root"
+
+printf '\nSummary: %d checks, %d warnings, %d failures\n' "$checks" "$warnings" "$failures"
+
+if ((failures > 0)); then
+    printf 'Run ./install-omarchy.sh from %s to refresh local symlinks.\n' "$dotfiles_root"
+    exit 1
+fi
+
+exit 0

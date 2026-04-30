@@ -36,6 +36,7 @@ Use these scripts on Linux servers (Amazon Linux 2023 tested):
 ## Notes
 
 - Do not run `install-omarchy.sh` on EC2/dev servers.
+- Run `dotfiles-doctor` to check common local setup issues after installing or changing symlinks. It reports missing commands, broken config links, and suggests `./install-omarchy.sh` when local symlinks need refreshing.
 - If Python LSP is missing on a machine, install it with:
 
 ```bash
