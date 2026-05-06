@@ -157,3 +157,5 @@ end
 if test -f "$HOME/google-cloud-sdk/completion.fish.inc"
     source "$HOME/google-cloud-sdk/completion.fish.inc"
 end
+
+fish_add_path -g ~/.local/bin

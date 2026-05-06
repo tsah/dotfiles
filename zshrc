@@ -122,7 +122,6 @@ else
   export KEYTIMEOUT=1
 fi
 
-
 zle-keymap-select() {
   if [[ ${KEYMAP} == vicmd ]]; then
     printf '\e[2 q'
