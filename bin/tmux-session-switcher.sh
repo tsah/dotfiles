@@ -179,6 +179,12 @@ def trunc(text, width):
     return text[: width - 3] + "..."
 
 
+def active_status_rank(status):
+    if status in {"tool running", "generating", "starting", "waiting question"}:
+        return 0
+    return 1
+
+
 def load_pi_agents(helper_path, cwd):
     if not shutil.which("pi"):
         return []
@@ -324,7 +330,7 @@ for row in opencode_rows:
             "type": "opencode",
             "arg1": session,
             "arg2": row["pane"],
-            "sort_group": 0,
+            "sort_group": active_status_rank(row["status"]),
             "sort_ts": last_seen.get(session, 0),
             "sort_name": row["directory"],
         }

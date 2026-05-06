@@ -135,6 +135,12 @@ wt_compat_setup_root() {
         fi
     fi
 
+    WT_COMPAT_DEFAULT_WORKTREE=$(wt_compat_find_default_worktree "$WT_COMPAT_COMMON_DIR" 2>/dev/null || true)
+    if [ -n "$WT_COMPAT_DEFAULT_WORKTREE" ] && [ -f "$WT_COMPAT_DEFAULT_WORKTREE/.wtconfig" ]; then
+        wt_compat_realpath "$WT_COMPAT_DEFAULT_WORKTREE"
+        return 0
+    fi
+
     printf '%s\n' "$WT_COMPAT_SETUP_CONTAINER"
 }
 
@@ -164,6 +170,17 @@ wt_compat_find_worktree_for_branch() {
             }
         }
     ' <<< "$WT_COMPAT_WORKTREE_LIST"
+}
+
+
+wt_compat_find_default_worktree() {
+    WT_COMPAT_DEFAULT_BRANCH=$(wt_compat_default_branch_name "$1" 2>/dev/null || true)
+
+    if [ -z "$WT_COMPAT_DEFAULT_BRANCH" ]; then
+        return 1
+    fi
+
+    wt_compat_find_worktree_for_branch "$1" "$WT_COMPAT_DEFAULT_BRANCH"
 }
 
 

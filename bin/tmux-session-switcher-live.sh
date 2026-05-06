@@ -490,6 +490,12 @@ def trunc(text, width):
     return text[: width - 3] + "..."
 
 
+def active_status_rank(status):
+    if status in {"tool running", "generating", "starting", "waiting question"}:
+        return 0
+    return 1
+
+
 def expand_path(path):
     if not path:
         return ""
@@ -799,7 +805,7 @@ for row in opencode_rows:
             "row_id": row_id,
             "row_path": row_path,
             "row_session": row_session,
-            "sort_group": 1,
+            "sort_group": active_status_rank(row["status"]),
             "sort_ts": last_seen.get(session, 0),
             "sort_name": row["directory"],
         }
