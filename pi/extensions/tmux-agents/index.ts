@@ -21,7 +21,7 @@ const TworkerParams = Type.Object({
 	branch: Type.Optional(
 		Type.String({ description: "Branch name for the worktree. If omitted, a short kebab-case name is derived from the prompt." }),
 	),
-	agent: Type.Optional(Type.String({ description: "Optional agent name from ~/.pi/agent/agents, ~/.claude/agents, or project agent directories." })),
+	agent: Type.Optional(Type.String({ description: "Optional agent name from ~/.pi/agent/agents, ~/.claude/agents, or project agent directories. Defaults to build." })),
 	windowName: Type.Optional(Type.String({ description: "Optional tmux window name. Defaults to pi-agent." })),
 	wait: Type.Optional(Type.Boolean({ description: "If true, keep the spawned pi window interactive and wait until its initial task completes." })),
 });
@@ -89,9 +89,7 @@ function resultFromExec(result: { stdout: string; stderr: string; code: number }
 function buildTworkerArgs(params: { agent?: string; branch?: string; prompt: string; windowName?: string; wait?: boolean }) {
 	const branch = params.branch && params.branch.trim().length > 0 ? params.branch.trim() : deriveBranchName(params.prompt);
 	const args: string[] = [];
-	if (params.agent) {
-		args.push("--agent", params.agent);
-	}
+	args.push("--agent", params.agent || "build");
 	if (params.windowName) {
 		args.push("--window-name", params.windowName);
 	}
@@ -157,6 +155,8 @@ export default function (pi: ExtensionAPI) {
 			promptGuidelines: [
 				"Use the tworker or tmux_tworker tool when the user asks for a tworker from pi.",
 				"Do not run spawn-opencode-agent or spawn-claude-tworker unless the user explicitly asks for OpenCode or Claude Code.",
+				"Start tworkers with the build agent, not the plan agent, unless the user explicitly asks for plan mode.",
+				"If planning or analysis is needed, keep the worker in build mode and include instructions to plan or write findings to a document in the prompt.",
 				"Set wait=true when the parent agent needs to block until the worker completes its assigned task.",
 				"Prefer short lowercase kebab-case branch names.",
 				"Pass objectives, context, constraints, and definition of done to the worker.",

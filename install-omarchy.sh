@@ -70,6 +70,8 @@ mkdir -p ~/dotfiles/opencode/commands
 ln -sf ~/dotfiles/opencode.json ~/.config/opencode/opencode.json
 rm -rf ~/.config/opencode/agents
 ln -sf ~/dotfiles/opencode/agents ~/.config/opencode/agents
+rm -rf ~/.config/opencode/command
+ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/command
 rm -rf ~/.config/opencode/commands
 ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
 

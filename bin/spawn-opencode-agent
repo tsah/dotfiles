@@ -12,7 +12,7 @@ usage() {
     echo "The worker starts immediately with the provided prompt."
 }
 
-AGENT_NAME="${OPENCODE_SPAWN_AGENT:-}"
+AGENT_NAME="${OPENCODE_SPAWN_AGENT:-build}"
 WINDOW_NAME="opencode"
 
 while [[ $# -gt 0 ]]; do

@@ -13,10 +13,13 @@ Interpret arguments in this order:
 2. `<branch-name> <initial-prompt>`
 3. `<initial-prompt>` (derive a short kebab-case branch name)
 
-If the user does not provide `--agent`, choose one of: `plan`, `build`, `fast`.
-- `plan`: planning, architecture, or exploratory analysis
-- `build`: implementation and code changes (default)
+If the user does not provide `--agent`, use `--agent build`.
+
+Do not start tworkers in `plan` mode. If the worker needs planning, analysis, architecture exploration, or a written plan, keep it in `build` mode and include those instructions in the initial prompt. Ask it to write its plan or findings to a document when useful.
+
+Only use another agent when explicitly requested:
 - `fast`: quick iterations, lightweight edits, or triage
+- `plan`: only when the user explicitly asks for a plan-mode worker
 
 Default to one worker unless the user explicitly asks for multiple workers.
 
