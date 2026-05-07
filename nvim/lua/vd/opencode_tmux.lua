@@ -37,6 +37,14 @@ local function list_opencode_panes(session_name, cwd)
 end
 
 local function pane_port(pane)
+    local pane_process = vim.system({ "ps", "-p", pane.pid, "-o", "args=" }, { text = true }):wait()
+    if pane_process.code == 0 then
+        local port = pane_process.stdout:match("opencode.*%-%-port%s+(%d+)")
+        if port then
+            return tonumber(port)
+        end
+    end
+
     local result = vim.system({ "pgrep", "-a", "-P", pane.pid }, { text = true }):wait()
     if result.code ~= 0 then
         return nil
@@ -115,33 +123,72 @@ end
 
 function M.prompt(prompt, opts)
     opts = opts or {}
-    local context = opts.context or require("opencode.context").new()
-    local rendered = context:render(prompt)
-    local plaintext = context.plaintext(rendered.output)
+    local context = opts.context
+    local plaintext = prompt
+
+    if not opts.plain then
+        if context == nil then
+            local ok_context, resolved_context = pcall(function()
+                return require("opencode.context").new()
+            end)
+            if ok_context then
+                context = resolved_context
+            end
+        end
+
+        if context ~= nil then
+            local rendered = context:render(prompt)
+            plaintext = context.plaintext(rendered.output)
+        end
+    end
+
     local port = resolve_port()
 
     post(port, { type = "tui.prompt.append", properties = { text = plaintext } })
     if opts.submit then
         post(port, { type = "tui.command.execute", properties = { command = "prompt.submit" } })
     end
-    context:clear()
+    if context ~= nil then
+        context:clear()
+    end
 end
 
 function M.ask(default, opts)
     opts = opts or {}
-    local context = opts.context or require("opencode.context").new()
-    return require("opencode.ui.ask")
-        .ask(default, context)
-        :next(function(input)
-            opts.context = context
-            M.prompt(input, opts)
+    local context = opts.context
+
+    if context == nil then
+        local ok_context, resolved_context = pcall(function()
+            return require("opencode.context").new()
         end)
-        :catch(function(err)
-            context:resume()
-            if err then
-                vim.notify(err, vim.log.levels.ERROR, { title = "opencode tmux" })
-            end
-        end)
+        if ok_context then
+            context = resolved_context
+        end
+    end
+
+    local ok_ask_ui, ask_ui = pcall(require, "opencode.ui.ask")
+    if context ~= nil and ok_ask_ui then
+        return ask_ui
+            .ask(default, context)
+            :next(function(input)
+                opts.context = context
+                M.prompt(input, opts)
+            end)
+            :catch(function(err)
+                context:resume()
+                if err then
+                    vim.notify(err, vim.log.levels.ERROR, { title = "opencode tmux" })
+                end
+            end)
+    end
+
+    vim.notify("opencode context unavailable, using plain input", vim.log.levels.WARN, { title = "opencode tmux" })
+    vim.ui.input({ prompt = "OpenCode: ", default = default }, function(input)
+        if input == nil or input == "" then
+            return
+        end
+        M.prompt(input, vim.tbl_extend("force", opts, { plain = true, context = nil }))
+    end)
 end
 
 function M.ask_this()
