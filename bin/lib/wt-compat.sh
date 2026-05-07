@@ -187,6 +187,11 @@ wt_compat_find_default_worktree() {
 wt_compat_default_base_ref() {
     WT_COMPAT_COMMON_DIR_INPUT=$1
 
+    if git --git-dir="$WT_COMPAT_COMMON_DIR_INPUT" show-ref --verify --quiet refs/remotes/origin/master; then
+        printf '%s\n' origin/master
+        return 0
+    fi
+
     WT_COMPAT_HEAD_REF=$(git --git-dir="$WT_COMPAT_COMMON_DIR_INPUT" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
     if [ -n "$WT_COMPAT_HEAD_REF" ]; then
         printf '%s\n' "$WT_COMPAT_HEAD_REF"

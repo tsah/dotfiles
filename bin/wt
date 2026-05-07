@@ -9,7 +9,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 WWT_BIN="$SCRIPT_DIR/wwt"
 
 usage() {
-    echo "Usage: $0 spawn <branch> [--new-window|-w] [--no-switch|-d] | $0 checkout <branch> [--no-switch|-d] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
+    echo "Usage: $0 spawn <branch> [--base <ref>] [--new-window|-w] [--no-switch|-d] | $0 checkout <branch> [--no-switch|-d] | $0 destroy | $0 <branch-name> [--from-master|-m] | $0 --fix-session|-f"
     echo ""
     echo "Task-oriented worktree manager with dual legacy/bare Worktrunk support."
     echo ""
@@ -25,6 +25,7 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -m, --from-master Create new branch from the default branch instead of current branch"
+    echo "  --base <ref>      Base a new spawned branch on this ref"
     echo "  -f, --fix-session Fix current session name"
     echo "  -d, --no-switch   Create/spawn worktree and tmux session without switching"
     echo "  -h, --help        Show this help message"
@@ -239,6 +240,7 @@ spawn_bare_worktree_with_git() {
     SPAWN_CONTAINER_ROOT="$2"
     SPAWN_REPO_NAME="$3"
     SPAWN_BRANCH_NAME="$4"
+    SPAWN_BASE_REF_OVERRIDE="$5"
     SPAWN_WORKTREE_PATH=$(wt_compat_bare_worktree_path "$SPAWN_CONTAINER_ROOT" "$SPAWN_BRANCH_NAME")
 
     echo "Spawning bare-layout worktree for task: $SPAWN_BRANCH_NAME"
@@ -263,7 +265,10 @@ spawn_bare_worktree_with_git() {
         return $?
     fi
 
-    SPAWN_BASE_REF=$(wt_compat_default_base_ref "$SPAWN_COMMON_DIR" 2>/dev/null || true)
+    SPAWN_BASE_REF="$SPAWN_BASE_REF_OVERRIDE"
+    if [ -z "$SPAWN_BASE_REF" ]; then
+        SPAWN_BASE_REF=$(wt_compat_default_base_ref "$SPAWN_COMMON_DIR" 2>/dev/null || true)
+    fi
     if [ -z "$SPAWN_BASE_REF" ]; then
         echo "Error: Could not determine a default branch"
         return 1
@@ -295,6 +300,7 @@ spawn_impl() {
     BRANCH_NAME="$1"
     NEW_WINDOW="$2"
     NO_SWITCH="$3"
+    BASE_REF_OVERRIDE="$4"
 
     if ! wt_compat_resolve_context "$PWD"; then
         echo "Error: Not in a supported git repository"
@@ -311,6 +317,9 @@ spawn_impl() {
     REPO_NAME="$WT_COMPAT_REPO_NAME"
     SAFE_BRANCH_NAME=$(wt_compat_sanitize_branch "$BRANCH_NAME")
     WORKTREE_CREATED=false
+
+    echo "Fetching latest from remote..."
+    git --git-dir="$COMMON_DIR" fetch origin --quiet
 
     EXISTING_WORKTREE=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
 
@@ -352,7 +361,10 @@ spawn_impl() {
 
                 wt_compat_set_upstream "$COMMON_DIR" "$BRANCH_NAME" origin
             else
-                BASE_REF=$(wt_compat_default_base_ref "$COMMON_DIR" 2>/dev/null || true)
+                BASE_REF="$BASE_REF_OVERRIDE"
+                if [ -z "$BASE_REF" ]; then
+                    BASE_REF=$(wt_compat_default_base_ref "$COMMON_DIR" 2>/dev/null || true)
+                fi
                 if [ -z "$BASE_REF" ]; then
                     echo "Error: Could not determine a default branch"
                     exit 1
@@ -372,7 +384,7 @@ spawn_impl() {
                 echo "Worktree created successfully (upstream configured for git push)"
             fi
         else
-            if wt_compat_has_native_bin; then
+            if wt_compat_has_native_bin && [ -z "$BASE_REF_OVERRIDE" ]; then
                 echo "Spawning bare-layout worktree for task: $BRANCH_NAME"
                 echo "  Repository: $REPO_NAME"
 
@@ -391,7 +403,7 @@ spawn_impl() {
                     echo "Worktree created successfully (upstream configured for git push)"
                 fi
             else
-                if ! spawn_bare_worktree_with_git "$COMMON_DIR" "$CONTAINER_ROOT" "$REPO_NAME" "$BRANCH_NAME"; then
+                if ! spawn_bare_worktree_with_git "$COMMON_DIR" "$CONTAINER_ROOT" "$REPO_NAME" "$BRANCH_NAME" "$BASE_REF_OVERRIDE"; then
                     echo "Error: Failed to create bare-layout worktree"
                     exit 1
                 fi
@@ -754,6 +766,7 @@ FROM_MASTER=false
 FIX_SESSION=false
 NEW_WINDOW=false
 NO_SWITCH=false
+BASE_REF=""
 
     while [ $# -gt 0 ]; do
     case $1 in
@@ -764,6 +777,15 @@ NO_SWITCH=false
         -m|--from-master)
             FROM_MASTER=true
             shift
+            ;;
+        --base)
+            if [ $# -lt 2 ]; then
+                echo "Error: --base requires a value"
+                usage
+                exit 1
+            fi
+            BASE_REF="$2"
+            shift 2
             ;;
         -f|--fix-session)
             FIX_SESSION=true
@@ -825,7 +847,7 @@ if [ "$COMMAND" = "spawn" ]; then
         exit 1
     fi
 
-    spawn_impl "$BRANCH_NAME" "$NEW_WINDOW" "$NO_SWITCH"
+    spawn_impl "$BRANCH_NAME" "$NEW_WINDOW" "$NO_SWITCH" "$BASE_REF"
     exit $?
 fi
 
