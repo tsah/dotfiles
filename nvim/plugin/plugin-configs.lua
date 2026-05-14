@@ -146,6 +146,11 @@ require('flash').setup({
 require('yazi').setup({
     open_for_directories = false,
     enable_mouse_support = true,
+    set_keymappings_function = function(yazi_buffer, config, context)
+        vim.keymap.set('t', '\\', function()
+            context.api:emit_to_yazi({ 'quit' })
+        end, { buffer = yazi_buffer, desc = 'Close Yazi file manager' })
+    end,
     keymaps = {
         show_help = '<f1>',
     },

@@ -51,7 +51,7 @@ keymap("t", "<Esc>", "<C-\\><C-N>")
 keymap("n", "<leader>cd", '<cmd>lua vim.fn.chdir(vim.fn.expand("%:p:h"))<CR>')
 
 -- yazi file manager
-keymap("n", "\\", "<cmd>Yazi<CR>", { desc = "Open Yazi file manager" })
+keymap("n", "\\", "<cmd>Yazi<CR>", { desc = "Toggle Yazi file manager" })
 
 
 
