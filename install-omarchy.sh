@@ -75,20 +75,24 @@ ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/command
 rm -rf ~/.config/opencode/commands
 ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
 
+# Setup shared agent skills
+mkdir -p ~/.agents/skills
+AGENT_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture plannotator-compound plannotator-setup-goal tdd to-prd"
+for skill in $AGENT_SKILLS; do
+  rm -rf ~/.agents/skills/$skill
+  ln -sf ~/dotfiles/claude/skills/$skill ~/.agents/skills/$skill
+done
+
 # Setup Claude Code commands and shared skills
 mkdir -p ~/.claude/commands
 mkdir -p ~/.claude/skills
 ln -sf ~/dotfiles/claude/commands/tworker.md ~/.claude/commands/tworker.md
 ln -sf ~/dotfiles/claude/commands/tw.md ~/.claude/commands/tw.md
-rm -rf ~/.claude/skills/opencode-spawn
-rm -rf ~/.claude/skills/tmux-worktree-worker
-rm -rf ~/.claude/skills/tmux-interactive-control
-rm -rf ~/.claude/skills/grill-me
-rm -rf ~/.claude/skills/tdd
-ln -sf ~/dotfiles/claude/skills/tmux-worktree-worker ~/.claude/skills/tmux-worktree-worker
-ln -sf ~/dotfiles/claude/skills/tmux-interactive-control ~/.claude/skills/tmux-interactive-control
-ln -sf ~/dotfiles/claude/skills/grill-me ~/.claude/skills/grill-me
-ln -sf ~/dotfiles/claude/skills/tdd ~/.claude/skills/tdd
+CLAUDE_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture plannotator-annotate plannotator-compound plannotator-last plannotator-review plannotator-setup-goal tdd tmux-interactive-control tmux-worktree-worker to-prd"
+for skill in $CLAUDE_SKILLS; do
+  rm -rf ~/.claude/skills/$skill
+  ln -sf ~/dotfiles/claude/skills/$skill ~/.claude/skills/$skill
+done
 
 # Setup pi configuration
 mkdir -p ~/.pi/agent/extensions
