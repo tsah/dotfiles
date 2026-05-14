@@ -1,0 +1,3 @@
+**nvim/lua/vd/opencode_tmux.lua** lines 40-47 (RIGHT)
+
+test annotation
