@@ -6,7 +6,6 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/lib/bootstrap-path.sh"
 
 worktree_path="${1:-}"
-session_name="${2:-}"
 
 notify() {
     local message="$1"
@@ -31,7 +30,7 @@ fi
 
 branch_name=$(git -C "$worktree_path" branch --show-current 2>/dev/null || true)
 if [[ -z "$branch_name" ]]; then
-    notify "Cannot open PR: no git branch for ${session_name:-current session}"
+    notify "Cannot open PR: current pane is not on a git branch"
     exit 1
 fi
 
