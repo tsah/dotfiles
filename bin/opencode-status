@@ -601,19 +601,22 @@ def main():
                 msg_time = (
                     last_msg.get("info", {}).get("time", {}).get("created", 0)
                 )
-                status, _detail = infer_status(last_msg, inst["is_run_mode"])
+                status, detail = infer_status(last_msg, inst["is_run_mode"])
                 age = format_age(msg_time)
             else:
                 status = "unknown"
+                detail = ""
                 age = format_age(session_updated_times.get(session_id, 0))
         else:
             status = "unknown"
+            detail = ""
             if proc_age_seconds is not None:
                 age = format_age(now_ms - (proc_age_seconds * 1000))
 
         grouped[cwd].append(
             (
                 status,
+                detail,
                 title,
                 pid,
                 age,
@@ -625,11 +628,11 @@ def main():
     rows = []
     for cwd, entries in grouped.items():
         short_dir = shorten_path(cwd)
-        sorted_entries = sorted(entries, key=lambda e: (status_rank(e[0]), int(e[2])))
+        sorted_entries = sorted(entries, key=lambda e: (status_rank(e[0]), int(e[3])))
         total = len(sorted_entries)
 
         for idx, entry in enumerate(sorted_entries, start=1):
-            status, title, pid, age, session_name, pane_target = entry
+            status, detail, title, pid, age, session_name, pane_target = entry
             label = short_dir
             if total > 1:
                 label = f"{short_dir} ({idx})"
@@ -638,6 +641,7 @@ def main():
                 {
                     "directory": label,
                     "status": status,
+                    "detail": detail,
                     "title": title,
                     "age": age,
                     "session": session_name,
@@ -653,12 +657,13 @@ def main():
         for row in rows:
             directory = row["directory"].replace("\t", " ")
             status = row["status"].replace("\t", " ")
+            detail = row["detail"].replace("\t", " ")
             title = (row["title"] or "").replace("\t", " ").replace("\n", " ")
             age = row["age"].replace("\t", " ")
             session = (row["session"] or "").replace("\t", " ")
             pane = (row["pane"] or "").replace("\t", " ")
             pid = str(row["pid"])
-            lines.append("\t".join([directory, status, title, age, session, pane, pid]))
+            lines.append("\t".join([directory, status, detail, title, age, session, pane, pid]))
 
         output = "\n".join(lines)
         if output:

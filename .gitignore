@@ -42,3 +42,9 @@ luac.out
 
 plugin/packer_compiled.lua
 /bin/__pycache__
+
+# JavaScript/TypeScript project artifacts
+node_modules/
+dist/
+build/
+.turbo/

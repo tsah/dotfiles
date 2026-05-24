@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -euo pipefail
+
+cd "$HOME/dotfiles/alt-k-tui"
+exec bun run src/main.tsx

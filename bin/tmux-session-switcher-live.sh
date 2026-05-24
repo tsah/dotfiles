@@ -21,6 +21,7 @@ PI_AGENT_LAUNCHER="$SCRIPT_DIR/spawn-pi-agent"
 CLAUDE_LAUNCHER="$SCRIPT_DIR/spawn-claude-code"
 REMOTE_ROWS_SCRIPT="$SCRIPT_DIR/tmux-remote-session-rows"
 REMOTE_ATTACH_SCRIPT="$SCRIPT_DIR/tmux-attach-remote-session"
+DEBUG_LOG="${TMUX_SWITCHER_DEBUG_LOG:-/tmp/tmux-switcher-debug.log}"
 
 
 picker_cwd() {
@@ -45,6 +46,12 @@ notify() {
     else
         printf '%s\n' "$message"
     fi
+}
+
+
+debug_log() {
+    [[ -z "$DEBUG_LOG" ]] && return 0
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$DEBUG_LOG" 2>/dev/null || true
 }
 
 
@@ -353,6 +360,7 @@ candidates_file = sys.argv[2]
 write_candidates_enabled = len(sys.argv) > 3 and sys.argv[3] == "1"
 current_cwd = sys.argv[4]
 agent_helper = sys.argv[5]
+tree_mode = os.environ.get("TMUX_SWITCHER_TREE_MODE", "0") != "0"
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 RESET = "\033[0m"
@@ -622,12 +630,16 @@ zoxide_rows = run_lines(["sesh", "list", "-z", "--icons"])
 branch_rows = git_branches(current_cwd)
 
 opencode_rows = []
+all_opencode_rows = []
 if shutil.which("opencode-status"):
     for raw in run_lines(["opencode-status", "--tsv"]):
         parts = raw.split("\t")
         if len(parts) < 7:
             continue
-        directory, status, title, age, session, pane, pid = parts[:7]
+        if len(parts) >= 8:
+            directory, status, detail, title, age, session, pane, pid = parts[:8]
+        else:
+            directory, status, title, age, session, pane, pid = parts[:7]
         if not session:
             continue
         if directory.endswith("(deleted)"):
@@ -644,6 +656,7 @@ if shutil.which("opencode-status"):
             }
         )
 
+    all_opencode_rows = list(opencode_rows)
     deduped = {}
     for row in opencode_rows:
         deduped[row["session"]] = row
@@ -651,6 +664,23 @@ if shutil.which("opencode-status"):
 
 session_meta = {}
 last_seen = {}
+session_windows = {}
+for raw in run_lines(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_index}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}"]):
+    parts = raw.split("\t")
+    if len(parts) < 7:
+        continue
+    session_name, window_index, window_id, window_name, pane_id, pane_cmd, pane_title = parts[:7]
+    session_windows.setdefault(session_name, []).append(
+        {
+            "index": window_index,
+            "window_id": window_id,
+            "name": window_name,
+            "pane": pane_id,
+            "cmd": pane_cmd,
+            "title": pane_title,
+        }
+    )
+
 for raw in run_lines(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}\t#{session_path}"]):
     parts = raw.split("\t")
     if len(parts) < 3:
@@ -734,82 +764,243 @@ def maybe_add_candidate(row_id, row_type, row_path, row_session):
         return
 
 
-for raw in tmux_rows:
-    label = parse_sesh_label(raw)
-    if label in opencode_hides_tmux:
-        continue
+opencode_by_session = {row["session"]: row for row in opencode_rows if row.get("session")}
+opencode_by_session_window = {}
+for row in all_opencode_rows:
+    session = row.get("session") or ""
+    pane_target = row.get("pane") or ""
+    window_part = ""
+    if pane_target.startswith(f"{session}:"):
+        after_colon = pane_target[len(session) + 1 :]
+        window_part = after_colon.split(".", 1)[0]
+    if session and window_part:
+        opencode_by_session_window[(session, window_part)] = row
 
-    row_id = f"tmux:{label}"
-    row_path = session_meta.get(label, "")
-    row_session = label
+if tree_mode:
+    tmux_labels = []
+    for raw in tmux_rows:
+        label = parse_sesh_label(raw)
+        if label in opencode_hides_tmux:
+            # In tree mode opencode sessions are still shown as tmux parents.
+            pass
+        tmux_labels.append((raw, label))
 
-    flags = meta_flags(row_id, "tmux", row_session)
-    maybe_add_candidate(row_id, "tmux", row_path, row_session)
+    for raw, label in tmux_labels:
+        row_id = f"tmux:{label}"
+        row_path = session_meta.get(label, "")
+        row_session = label
 
-    icon = decorate_icon("", "tmux", label, session_markers)
-    name = trunc(shorten_path(label), name_w)
-    status = ""
-    title = ""
-    age = ""
+        flags = meta_flags(row_id, "tmux", row_session)
+        maybe_add_candidate(row_id, "tmux", row_path, row_session)
 
-    entries.append(
-        {
-            "display": (
-                f"{icon}  {name:<{name_w}}  "
-                f"{flags:<{meta_w}}  "
-                f"{status:<{status_w}}  {title:<{title_w}}  {age:>{age_w}}"
-            ),
-            "type": "sesh",
-            "arg1": raw,
-            "arg2": "tmux",
-            "row_id": row_id,
-            "row_path": row_path,
-            "row_session": row_session,
-            "sort_group": 1,
-            "sort_ts": last_seen.get(label, 0),
-            "sort_name": label,
-        }
-    )
+        children = session_windows.get(label, [])
+        icon = decorate_icon("", "tmux", label, session_markers)
+        name = trunc(shorten_path(label), name_w)
+        status = ""
+        title = ""
+        age = ""
 
-for row in opencode_rows:
-    session = row["session"] or ""
-    if has_agent_marker(session, session_markers):
-        continue
+        entries.append(
+            {
+                "display": (
+                    f"{icon}  {name:<{name_w}}  "
+                    f"{flags:<{meta_w}}  "
+                    f"{status:<{status_w}}  {title:<{title_w}}  {age:>{age_w}}"
+                ),
+                "type": "tmux_session",
+                "arg1": label,
+                "arg2": "",
+                "row_id": row_id,
+                "row_path": row_path,
+                "row_session": row_session,
+                "sort_group": 1,
+                "sort_ts": last_seen.get(label, 0),
+                "sort_name": label,
+            }
+        )
 
-    directory_label = normalize_opencode_directory_label(row["directory"])
-    row_id = f"opencode:{session}"
-    row_path = directory_label
-    row_session = session
+        child_entries = []
+        other_children = []
+        for child in children:
+            window_name = child["name"]
+            cmd = child["cmd"].strip().lower()
+            pane_title = child["title"]
+            child_type = "tmux_window"
+            arg1 = label
+            arg2 = child["window_id"]
+            child_icon = colorize("•", "muted")
+            child_status = ""
+            child_title = pane_title
+            child_age = ""
 
-    flags = meta_flags(row_id, "opencode", row_session)
-    maybe_add_candidate(row_id, "opencode", row_path, row_session)
+            is_opencode_window = cmd == "opencode" or window_name == "opencode"
+            oc_row = opencode_by_session_window.get((label, child["index"])) if is_opencode_window else None
+            is_agent_window = is_opencode_window
+            if is_opencode_window:
+                child_icon = colorize("󱚟", "opencode")
+            if oc_row:
+                child_type = "opencode"
+                arg1 = label
+                arg2 = oc_row["pane"]
+                child_icon = colorize("󱚟", "opencode")
+                child_status = trunc(oc_row["status"], status_w)
+                child_title = oc_row["title"]
+                child_age = trunc(oc_row["age"], age_w)
+            elif cmd == "pi" or window_name.lower() in {"pi", "pi-agent"} or window_name.lower().startswith("p:") or pane_title.startswith("π"):
+                is_agent_window = True
+                child_icon = colorize("π", "pi")
+            elif cmd == "claude" or window_name.lower() == "claude" or "claude code" in pane_title.lower():
+                is_agent_window = True
+                child_icon = colorize("C", "claude")
 
-    icon = decorate_icon("󱚟", "opencode", session, session_markers)
-    name = trunc(shorten_path(row["directory"]), name_w)
-    status_text = trunc(row["status"], status_w)
-    title = trunc(row["title"], title_w)
-    age = trunc(row["age"], age_w)
+            if not is_agent_window:
+                other_children.append(child)
+                continue
 
-    entries.append(
-        {
-            "display": (
-                f"{icon}  {name:<{name_w}}  "
-                f"{flags:<{meta_w}}  "
-                f"{colorize(f'{status_text:<{status_w}}', row['status'])}  "
-                f"{colorize(f'{title:<{title_w}}', 'muted')}  "
-                f"{colorize(f'{age:>{age_w}}', 'muted')}"
-            ),
-            "type": "opencode",
-            "arg1": session,
-            "arg2": row["pane"],
-            "row_id": row_id,
-            "row_path": row_path,
-            "row_session": row_session,
-            "sort_group": active_status_rank(row["status"]),
-            "sort_ts": last_seen.get(session, 0),
-            "sort_name": row["directory"],
-        }
-    )
+            child_name = trunc(f"{window_name}", max(1, name_w - 6))
+            child_title = trunc(child_title, title_w)
+            child_status_plain = child_status
+            child_entries.append(
+                {
+                    "child_icon": child_icon,
+                    "child_name": child_name,
+                    "child_status_plain": child_status_plain,
+                    "child_title": child_title,
+                    "child_age": child_age,
+                    "type": child_type,
+                    "arg1": arg1,
+                    "arg2": arg2,
+                    "row_id": f"tmux-window:{label}:{child['index']}",
+                    "row_path": row_path,
+                    "row_session": row_session,
+                    "sort_name": f"{label}/{child['index']}",
+                }
+            )
+
+        if other_children:
+            first_other = other_children[0]
+            other_names = ", ".join(child["name"] for child in other_children[:3])
+            if len(other_children) > 3:
+                other_names = f"{other_names}, +{len(other_children) - 3}"
+            child_entries.append(
+                {
+                    "child_icon": colorize("•", "muted"),
+                    "child_name": f"other windows ({len(other_children)})",
+                    "child_status_plain": "",
+                    "child_title": trunc(other_names, title_w),
+                    "child_age": "",
+                    "type": "tmux_window",
+                    "arg1": label,
+                    "arg2": first_other["window_id"],
+                    "row_id": f"tmux-window:{label}:other",
+                    "row_path": row_path,
+                    "row_session": row_session,
+                    "sort_name": f"{label}/~other",
+                }
+            )
+
+        for idx, child_entry in enumerate(child_entries):
+            visible_child_name = trunc(
+                f"{shorten_path(label)} / {child_entry['child_name']}",
+                max(1, name_w - 6),
+            )
+            entries.append(
+                {
+                    "display": (
+                        f"{child_entry['child_icon']}  {visible_child_name:<{name_w}}  "
+                        f"{'':<{meta_w}}  "
+                        f"{colorize(f'{child_entry['child_status_plain']:<{status_w}}', child_entry['child_status_plain'])}  "
+                        f"{colorize(f'{child_entry['child_title']:<{title_w}}', 'muted')}  "
+                        f"{colorize(f'{child_entry['child_age']:>{age_w}}', 'muted')}"
+                    ),
+                    "type": child_entry["type"],
+                    "arg1": child_entry["arg1"],
+                    "arg2": child_entry["arg2"],
+                    "row_id": child_entry["row_id"],
+                    "row_path": child_entry["row_path"],
+                    "row_session": child_entry["row_session"],
+                    "sort_group": 1,
+                    "sort_ts": last_seen.get(label, 0),
+                    "sort_name": child_entry["sort_name"],
+                }
+            )
+else:
+    for raw in tmux_rows:
+        label = parse_sesh_label(raw)
+        if label in opencode_hides_tmux:
+            continue
+
+        row_id = f"tmux:{label}"
+        row_path = session_meta.get(label, "")
+        row_session = label
+
+        flags = meta_flags(row_id, "tmux", row_session)
+        maybe_add_candidate(row_id, "tmux", row_path, row_session)
+
+        icon = decorate_icon("", "tmux", label, session_markers)
+        name = trunc(shorten_path(label), name_w)
+        status = ""
+        title = ""
+        age = ""
+
+        entries.append(
+            {
+                "display": (
+                    f"{icon}  {name:<{name_w}}  "
+                    f"{flags:<{meta_w}}  "
+                    f"{status:<{status_w}}  {title:<{title_w}}  {age:>{age_w}}"
+                ),
+                "type": "tmux_session",
+                "arg1": label,
+                "arg2": "",
+                "row_id": row_id,
+                "row_path": row_path,
+                "row_session": row_session,
+                "sort_group": 1,
+                "sort_ts": last_seen.get(label, 0),
+                "sort_name": label,
+            }
+        )
+
+    for row in opencode_rows:
+        session = row["session"] or ""
+        if has_agent_marker(session, session_markers):
+            continue
+
+        directory_label = normalize_opencode_directory_label(row["directory"])
+        row_id = f"opencode:{session}"
+        row_path = directory_label
+        row_session = session
+
+        flags = meta_flags(row_id, "opencode", row_session)
+        maybe_add_candidate(row_id, "opencode", row_path, row_session)
+
+        icon = decorate_icon("󱚟", "opencode", session, session_markers)
+        name = trunc(shorten_path(row["directory"]), name_w)
+        status_text = trunc(row["status"], status_w)
+        title = trunc(row["title"], title_w)
+        age = trunc(row["age"], age_w)
+
+        entries.append(
+            {
+                "display": (
+                    f"{icon}  {name:<{name_w}}  "
+                    f"{flags:<{meta_w}}  "
+                    f"{colorize(f'{status_text:<{status_w}}', row['status'])}  "
+                    f"{colorize(f'{title:<{title_w}}', 'muted')}  "
+                    f"{colorize(f'{age:>{age_w}}', 'muted')}"
+                ),
+                "type": "opencode",
+                "arg1": session,
+                "arg2": row["pane"],
+                "row_id": row_id,
+                "row_path": row_path,
+                "row_session": row_session,
+                "sort_group": active_status_rank(row["status"]),
+                "sort_ts": last_seen.get(session, 0),
+                "sort_name": row["directory"],
+            }
+        )
 
 for raw in zoxide_rows:
     label = parse_sesh_label(raw)
@@ -1131,6 +1322,7 @@ if [[ "$WORKER_DISABLED" != "1" ]]; then
 fi
 
 PICKER_STATUS=0
+debug_log "start TMUX=${TMUX:-} TMUX_PANE=${TMUX_PANE:-} cwd=$(pwd) picker_cwd=$PICKER_CWD"
 
 if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
     set +e
@@ -1139,6 +1331,7 @@ if command -v fzf-tmux >/dev/null 2>&1 && [[ -n "${TMUX:-}" ]]; then
         --ansi \
         --no-sort \
         --delimiter=$'\t' \
+        --nth=1 \
         --with-nth=1 \
         --bind "ctrl-d:transform($SELF_Q --destroy-confirm-action {5} $CACHE_Q)" \
         --bind "ctrl-y:execute-silent($SELF_Q --copy-pr-url {5} $CACHE_Q $PICKER_CWD_Q)" \
@@ -1154,6 +1347,7 @@ else
         --ansi \
         --no-sort \
         --delimiter=$'\t' \
+        --nth=1 \
         --with-nth=1 \
         --bind "ctrl-d:transform($SELF_Q --destroy-confirm-action {5} $CACHE_Q)" \
         --bind "ctrl-y:execute-silent($SELF_Q --copy-pr-url {5} $CACHE_Q $PICKER_CWD_Q)" \
@@ -1165,27 +1359,71 @@ else
 fi
 
 if [[ $PICKER_STATUS -ne 0 || -z "${SELECTED:-}" ]]; then
+    debug_log "picker cancelled status=$PICKER_STATUS selected_empty=$([[ -z "${SELECTED:-}" ]] && printf 1 || printf 0)"
     exit 0
 fi
 
 IFS=$'\t' read -r _display TYPE ARG1 ARG2 _row_id _row_path _row_session <<< "$SELECTED"
+debug_log "selected status=$PICKER_STATUS type=$TYPE arg1=$ARG1 arg2=$ARG2 row_id=$_row_id row_path=$_row_path row_session=$_row_session display=$_display"
 
 if [[ "$TYPE" == "opencode" ]]; then
+    debug_log "dispatch opencode session=$ARG1 pane=$ARG2"
     opencode-attach-target "$ARG1" "$ARG2"
+    debug_log "dispatch opencode exit=$?"
     exit 0
 fi
 
 if [[ "$TYPE" == "remote_tmux" ]]; then
+    debug_log "dispatch remote_tmux host=$ARG1 target=$ARG2"
     "$REMOTE_ATTACH_SCRIPT" "$ARG1" "$ARG2"
+    debug_log "dispatch remote_tmux exit=$?"
+    exit 0
+fi
+
+if [[ "$TYPE" == "tmux_session" ]]; then
+    debug_log "dispatch tmux_session target=$ARG1 inside_tmux=$([[ -n "${TMUX:-}" ]] && printf 1 || printf 0)"
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux switch-client -t "$ARG1"
+    else
+        tmux attach-session -t "$ARG1"
+    fi
+    debug_log "dispatch tmux_session exit=$? current=$(tmux display-message -p '#S' 2>/dev/null || true)"
+    exit 0
+fi
+
+if [[ "$TYPE" == "tmux_window" ]]; then
+    debug_log "dispatch tmux_window session=$ARG1 window=$ARG2 inside_tmux=$([[ -n "${TMUX:-}" ]] && printf 1 || printf 0)"
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux switch-client -t "$ARG1"
+        tmux select-window -t "$ARG2"
+    else
+        tmux attach-session -t "$ARG1" \; select-window -t "$ARG2"
+    fi
+    debug_log "dispatch tmux_window exit=$? current=$(tmux display-message -p '#S:#I' 2>/dev/null || true)"
     exit 0
 fi
 
 if [[ "$TYPE" == "sesh" ]]; then
+    if [[ "$ARG2" == "tmux" && -n "$_row_session" ]]; then
+        debug_log "dispatch sesh_tmux fallback target=$_row_session raw_arg1=$ARG1"
+        if [[ -n "${TMUX:-}" ]]; then
+            tmux switch-client -t "$_row_session"
+        else
+            tmux attach-session -t "$_row_session"
+        fi
+        debug_log "dispatch sesh_tmux fallback exit=$? current=$(tmux display-message -p '#S' 2>/dev/null || true)"
+        exit 0
+    fi
+
+    debug_log "dispatch sesh arg1=$ARG1 arg2=$ARG2"
     sesh connect "$ARG1"
+    debug_log "dispatch sesh exit=$?"
     exit 0
 fi
 
 if [[ "$TYPE" == "branch" ]]; then
+    debug_log "dispatch branch branch=$ARG1 cwd=$ARG2"
     cd "$ARG2" || exit 1
     "$SCRIPT_DIR/wt" spawn "$ARG1"
+    debug_log "dispatch branch exit=$?"
 fi
