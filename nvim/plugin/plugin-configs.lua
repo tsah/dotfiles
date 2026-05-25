@@ -22,7 +22,7 @@ require('gitsigns').setup({
 -- Global hunk navigation (works everywhere, no-op when gitsigns isn't attached)
 local gs = require('gitsigns')
 vim.keymap.set('n', '<leader>n', function() gs.nav_hunk('next') end, { silent = true })
-vim.keymap.set('n', '<leader>p', function() gs.nav_hunk('prev') end, { silent = true })
+vim.keymap.set('n', '<leader>P', function() gs.nav_hunk('prev') end, { silent = true })
 
 require('blink.cmp').setup({
     fuzzy = {
@@ -218,7 +218,7 @@ require('diffview').setup({
     keymaps = {
         view = {
             { "n", "<leader>n", "]c", { desc = "Next hunk" } },
-            { "n", "<leader>p", "[c", { desc = "Previous hunk" } },
+            { "n", "<leader>P", "[c", { desc = "Previous hunk" } },
             { "n", "q", "<cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
         },
         file_panel = {

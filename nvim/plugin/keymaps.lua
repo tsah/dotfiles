@@ -40,7 +40,7 @@ keymap("n", "<Leader>lh", "<cmd>lua vim.lsp.buf.hover()<CR>", opts)  -- lsp hove
 keymap("n", "<Leader>ls", "<cmd>lua vim.lsp.buf.signature_help()<CR>", opts) -- lsp signature
 
 -- copy and paste
-keymap("v", "<Leader>p", '"_dP')
+keymap("v", "<Leader>P", '"_dP', { desc = "Paste without yanking selection" })
 keymap("x", "y", [["+y]], s)
 keymap("n", "y", [["+y]], s)
 
@@ -79,7 +79,7 @@ keymap("n", "<Esc>", function()
 end, { desc = "Clear search highlights and close floating windows" })
 
 keymap("n", "<leader>e", '<cmd>edit!<CR>', { desc = "Force reload current file" })
-keymap("n", "<leader>ps", '<cmd>lua vim.pack.update()<CR>')
+keymap("n", "<leader>pu", '<cmd>lua vim.pack.update()<CR>', { desc = "Update vim.pack plugins" })
 keymap("n", "<leader>f", '<cmd>FzfLua files<CR>')
 keymap("n", "<leader>F", '<cmd>FzfLua live_grep<CR>')
 keymap("n", "<leader>R", '<cmd>FzfLua resume<CR>')
@@ -124,3 +124,10 @@ keymap('v', '<leader>o+', function() require('opencode').prompt('@this', { appen
 keymap('n', '<leader>oe', function() require('opencode').ask('Explain @this and its context', { submit = true }) end, { desc = 'Explain code at cursor' })
 keymap('n', '<leader>on', function() require('opencode').command('session.new') end, { desc = 'New opencode session' })
 keymap({ 'n', 'v' }, '<leader>os', function() require('opencode').select() end, { desc = 'Select opencode prompt' })
+
+-- Pi tmux integration
+require("pi_tmux").setup({ mappings = false })
+keymap("n", "<leader>pp", function() require("pi_tmux").prompt_send() end, { desc = "Pi: prompt and send" })
+keymap("v", "<leader>ps", function() require("pi_tmux").send_selection() end, { desc = "Pi: send selection" })
+keymap("n", "<leader>pb", function() require("pi_tmux").send_buffer() end, { desc = "Pi: send buffer" })
+keymap("n", "<leader>pf", function() require("pi_tmux").focus() end, { desc = "Pi: focus tmux target" })
