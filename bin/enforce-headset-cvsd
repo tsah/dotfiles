@@ -29,6 +29,7 @@ has_source() {
 
 apply_audio_settings() {
     local attempts=0
+    local input_id
 
     if ! has_card; then
         return
@@ -50,6 +51,9 @@ apply_audio_settings() {
     pactl set-default-source "$SOURCE_NAME" >/dev/null 2>&1 || true
     pactl set-sink-volume "$SINK_NAME" "$SINK_VOLUME" >/dev/null 2>&1 || true
     pactl set-source-volume "$SOURCE_NAME" "$SOURCE_VOLUME" >/dev/null 2>&1 || true
+    while read -r input_id; do
+        [ -n "$input_id" ] && pactl move-sink-input "$input_id" "$SINK_NAME" >/dev/null 2>&1 || true
+    done < <(pactl list sink-inputs short 2>/dev/null | awk '{print $1}')
     log_message "Applied profile=$PROFILE_NAME sink=$SINK_NAME source=$SOURCE_NAME"
 }
 

@@ -131,6 +131,10 @@ ln -sf ~/dotfiles/starship-jj.toml ~/.config/starship-jj/starship-jj.toml
 mkdir -p ~/.config/systemd/user
 ln -sf ~/dotfiles/headset-cvsd-enforcer.service ~/.config/systemd/user/headset-cvsd-enforcer.service
 
+# Setup WirePlumber Bluetooth stability overrides
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+ln -sf ~/dotfiles/wireplumber/bluetooth-stable-headset.conf ~/.config/wireplumber/wireplumber.conf.d/51-bluetooth-stable-headset.conf
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   systemctl --user enable --now headset-cvsd-enforcer.service >/dev/null 2>&1 || true
