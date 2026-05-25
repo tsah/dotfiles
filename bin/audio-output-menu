@@ -1,0 +1,149 @@
+#!/bin/bash
+
+set -u
+
+notify() {
+    local urgency="$1"
+    local title="$2"
+    local body="${3:-}"
+
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u "$urgency" "$title" "$body"
+    fi
+}
+
+list_sinks() {
+    pactl list sinks 2>/dev/null | awk '
+        /^Sink #/ {
+            if (name != "") print name "\t" desc
+            name = ""
+            desc = ""
+        }
+        /^[[:space:]]*Name:/ {
+            sub(/^[[:space:]]*Name:[[:space:]]*/, "")
+            name = $0
+        }
+        /^[[:space:]]*Description:/ {
+            sub(/^[[:space:]]*Description:[[:space:]]*/, "")
+            desc = $0
+        }
+        END {
+            if (name != "") print name "\t" desc
+        }
+    '
+}
+
+menu() {
+    local options="$1"
+
+    if command -v omarchy-launch-walker >/dev/null 2>&1; then
+        printf '%s' "$options" | omarchy-launch-walker --dmenu --width 720 --minheight 1 --maxheight 500 -p "Audio output..."
+    elif command -v walker >/dev/null 2>&1; then
+        printf '%s' "$options" | walker --dmenu --width 720 --minheight 1 --maxheight 500 --placeholder "Audio output"
+    elif command -v fuzzel >/dev/null 2>&1; then
+        printf '%s' "$options" | fuzzel --dmenu --prompt "Audio output> "
+    elif command -v wofi >/dev/null 2>&1; then
+        printf '%s' "$options" | wofi --dmenu --prompt "Audio output"
+    else
+        notify critical "No menu launcher found" "Install or start Walker, fuzzel, or wofi."
+        return 1
+    fi
+}
+
+build_options() {
+    local current_sink="$1"
+    local sink_name description marker
+
+    while IFS=$'\t' read -r sink_name description; do
+        [[ -z $sink_name ]] && continue
+        [[ -z ${description:-} ]] && description="$sink_name"
+
+        marker=" "
+        [[ $sink_name == "$current_sink" ]] && marker="*"
+
+        printf '%s  %s\t%s\n' "$marker" "$description" "$sink_name"
+    done
+}
+
+move_sink_inputs() {
+    local sink_name="$1"
+    local moved=0
+    local failed=0
+    local input_id
+
+    while read -r input_id; do
+        [[ -z $input_id ]] && continue
+
+        if pactl move-sink-input "$input_id" "$sink_name" >/dev/null 2>&1; then
+            moved=$((moved + 1))
+        else
+            failed=$((failed + 1))
+        fi
+    done < <(pactl list sink-inputs short 2>/dev/null | awk '{print $1}')
+
+    printf '%s\t%s\n' "$moved" "$failed"
+}
+
+sink_description() {
+    local sink_name="$1"
+    local sink description
+
+    while IFS=$'\t' read -r sink description; do
+        if [[ $sink == "$sink_name" ]]; then
+            printf '%s' "${description:-$sink_name}"
+            return
+        fi
+    done < <(list_sinks)
+
+    printf '%s' "$sink_name"
+}
+
+apply_sink() {
+    local sink_name="$1"
+    local description
+    local counts moved failed
+
+    description=$(sink_description "$sink_name")
+
+    if ! pactl set-default-sink "$sink_name" >/dev/null 2>&1; then
+        notify critical "Audio output not changed" "Could not set $description as the default sink."
+        return 1
+    fi
+
+    counts=$(move_sink_inputs "$sink_name")
+    moved=${counts%%$'\t'*}
+    failed=${counts##*$'\t'}
+
+    if [[ $failed -gt 0 ]]; then
+        notify normal "Audio output changed" "$description is default. Moved $moved streams; $failed failed."
+    else
+        notify low "Audio output changed" "$description is default. Moved $moved active streams."
+    fi
+}
+
+main() {
+    local current_sink options selection sink_name
+
+    if ! command -v pactl >/dev/null 2>&1; then
+        notify critical "Audio output not changed" "pactl is not installed or PipeWire Pulse is unavailable."
+        exit 1
+    fi
+
+    current_sink=$(pactl get-default-sink 2>/dev/null || true)
+    options=$(build_options "$current_sink" < <(list_sinks))
+
+    if [[ -z $options ]]; then
+        notify critical "No audio outputs found" "PipeWire/PulseAudio did not report any sinks."
+        exit 1
+    fi
+
+    selection=$(menu "$options" || true)
+    [[ -z $selection || $selection == "CNCLD" ]] && exit 0
+
+    sink_name=${selection##*$'\t'}
+    [[ -z $sink_name ]] && exit 0
+
+    apply_sink "$sink_name"
+}
+
+main "$@"

@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Recover the built-in ThinkPad camera after suspend/lid resume by resetting
+# the xHCI controller that hosts the internal USB camera.
+set -euo pipefail
+
+CONTROLLER="0000:c4:00.4"
+LOGFILE="$HOME/.cache/camera-recovery.log"
+mkdir -p "$(dirname "$LOGFILE")"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+}
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Camera recovery" "$1"
+    fi
+}
+
+run_root() {
+    if [ "${EUID}" -eq 0 ]; then
+        sh -c "$1"
+    elif command -v pkexec >/dev/null 2>&1; then
+        pkexec sh -c "$1"
+    else
+        sudo sh -c "$1"
+    fi
+}
+
+log "=== Camera recovery started ==="
+notify "Resetting built-in camera USB controller…"
+
+if [ ! -e "/sys/bus/pci/devices/${CONTROLLER}/power/control" ]; then
+    log "ERROR: PCI controller ${CONTROLLER} not found"
+    notify "Failed: USB controller ${CONTROLLER} not found"
+    exit 1
+fi
+
+run_root "
+set -e
+printf on > /sys/bus/pci/devices/${CONTROLLER}/power/control
+printf ${CONTROLLER} > /sys/bus/pci/drivers/xhci_hcd/unbind
+sleep 2
+printf ${CONTROLLER} > /sys/bus/pci/drivers/xhci_hcd/bind
+"
+
+sleep 2
+
+if lsusb | grep -qiE '30c9|camera' && ls /dev/video* >/dev/null 2>&1; then
+    devices=$(ls /dev/video* 2>/dev/null | tr '\n' ' ')
+    log "Camera recovered: ${devices}"
+    notify "Recovered: ${devices}"
+else
+    log "WARNING: reset completed, but camera was not detected"
+    notify "Reset completed, but camera was not detected"
+    exit 2
+fi
+
+log "=== Camera recovery finished ==="
