@@ -1,0 +1,26 @@
+#!/bin/sh
+# Forced command for the dev-host SSH key in authorized_keys. The VPS sends
+# the URL as the SSH command; we inherit the graphical session env from
+# systemd-user so xdg-open can resolve the GUI browser, then hand the URL
+# off verbatim. Without the env-inherit step xdg-open falls back to text
+# browsers because SSH forced-commands run with a minimal environment.
+set -eu
+
+if [ -z "${SSH_ORIGINAL_COMMAND:-}" ]; then
+    echo "xdg-open-from-ssh: empty SSH_ORIGINAL_COMMAND" >&2
+    exit 2
+fi
+
+if env_dump=$(systemctl --user show-environment 2>/dev/null); then
+    while IFS= read -r line; do
+        case "$line" in
+            DISPLAY=*|WAYLAND_DISPLAY=*|XDG_RUNTIME_DIR=*|XDG_SESSION_TYPE=*|XDG_CURRENT_DESKTOP=*|XDG_DATA_DIRS=*|XDG_CONFIG_DIRS=*|DBUS_SESSION_BUS_ADDRESS=*)
+                export "$line"
+                ;;
+        esac
+    done <<EOF
+$env_dump
+EOF
+fi
+
+exec xdg-open "$SSH_ORIGINAL_COMMAND"

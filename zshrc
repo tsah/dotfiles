@@ -12,6 +12,7 @@ fi
 export EDITOR="nvim"
 export VISUAL="nvim"
 export PAGER="less"
+export BROWSER="xdg-open"
 
 # Configure word boundaries (exclude / and . from word characters)
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'

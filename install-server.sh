@@ -55,6 +55,14 @@ ln -sf "$DOTFILES_DIR/starship.toml" "$HOME/.config/starship.toml"
 mkdir -p "$HOME/.config/atuin"
 ln -sf "$DOTFILES_DIR/atuin-config.toml" "$HOME/.config/atuin/config.toml"
 
+# xdg-open shim: forwards URLs to the user's laptop over Tailscale SSH so
+# they open in a real browser instead of dying on this headless host.
+# See dotfiles/bin/xdg-open-via-laptop and bin/xdg-open-from-ssh on the
+# laptop side. Override REMOTE_OPEN_HOST in ~/.env if the laptop hostname
+# differs from the default in the script.
+mkdir -p "$HOME/.local/bin"
+ln -sf "$DOTFILES_DIR/bin/xdg-open-via-laptop" "$HOME/.local/bin/xdg-open"
+
 mkdir -p "$HOME/.config/starship-jj"
 ln -sf "$DOTFILES_DIR/starship-jj.toml" "$HOME/.config/starship-jj/starship-jj.toml"
 

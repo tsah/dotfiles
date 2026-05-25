@@ -1,11 +1,8 @@
 #!/bin/bash
-# Launch Zen Browser with Main (work) profile
+# Launch Chromium with the Work profile
 
-if command -v lspci >/dev/null 2>&1 && lspci | grep -iE 'vga|3d|display' | grep -qi 'amd'; then
-    export LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-radeonsi}"
-    export VDPAU_DRIVER="${VDPAU_DRIVER:-radeonsi}"
-fi
-
-export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
-
-exec /opt/zen-browser-bin/zen-bin --profile "$HOME/.zen/2cmd8whu.Default (release)" "$@"
+exec chromium \
+    --ozone-platform=wayland \
+    --ozone-platform-hint=wayland \
+    --enable-features=UseOzonePlatform,TouchpadOverscrollHistoryNavigation \
+    "$@"

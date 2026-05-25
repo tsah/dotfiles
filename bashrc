@@ -28,6 +28,7 @@ unset -f prepend_path
 
 export BUN_INSTALL="$HOME/.bun"
 export EDITOR=nvim
+export BROWSER=xdg-open
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
 export NVM_DIR="$HOME/.nvm"
 export SHELL="$(command -v bash)"

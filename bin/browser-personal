@@ -1,11 +1,12 @@
 #!/bin/bash
-# Launch Zen Browser with Personal profile
+# Launch Chromium with the Personal profile
 
-if command -v lspci >/dev/null 2>&1 && lspci | grep -iE 'vga|3d|display' | grep -qi 'amd'; then
-    export LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-radeonsi}"
-    export VDPAU_DRIVER="${VDPAU_DRIVER:-radeonsi}"
-fi
+USER_DATA_DIR="$HOME/.config/chromium-personal"
 
-export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
-
-exec /opt/zen-browser-bin/zen-bin --profile "$HOME/.zen/c2jdihx8.Personal" --new-instance "$@"
+exec chromium \
+    --user-data-dir="${USER_DATA_DIR}" \
+    --class="chromium-personal" \
+    --ozone-platform=wayland \
+    --ozone-platform-hint=wayland \
+    --enable-features=UseOzonePlatform,TouchpadOverscrollHistoryNavigation \
+    "$@"

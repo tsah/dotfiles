@@ -85,6 +85,7 @@ end
 
 set -gx BUN_INSTALL "$HOME/.bun"
 set -gx EDITOR nvim
+set -gx BROWSER xdg-open
 set -gx WORDCHARS '*?_-[]~=&;!#$%^(){}<>'
 set -gx NVM_DIR "$HOME/.nvm"
 
@@ -159,3 +160,6 @@ if test -f "$HOME/google-cloud-sdk/completion.fish.inc"
 end
 
 fish_add_path -g ~/.local/bin
+
+# islo CLI completions
+COMPLETE=fish islo | source

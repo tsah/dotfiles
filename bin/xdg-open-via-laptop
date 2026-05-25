@@ -1,0 +1,19 @@
+#!/bin/sh
+# xdg-open shim for headless dev hosts. Forwards the URL/path to the user's
+# laptop over Tailscale so links open in the local browser. Symlinked to
+# ~/.local/bin/xdg-open by install-server.sh — do not link on the laptop
+# itself or it shadows the real xdg-open.
+set -eu
+
+LAPTOP="${REMOTE_OPEN_HOST:-tsah-work-laptop}"
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: xdg-open <url|path>" >&2
+    exit 2
+fi
+
+exec ssh \
+    -o BatchMode=yes \
+    -o ConnectTimeout=5 \
+    -o StrictHostKeyChecking=accept-new \
+    "$LAPTOP" "$@"
