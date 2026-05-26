@@ -1,22 +1,21 @@
 # Alt-K TUI Prototype
 
-Experimental two-pane tmux session switcher built with Bun, TypeScript, Effect, and OpenTUI.
+Experimental tmux session and directory switcher built with Bun, TypeScript, Effect, and OpenTUI.
 
-The layout borrows the useful parts of `ghui`'s terminal UI style: a top status/filter area, explicit pane titles with counts, compact metadata chips, a selected-item summary, dense target rows, and context-aware footer hints.
+The layout is a compact fzf-like list with a bottom prompt, inline agent state badges, right-aligned git metadata, and a details box for the selected row.
 
 Run directly:
 
 ```bash
-bun run ~/dotfiles/alt-k-tui/src/main.ts
+bun run ~/dotfiles/alt-k-tui/src/main.tsx
 ```
 
-The existing `alt+k` fzf switcher is intentionally unchanged. A separate tmux binding launches this prototype while it is being evaluated.
+The `alt+k` tmux binding launches this TUI. The previous live fzf switcher is kept on `alt+u` as a fallback.
 
 Controls:
-- `Up/Down`: move session selection or detail selection
-- `Tab`: switch focus between sessions and details
-- `Enter`: switch to the selected session/detail target
-- `/`: focus search
+- `Up/Down`: move selection
+- `Enter`: switch to the selected tmux session, agent pane, or zoxide directory
+- Type: fuzzy filter rows
 - `Esc`: clear search when searching, otherwise close
 - `Ctrl-C` or `Alt-K`: close
 

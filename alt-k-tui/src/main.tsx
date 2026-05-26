@@ -1,17 +1,20 @@
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js"
 import { Effect, Exit } from "effect"
+import { existsSync } from "node:fs"
 
 type Target =
   | { type: "tmux_session"; session: string }
   | { type: "tmux_window"; session: string; windowId: string }
   | { type: "opencode"; session: string; pane: string }
+  | { type: "zoxide"; raw: string; path: string }
 
 type AgentState = "running" | "done" | "attention" | "unknown"
 
 interface TmuxSession { name: string; recency: number; path: string }
 interface TmuxWindow { session: string; id: string; name: string; pane: string; pid: string; command: string; title: string }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string }
+interface ZoxideRow { raw: string; path: string }
 interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target }
 interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string }
 interface FuzzyResult { score: number; positions: number[] }
@@ -45,6 +48,13 @@ const runCommand = (cmd: string[], options: { cwd?: string; allowFailure?: boole
   })
 
 const parseTsv = (output: string) => output.split("\n").filter(Boolean).map((line) => line.split("\t"))
+const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "")
+const parseSeshLabel = (raw: string) => {
+  const plain = stripAnsi(raw).trim()
+  const match = plain.match(/^\S+\s+(.+)$/)
+  return match?.[1] ?? plain
+}
+const expandHome = (path: string) => path === "~" ? Bun.env.HOME ?? path : path.startsWith("~/") ? `${Bun.env.HOME}${path.slice(1)}` : path
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
 const ageFromUnixSeconds = (seconds: number) => {
   if (seconds <= 0) return ""
@@ -87,11 +97,16 @@ const collectOpencode = runCommand(["opencode-status", "--tsv"], { allowFailure:
   }).filter((row): row is OpencodeStatus => Boolean(row?.session))),
 )
 
+const collectZoxide = runCommand(["sesh", "list", "-z", "--icons"], { allowFailure: true }).pipe(
+  Effect.map((output) => output.split("\n").filter(Boolean).map((raw): ZoxideRow => ({ raw, path: parseSeshLabel(raw) })).filter((row) => row.path.length > 0 && existsSync(expandHome(row.path)))),
+)
+
 const gitMeta = (path: string) => Effect.gen(function* () {
   if (!path) return { branch: "", flags: "" }
-  const branch = yield* runCommand(["git", "-C", path, "branch", "--show-current"], { allowFailure: true }).pipe(Effect.map((out) => out.trim()))
+  const gitPath = expandHome(path)
+  const branch = yield* runCommand(["git", "-C", gitPath, "branch", "--show-current"], { allowFailure: true }).pipe(Effect.map((out) => out.trim()))
   if (!branch) return { branch: "", flags: "" }
-  const dirty = yield* runCommand(["git", "-C", path, "status", "--porcelain"], { allowFailure: true }).pipe(Effect.map((out) => out.trim().length > 0))
+  const dirty = yield* runCommand(["git", "-C", gitPath, "status", "--porcelain"], { allowFailure: true }).pipe(Effect.map((out) => out.trim().length > 0))
   return { branch, flags: dirty ? "dirty" : "clean" }
 })
 
@@ -124,6 +139,14 @@ const agentStateFromStatus = (status: string, detail = "", age = ""): AgentState
   if (["running", "generating", "streaming", "working"].some((word) => normalized.includes(word))) return ageToSeconds(age) > 30 * 60 ? "attention" : "running"
   return "unknown"
 }
+const codexStateFromTitle = (title: string): AgentState => {
+  const normalized = title.trim().toLowerCase()
+  if (!normalized) return "unknown"
+  if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(normalized)) return "running"
+  if (/^[✓✔]/.test(normalized) || normalized.includes("done") || normalized.includes("complete")) return "done"
+  if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
+  return "unknown"
+}
 
 const sessionState = (session: SessionRow): AgentState => {
   const states = session.details.map((detail) => detail.state)
@@ -135,7 +158,7 @@ const sessionState = (session: SessionRow): AgentState => {
 
 const sessionSortRank = (session: SessionRow) => ["attention", "running"].includes(sessionState(session)) ? 0 : 1
 
-const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[]) => Effect.gen(function* () {
+const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], zoxideRows: ZoxideRow[]) => Effect.gen(function* () {
   const windowsBySession = Map.groupBy(windows, (window) => window.session)
   const opencodeBySession = new Map(opencodes.map((row) => [row.session, row]))
   const codexDetections = yield* Effect.forEach(
@@ -161,7 +184,8 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     const agentWindows = sessionWindows.filter((window) => isPiWindow(window) || isClaudeWindow(window) || codexPanes.has(window.pane))
     for (const window of agentWindows) {
       const kind = isPiWindow(window) ? "pi" : isClaudeWindow(window) ? "claude" : "codex"
-      details.push({ kind, status: "", detail: "", title: window.title || window.name, age: "", state: "unknown", target: { type: "tmux_window", session: window.session, windowId: window.id } })
+      const state = kind === "codex" ? codexStateFromTitle(window.title || window.name) : "unknown"
+      details.push({ kind, status: "", detail: "", title: window.title || window.name, age: "", state, target: { type: "tmux_window", session: window.session, windowId: window.id } })
     }
 
     if (details.length === 0) {
@@ -174,11 +198,20 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     rows.push(row)
   }
 
+  const opencodeDirs = new Set(opencodes.map((row) => expandHome(row.directory.replace(/ \([0-9]+\)$/, ""))))
+  for (const zoxide of zoxideRows) {
+    if (opencodeDirs.has(expandHome(zoxide.path))) continue
+    const details: DetailRow[] = [{ kind: "directory", status: "", detail: "zoxide", title: zoxide.path, age: "", state: "unknown", target: { type: "zoxide", raw: zoxide.raw, path: zoxide.path } }]
+    const row: SessionRow = { name: zoxide.path, path: zoxide.path, branch: "", flags: "", markers: [], age: "", recency: 0, target: { type: "zoxide", raw: zoxide.raw, path: zoxide.path }, details, searchText: "" }
+    row.searchText = [row.name, row.path, "zoxide directory"].join(" ").toLowerCase()
+    rows.push(row)
+  }
+
   return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || a.name.localeCompare(b.name))
 })
 
-const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode], { concurrency: "unbounded" }).pipe(
-  Effect.flatMap(([sessions, windows, opencodes]) => buildSessionRows(sessions, windows, opencodes)),
+const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectZoxide], { concurrency: "unbounded" }).pipe(
+  Effect.flatMap(([sessions, windows, opencodes, zoxideRows]) => buildSessionRows(sessions, windows, opencodes, zoxideRows)),
 )
 
 const dumpState = collectSessions.pipe(
@@ -234,10 +267,28 @@ const filterSessions = (sessions: SessionRow[], query: string) => {
 
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 const stateGlyph = (state: AgentState, frame = 0) => state === "running" ? spinnerFrames[frame % spinnerFrames.length]! : state === "done" ? "✓" : state === "attention" ? "!" : "·"
-const agentIcon = (kind: string) => kind === "opencode" ? "🤖" : kind === "pi" ? "π" : kind === "claude" ? "🥐" : kind === "codex" ? "📜" : kind
+const agentIcon = (kind: string) => kind === "opencode" ? "🤖" : kind === "pi" ? "π" : kind === "claude" ? "🥐" : kind === "codex" ? "📜" : kind === "directory" ? "" : kind
 const agentSummary = (sessions: SessionRow[]) => ["oc", "pi", "C", "codex"].map((marker) => `[${marker}:${sessions.filter((session) => session.markers.includes(marker)).length}]`).join(" ")
 const sessionGitMeta = (session: SessionRow) => [session.branch, session.flags === "dirty" ? "dirty" : ""].filter(Boolean).join(", ")
 const selectedColor = (selected: boolean, state: AgentState) => selected ? theme.selectedFg : state === "attention" ? theme.warning : state === "running" ? theme.ok : theme.header
+const targetLabel = (target: Target) => {
+  switch (target.type) {
+    case "opencode": return `opencode pane ${target.pane}`
+    case "tmux_session": return `tmux session ${target.session}`
+    case "tmux_window": return `tmux window ${target.windowId}`
+    case "zoxide": return "zoxide directory"
+  }
+}
+const enterAction = (target: Target) => {
+  switch (target.type) {
+    case "opencode": return "attach to opencode"
+    case "tmux_session": return process.env.TMUX ? "switch to session" : "attach to session"
+    case "tmux_window": return process.env.TMUX ? "switch to window" : "attach to window"
+    case "zoxide": return "sesh connect -s"
+  }
+}
+const detailStatusLabel = (detail: DetailRow) => detail.kind === "opencode" && detail.state === "done" ? "idle" : detail.status || detail.kind
+const detailColor = (state: AgentState) => state === "attention" ? theme.warning : state === "running" ? theme.ok : theme.muted
 
 const openTarget = (target: Target) => {
   const command = (() => {
@@ -247,6 +298,7 @@ const openTarget = (target: Target) => {
       case "tmux_window": return process.env.TMUX
         ? ["sh", "-c", "tmux switch-client -t \"$1\" && tmux select-window -t \"$2\"", "sh", target.session, target.windowId]
         : ["tmux", "attach-session", "-t", target.session, ";", "select-window", "-t", target.windowId]
+      case "zoxide": return ["sesh", "connect", "-s", target.path]
     }
   })()
   return runCommand(command).pipe(Effect.asVoid)
@@ -268,6 +320,9 @@ const openTargetSync = (target: Target | undefined) => {
           : ["tmux", "attach-session", "-t", target.session, ";", "select-window", "-t", target.windowId],
         { cwd: repoRoot, stdout: "ignore", stderr: "ignore" },
       )
+      return
+    case "zoxide":
+      Bun.spawnSync(["sesh", "connect", "-s", target.path], { cwd: repoRoot, stdout: "ignore", stderr: "ignore" })
   }
 }
 
@@ -300,6 +355,43 @@ function SessionRowView(props: { session: SessionRow; selected: boolean; query: 
   )
 }
 
+function DetailBox(props: { session: SessionRow | undefined; frame: number }) {
+  return (
+    <box border borderStyle="single" borderColor={theme.border} height={8} flexDirection="column">
+      {props.session ? (
+        <>
+          <box flexDirection="row" height={1}>
+            <text fg={theme.accentStrong} flexShrink={1}>{props.session.name}</text>
+            <text flexGrow={1}> </text>
+            <text fg={props.session.flags === "dirty" ? theme.warning : theme.muted}>{sessionGitMeta(props.session)}</text>
+          </box>
+          <text height={1} fg={theme.muted}>{props.session.path || targetLabel(props.session.target)}</text>
+          <box flexDirection="row" height={1}>
+            <text width={8} fg={theme.muted}>Target:</text>
+            <text fg={theme.header}>{targetLabel(props.session.target)}</text>
+          </box>
+          <For each={props.session.details.slice(0, 3)}>{(detail) => (
+            <box flexDirection="row" height={1}>
+              <text width={8} fg={theme.muted}>{detail.kind === "directory" || detail.kind === "session" ? "Info:" : "Agent:"}</text>
+              <text fg={detailColor(detail.state)}>{agentIcon(detail.kind)} {stateGlyph(detail.state, props.frame)} {detail.kind}</text>
+              <text fg={theme.muted}>  ·  </text>
+              <text fg={theme.header}>{detailStatusLabel(detail)}</text>
+              {detail.detail ? <text fg={theme.muted}>  ·  {detail.detail}</text> : null}
+              {detail.title ? <text fg={theme.muted}>  ·  {detail.title}</text> : null}
+              <text flexGrow={1}> </text>
+              {detail.age ? <text fg={theme.muted}>{detail.age}</text> : null}
+            </box>
+          )}</For>
+          <box flexDirection="row" height={1}>
+            <text width={8} fg={theme.muted}>Enter:</text>
+            <text fg={theme.header}>{enterAction(props.session.target)}</text>
+          </box>
+        </>
+      ) : <text fg={theme.muted}>No matches</text>}
+    </box>
+  )
+}
+
 function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefined) => void }) {
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
@@ -307,7 +399,8 @@ function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefine
   const [index, setIndex] = createSignal(0)
   const [frame, setFrame] = createSignal(0)
   const filtered = createMemo(() => filterSessions(props.sessions, query()))
-  const visibleCount = createMemo(() => Math.max(1, dimensions().height - 3))
+  const selected = createMemo(() => filtered()[index()])
+  const visibleCount = createMemo(() => Math.max(1, dimensions().height - 11))
   const start = createMemo(() => Math.max(0, Math.min(filtered().length - visibleCount(), index() - visibleCount() + 1)))
   const visible = createMemo(() => filtered().slice(start(), start() + visibleCount()).reverse())
 
@@ -334,7 +427,7 @@ function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefine
     }
     if (key.name === "up") return updateIndex(index() + 1)
     if (key.name === "down") return updateIndex(index() - 1)
-    if (key.name === "return") return closeWith(filtered()[index()]?.target)
+    if (key.name === "return") return closeWith(selected()?.target)
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
       setQuery((value) => value + key.sequence)
       setIndex(0)
@@ -350,8 +443,9 @@ function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefine
   return (
     <box flexDirection="column" width="100%" height="100%">
       <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
-        <For each={visible()}>{(session) => <SessionRowView session={session} selected={session === filtered()[index()]} query={query()} frame={frame()} />}</For>
+        <For each={visible()}>{(session) => <SessionRowView session={session} selected={session === selected()} query={query()} frame={frame()} />}</For>
       </box>
+      <DetailBox session={selected()} frame={frame()} />
       <box flexDirection="row" height={1}>
         <text fg={theme.accent}>{"> "}{query()}_</text>
         <text flexGrow={1}> </text>
