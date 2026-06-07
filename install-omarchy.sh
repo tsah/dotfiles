@@ -77,11 +77,12 @@ ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
 
 # Setup shared agent skills
 mkdir -p ~/.agents/skills
-AGENT_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture plannotator-compound plannotator-setup-goal tdd to-prd"
+AGENT_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture tdd to-prd"
 for skill in $AGENT_SKILLS; do
   rm -rf ~/.agents/skills/$skill
   ln -sf ~/dotfiles/claude/skills/$skill ~/.agents/skills/$skill
 done
+rm -rf ~/.agents/skills/plannotator-*
 
 # Setup Claude Code commands and shared skills
 mkdir -p ~/.claude/commands
@@ -99,8 +100,10 @@ mkdir -p ~/.pi/agent/extensions
 mkdir -p ~/.pi/agent/agents
 mkdir -p ~/.pi/agent/skills
 rm -rf ~/.pi/agent/extensions/tmux-agents
+rm -f ~/.pi/agent/extensions/herdr-agent-state.ts
 rm -rf ~/.pi/agent/skills/grill-me
 rm -rf ~/.pi/agent/skills/tdd
+rm -rf ~/.pi/agent/skills/plannotator-*
 ln -sf ~/dotfiles/pi/extensions/tmux-agents ~/.pi/agent/extensions/tmux-agents
 ln -sf ~/dotfiles/pi/agents/plan.md ~/.pi/agent/agents/plan.md
 ln -sf ~/dotfiles/pi/agents/build.md ~/.pi/agent/agents/build.md
