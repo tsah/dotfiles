@@ -28,7 +28,7 @@ path=(
   "$HOME/.opencode/bin"
   "$HOME/.cargo/bin"
   "$BUN_INSTALL/bin"
-  "$HOME/.local/node/node-v20.19.0-linux-arm64/bin"
+  "$HOME/.local/node/node-v22.19.0-linux-arm64/bin"
   $path
 )
 
@@ -235,3 +235,6 @@ fi
 
 # Optional local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
+
+# islo CLI completions
+source <(COMPLETE=zsh islo)
