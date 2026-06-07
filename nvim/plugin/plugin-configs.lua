@@ -307,7 +307,16 @@ require('snacks').setup({
 })
 
 vim.g.opencode_opts = {
-    provider = { enabled = false }  -- Always use external opencode instances (started with --port)
+    provider = { enabled = false }, -- Always use external opencode instances (started with --port)
+    server = {
+        start = function()
+            require("vd.opencode_tmux").ensure_sync()
+        end,
+        stop = function() end,
+        toggle = function()
+            require("vd.opencode_tmux").ensure_sync()
+        end,
+    },
 }
 vim.opt.autoread = true
 
