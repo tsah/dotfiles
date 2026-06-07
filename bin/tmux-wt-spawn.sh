@@ -312,6 +312,8 @@ else
     START_PATH="$REPO_PATH"
 fi
 
+git --git-dir="$COMMON_DIR" fetch origin --quiet
+
 BRANCHES=$(git --git-dir="$COMMON_DIR" branch -a --format='%(refname:short)' | sed 's|^origin/||' | grep -v '^HEAD$' | sort -u)
 BRANCH_PREVIEW=$(printf 'branch="{}"; if [[ -n "$branch" ]]; then git --git-dir=%q log --oneline -10 "$branch" 2>/dev/null || echo "New branch"; else echo "New branch"; fi' "$COMMON_DIR")
 
@@ -374,7 +376,7 @@ fi
 
 cd "$START_PATH" || exit 1
 
-WT_SKIP_RUN_OC=1 WT_SKIP_RUN_COMMANDS=1 "$SCRIPT_DIR/wt" spawn "$BRANCH_NAME"
+WT_SKIP_RUN_OC=1 WT_SKIP_RUN_COMMANDS=1 "$SCRIPT_DIR/wt" spawn "$BRANCH_NAME" --base origin/master
 
 WORKTREE_PATH=$(wt_compat_find_worktree_for_branch "$COMMON_DIR" "$BRANCH_NAME")
 if [[ -z "$WORKTREE_PATH" ]]; then
