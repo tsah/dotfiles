@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -euo pipefail
+
+agent="${1:-}"
+state="${2:-}"
+
+case "$agent" in
+    claude|pi|codex) ;;
+    *) exit 0 ;;
+esac
+
+case "$state" in
+    running|working) state="running" ;;
+    idle|done) state="done" ;;
+    blocked|attention) state="attention" ;;
+    release|unknown) state="unknown" ;;
+    *) exit 0 ;;
+esac
+
+pane="${TMUX_PANE:-}"
+[[ -n "$pane" ]] || exit 0
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/alt-k-tui-$(id -u)/agent-state"
+mkdir -p "$state_dir"
+
+# Consume hook stdin so callers that provide JSON never block on a full pipe.
+hook_input=$(cat 2>/dev/null || true)
+
+AGENT="$agent" STATE="$state" PANE="$pane" HOOK_INPUT="$hook_input" STATE_DIR="$state_dir" python3 - <<'PY'
+import json
+import os
+import pathlib
+import re
+import time
+
+agent = os.environ.get("AGENT", "")
+state = os.environ.get("STATE", "")
+pane = os.environ.get("PANE", "")
+state_dir = pathlib.Path(os.environ.get("STATE_DIR", ""))
+hook_input = os.environ.get("HOOK_INPUT", "")
+
+if not agent or not state or not pane or not state_dir:
+    raise SystemExit(0)
+
+payload = {}
+if hook_input.strip():
+    try:
+        payload = json.loads(hook_input)
+    except Exception:
+        payload = {}
+
+safe_pane = re.sub(r"[^A-Za-z0-9_.%-]", "_", pane)
+target = state_dir / f"{safe_pane}.json"
+tmp = state_dir / f"{safe_pane}.{os.getpid()}.tmp"
+record = {
+    "agent": agent,
+    "state": state,
+    "pane": pane,
+    "updatedAt": int(time.time() * 1000),
+    "hookEvent": payload.get("hook_event_name") if isinstance(payload, dict) else None,
+}
+tmp.write_text(json.dumps(record), encoding="utf-8")
+tmp.replace(target)
+PY

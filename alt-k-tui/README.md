@@ -4,10 +4,26 @@ Experimental tmux session and directory switcher built with Bun, TypeScript, Eff
 
 The layout is a compact fzf-like list with a bottom prompt, inline agent state badges, right-aligned git metadata, and a details box for the selected row.
 
+The launcher keeps a background cache server running. The server refreshes tmux, opencode, zoxide, process, and git state, then the TUI client reads the latest JSON cache on startup.
+
+Claude Code state is reported through hooks installed by:
+
+```bash
+~/dotfiles/bin/alt-k-install-claude-hooks
+```
+
+Those hooks write per-pane state into the same runtime cache directory, keyed by `TMUX_PANE`. The cache server prefers those structured reports over pane-title and pane-content heuristics.
+
 Run directly:
 
 ```bash
 bun run ~/dotfiles/alt-k-tui/src/main.tsx
+```
+
+Run the cache server directly:
+
+```bash
+bun run ~/dotfiles/alt-k-tui/src/main.tsx --server
 ```
 
 The `alt+k` tmux binding launches this TUI. The previous live fzf switcher is kept on `alt+u` as a fallback.

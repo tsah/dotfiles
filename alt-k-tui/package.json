@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/main.tsx",
+    "server": "bun run src/main.tsx --server",
     "check": "tsc --noEmit"
   },
   "dependencies": {

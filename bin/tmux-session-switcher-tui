@@ -3,4 +3,29 @@
 set -euo pipefail
 
 cd "$HOME/dotfiles/alt-k-tui"
-exec bun run src/main.tsx
+
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/alt-k-tui-$(id -u)"
+PID_FILE="$STATE_DIR/server.pid"
+CACHE_FILE="$STATE_DIR/state.json"
+LOG_FILE="$STATE_DIR/server.log"
+
+server_running() {
+    local pid=""
+    [[ -r "$PID_FILE" ]] || return 1
+    pid=$(<"$PID_FILE")
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+mkdir -p "$STATE_DIR"
+if ! server_running; then
+    rm -f "$PID_FILE"
+    nohup bun src/main.tsx --server >>"$LOG_FILE" 2>&1 &
+fi
+
+for _ in {1..20}; do
+    [[ -s "$CACHE_FILE" ]] && break
+    sleep 0.05
+done
+
+exec bun src/main.tsx

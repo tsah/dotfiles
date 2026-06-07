@@ -1,7 +1,7 @@
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js"
 import { Effect, Exit } from "effect"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 
 type Target =
   | { type: "tmux_session"; session: string }
@@ -15,11 +15,18 @@ interface TmuxSession { name: string; recency: number; path: string }
 interface TmuxWindow { session: string; id: string; name: string; pane: string; pid: string; command: string; title: string }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string }
 interface ZoxideRow { raw: string; path: string }
+interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target }
 interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string }
 interface FuzzyResult { score: number; positions: number[] }
+interface CachePayload { generatedAt: number; sessions: SessionRow[] }
 
 const repoRoot = new URL("../..", import.meta.url).pathname.replace(/\/$/, "")
+const runtimeDir = `${Bun.env.XDG_RUNTIME_DIR ?? "/tmp"}/alt-k-tui-${process.getuid?.() ?? Bun.env.USER ?? "user"}`
+const cachePath = `${runtimeDir}/state.json`
+const pidPath = `${runtimeDir}/server.pid`
+const agentStateDir = `${runtimeDir}/agent-state`
+const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
 const theme = {
   accent: "#7dd3fc",
   accentStrong: "#38bdf8",
@@ -48,6 +55,7 @@ const runCommand = (cmd: string[], options: { cwd?: string; allowFailure?: boole
   })
 
 const parseTsv = (output: string) => output.split("\n").filter(Boolean).map((line) => line.split("\t"))
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "")
 const parseSeshLabel = (raw: string) => {
   const plain = stripAnsi(raw).trim()
@@ -101,6 +109,20 @@ const collectZoxide = runCommand(["sesh", "list", "-z", "--icons"], { allowFailu
   Effect.map((output) => output.split("\n").filter(Boolean).map((raw): ZoxideRow => ({ raw, path: parseSeshLabel(raw) })).filter((row) => row.path.length > 0 && existsSync(expandHome(row.path)))),
 )
 
+const collectAgentReports = Effect.sync(() => {
+  if (!existsSync(agentStateDir)) return []
+  const reports: AgentReport[] = []
+  for (const entry of readdirSync(agentStateDir)) {
+    if (!entry.endsWith(".json")) continue
+    try {
+      const raw = JSON.parse(readFileSync(`${agentStateDir}/${entry}`, "utf8")) as Partial<AgentReport>
+      if (!raw.agent || !raw.pane || !raw.state || !["running", "done", "attention", "unknown"].includes(raw.state)) continue
+      reports.push({ agent: raw.agent, pane: raw.pane, state: raw.state, updatedAt: Number(raw.updatedAt ?? 0) || 0, hookEvent: raw.hookEvent })
+    } catch {}
+  }
+  return reports
+})
+
 const gitMeta = (path: string) => Effect.gen(function* () {
   if (!path) return { branch: "", flags: "" }
   const gitPath = expandHome(path)
@@ -147,6 +169,28 @@ const codexStateFromTitle = (title: string): AgentState => {
   if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
   return "unknown"
 }
+const claudeStateFromTitle = (title: string): AgentState => {
+  const normalized = title.trim().toLowerCase()
+  if (!normalized) return "unknown"
+  if (/^[⠂✳✶✻✽✢·]/.test(normalized)) return "running"
+  if (/^[✓✔]/.test(normalized) || normalized.includes("done") || normalized.includes("complete")) return "done"
+  if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
+  return "unknown"
+}
+const claudeStateFromPane = (pane: string, title: string) => runCommand(["tmux", "capture-pane", "-p", "-t", pane], { allowFailure: true }).pipe(
+  Effect.map((output): AgentState => {
+    const recent = output.split("\n").slice(-40).join("\n").toLowerCase()
+    if (recent.includes("\n❯") || recent.includes("auto mode on") || recent.includes("※ recap:")) return "done"
+    return claudeStateFromTitle(title)
+  }),
+)
+const piStateFromPane = (pane: string) => runCommand(["tmux", "capture-pane", "-p", "-t", pane], { allowFailure: true }).pipe(
+  Effect.map((output): AgentState => {
+    const recent = output.split("\n").slice(-80).join("\n").toLowerCase()
+    if (/\btook\s+\d+(?:\.\d+)?[a-z]*\b/.test(recent)) return "done"
+    return "running"
+  }),
+)
 
 const sessionState = (session: SessionRow): AgentState => {
   const states = session.details.map((detail) => detail.state)
@@ -158,9 +202,10 @@ const sessionState = (session: SessionRow): AgentState => {
 
 const sessionSortRank = (session: SessionRow) => ["attention", "running"].includes(sessionState(session)) ? 0 : 1
 
-const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], zoxideRows: ZoxideRow[]) => Effect.gen(function* () {
+const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], zoxideRows: ZoxideRow[], agentReports: AgentReport[]) => Effect.gen(function* () {
   const windowsBySession = Map.groupBy(windows, (window) => window.session)
-  const opencodeBySession = new Map(opencodes.map((row) => [row.session, row]))
+  const opencodesBySession = Map.groupBy(opencodes, (row) => row.session)
+  const reportsByPane = new Map(agentReports.map((report) => [report.pane, report]))
   const codexDetections = yield* Effect.forEach(
     windows,
     (window) => isCodexWindow(window)
@@ -173,18 +218,19 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
 
   for (const session of sessions) {
     const sessionWindows = windowsBySession.get(session.name) ?? []
-    const opencode = opencodeBySession.get(session.name)
+    const sessionOpencodes = opencodesBySession.get(session.name) ?? []
     const meta = yield* gitMeta(session.path)
     const details: DetailRow[] = []
 
-    if (opencode) {
+    for (const opencode of sessionOpencodes) {
       details.push({ kind: "opencode", status: opencode.status, detail: opencode.detail, title: opencode.title || opencode.directory, age: opencode.age, state: agentStateFromStatus(opencode.status, opencode.detail, opencode.age), target: { type: "opencode", session: opencode.session, pane: opencode.pane } })
     }
 
     const agentWindows = sessionWindows.filter((window) => isPiWindow(window) || isClaudeWindow(window) || codexPanes.has(window.pane))
     for (const window of agentWindows) {
       const kind = isPiWindow(window) ? "pi" : isClaudeWindow(window) ? "claude" : "codex"
-      const state = kind === "codex" ? codexStateFromTitle(window.title || window.name) : "unknown"
+      const report = reportsByPane.get(window.pane)
+      const state = report?.agent === kind ? report.state : kind === "codex" ? codexStateFromTitle(window.title || window.name) : kind === "claude" ? yield* claudeStateFromPane(window.pane, window.title || window.name) : kind === "pi" ? yield* piStateFromPane(window.pane) : "unknown"
       details.push({ kind, status: "", detail: "", title: window.title || window.name, age: "", state, target: { type: "tmux_window", session: window.session, windowId: window.id } })
     }
 
@@ -192,7 +238,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
       details.push({ kind: "session", status: meta.flags, detail: "", title: session.path, age: ageFromUnixSeconds(session.recency), state: "unknown", target: { type: "tmux_session", session: session.name } })
     }
 
-    const markers = [opencode ? "oc" : "", sessionWindows.some(isPiWindow) ? "pi" : "", sessionWindows.some(isClaudeWindow) ? "C" : "", sessionWindows.some((window) => codexPanes.has(window.pane)) ? "codex" : ""].filter(Boolean)
+    const markers = [sessionOpencodes.length > 0 ? "oc" : "", sessionWindows.some(isPiWindow) ? "pi" : "", sessionWindows.some(isClaudeWindow) ? "C" : "", sessionWindows.some((window) => codexPanes.has(window.pane)) ? "codex" : ""].filter(Boolean)
     const row: SessionRow = { name: session.name, path: session.path, branch: meta.branch, flags: meta.flags, markers, age: ageFromUnixSeconds(session.recency), recency: session.recency, target: { type: "tmux_session", session: session.name }, details, searchText: "" }
     row.searchText = [row.name, row.path, row.branch, row.flags, row.markers.join(" "), ...row.details.flatMap((detail) => [detail.kind, detail.status, detail.detail, detail.title, detail.age])].join(" ").toLowerCase()
     rows.push(row)
@@ -210,9 +256,54 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
   return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || a.name.localeCompare(b.name))
 })
 
-const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectZoxide], { concurrency: "unbounded" }).pipe(
-  Effect.flatMap(([sessions, windows, opencodes, zoxideRows]) => buildSessionRows(sessions, windows, opencodes, zoxideRows)),
+const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectZoxide, collectAgentReports], { concurrency: "unbounded" }).pipe(
+  Effect.flatMap(([sessions, windows, opencodes, zoxideRows, agentReports]) => buildSessionRows(sessions, windows, opencodes, zoxideRows, agentReports)),
 )
+
+const writeCache = (sessions: SessionRow[]) => Effect.sync(() => {
+  mkdirSync(runtimeDir, { recursive: true })
+  const tmpPath = `${cachePath}.${process.pid}.tmp`
+  writeFileSync(tmpPath, JSON.stringify({ generatedAt: Date.now(), sessions } satisfies CachePayload))
+  renameSync(tmpPath, cachePath)
+})
+
+const readCache = () => {
+  try {
+    const payload = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<CachePayload>
+    return Array.isArray(payload.sessions) ? payload.sessions as SessionRow[] : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const serverProgram = Effect.gen(function* () {
+  yield* Effect.sync(() => {
+    mkdirSync(runtimeDir, { recursive: true })
+    writeFileSync(pidPath, `${process.pid}\n`)
+    const cleanup = () => {
+      try { unlinkSync(pidPath) } catch {}
+    }
+    process.once("exit", cleanup)
+    process.once("SIGINT", () => { cleanup(); process.exit(0) })
+    process.once("SIGTERM", () => { cleanup(); process.exit(0) })
+  })
+
+  while (true) {
+    yield* collectSessions.pipe(
+      Effect.flatMap(writeCache),
+      Effect.catchAll((error) => Effect.sync(() => console.error(error instanceof Error ? error.message : String(error)))),
+    )
+    yield* Effect.promise(() => sleep(refreshMs))
+  }
+})
+
+const cachedOrCollectedSessions = Effect.gen(function* () {
+  const cached = yield* Effect.sync(readCache)
+  if (cached) return cached
+  const sessions = yield* collectSessions
+  yield* writeCache(sessions)
+  return sessions
+})
 
 const dumpState = collectSessions.pipe(
   Effect.flatMap((sessions) => Effect.sync(() => {
@@ -229,6 +320,10 @@ const dumpState = collectSessions.pipe(
     })), null, 2))
   })),
 )
+
+const dumpCachedState = Effect.sync(() => {
+  console.log(JSON.stringify(readCache() ?? [], null, 2))
+})
 
 const fuzzyResult = (text: string, query: string): FuzzyResult | undefined => {
   const chars = Array.from(text.toLowerCase())
@@ -455,8 +550,8 @@ function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefine
   )
 }
 
-const program = process.argv.includes("--dump-state") ? dumpState : Effect.gen(function* () {
-  const sessions = yield* collectSessions
+const program = process.argv.includes("--server") ? serverProgram : process.argv.includes("--dump-cache") ? dumpCachedState : process.argv.includes("--dump-state") ? dumpState : Effect.gen(function* () {
+  const sessions = yield* cachedOrCollectedSessions
   let target: Target | undefined
   yield* Effect.tryPromise({
     try: () => render(() => <App sessions={sessions} onOpen={(next) => { target = next }} />, { exitOnCtrlC: true }),
