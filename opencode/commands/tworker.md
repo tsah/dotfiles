@@ -1,10 +1,14 @@
 ---
-description: Spawn a tworker
+description: Handoff work to a visible tmux worktree worker
 ---
 
-Spawn a separate **OpenCode** worker with `spawn-opencode-agent`.
+Handoff work to a separate visible **OpenCode** tmux worktree worker with `spawn-opencode-agent`.
+
+A handoff is a separate visible tmux worktree worker. Do not treat normal agent/subagent requests as handoff requests.
 
 Do **not** use `spawn-pi-tworker` or `spawn-claude-tworker` unless the user explicitly asks for pi or Claude Code.
+
+Do **not** use `remote-tworker`, remote jobs, detached jobs, background jobs, or any headless mode unless the user explicitly asks for remote/headless execution. This command should create a tmux session/window the user can attach to.
 
 Arguments: `$ARGUMENTS`
 
@@ -20,7 +24,7 @@ Pass through these options when requested:
 
 If the user does not provide `--agent`, use `--agent build`.
 
-Do not start tworkers in `plan` mode. If the worker needs planning, analysis, architecture exploration, or a written plan, keep it in `build` mode and include those instructions in the initial prompt. Ask it to write its plan or findings to a document when useful.
+Do not start workers in `plan` mode. If the worker needs planning, analysis, architecture exploration, or a written plan, keep it in `build` mode and include those instructions in the initial prompt. Ask it to write its plan or findings to a document when useful.
 
 Only use another agent when explicitly requested:
 - `fast`: quick iterations, lightweight edits, or triage
