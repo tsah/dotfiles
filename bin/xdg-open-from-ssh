@@ -11,6 +11,12 @@ if [ -z "${SSH_ORIGINAL_COMMAND:-}" ]; then
     exit 2
 fi
 
+case "$(uname -s 2>/dev/null || printf unknown)" in
+    Darwin)
+        exec /usr/bin/open "$SSH_ORIGINAL_COMMAND"
+        ;;
+esac
+
 if env_dump=$(systemctl --user show-environment 2>/dev/null); then
     while IFS= read -r line; do
         case "$line" in
