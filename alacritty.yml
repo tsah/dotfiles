@@ -24,6 +24,7 @@ window:
     y: 10
   dynamic_padding: false
   decorations: buttonless
+  option_as_alt: Both
 
 # NOTE: helpful hex codes
 # \x1b = escape (useful for vim-related keybindings)

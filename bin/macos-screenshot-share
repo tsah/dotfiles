@@ -1,0 +1,46 @@
+#!/bin/bash
+
+set -euo pipefail
+
+OUTPUT_DIR="${SCREENSHOT_DIR:-$HOME/Pictures/Screenshots}"
+REMOTE_TARGET="${SCREENSHOT_REMOTE_TARGET:-tsah-dev-frankfurt:/tmp/}"
+OUTPUT_FILE="$OUTPUT_DIR/screenshot-$(date +'%Y-%m-%d_%H-%M-%S').png"
+
+notify_user() {
+  local title="$1"
+  local body="${2:-}"
+
+  osascript -e "display notification \"${body//\"/\\\"}\" with title \"${title//\"/\\\"}\"" >/dev/null 2>&1 || true
+}
+
+format_copy_value() {
+  local value="$1"
+
+  if [[ "$value" =~ ^[^:]+:(/.*)$ ]]; then
+    value="${BASH_REMATCH[1]}"
+  fi
+
+  printf '"%s"' "$value"
+}
+
+mkdir -p "$OUTPUT_DIR"
+
+if ! screencapture -i "$OUTPUT_FILE"; then
+  exit 0
+fi
+
+[[ -f "$OUTPUT_FILE" ]] || exit 0
+
+destination="$REMOTE_TARGET"
+if [[ "$destination" == */ ]]; then
+  destination="${destination}$(basename "$OUTPUT_FILE")"
+fi
+
+if scp -q "$OUTPUT_FILE" "$destination"; then
+  copied_value=$(format_copy_value "$destination")
+  printf '%s' "$copied_value" | pbcopy
+  notify_user "Screenshot uploaded" "$copied_value copied"
+else
+  notify_user "Screenshot upload failed" "$destination"
+  exit 1
+fi
