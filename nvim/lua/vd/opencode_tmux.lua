@@ -1,34 +1,41 @@
+-- Send a prompt from nvim to an opencode TUI running in another tmux pane/window.
+--
+-- First principles:
+--   1. Capture the visual range (or cursor line) as an opencode file reference
+--      `<abspath>:L<start>-L<end>`.
+--   2. Ask the user for a message in an input box.
+--   3. Find the opencode session for THIS project by searching, in order:
+--        a. other panes in the current window
+--        b. other windows in the current session
+--        c. panes in other sessions
+--      ...and if none exists, spawn one in a new pane.
+--   4. Deliver the text by pasting it into that pane and pressing Enter
+--      (tmux load-buffer + paste-buffer + send-keys). No HTTP, no port parsing
+--      on the common path -- we just type into the terminal that is opencode.
+--
+-- Set vim.g.opencode_tmux_trace = true to log each step to /tmp/oc_tmux_trace.log.
+
 local M = {}
 
-local MAX_PORT_ATTEMPTS = 50
-local PORT_POLL_MS = 100
-local SESSION_NEW_DELAY_MS = 400
+local HEALTH_POLL_MS = 150
+local HEALTH_MAX_ATTEMPTS = 200 -- ~30s budget for a cold spawn
 
--- Diagnostic trace. Set vim.g.opencode_tmux_trace = true to log every step of a
--- delivery to /tmp/oc_tmux_trace.log (mode, path taken, port, curl results).
 local TRACE_FILE = "/tmp/oc_tmux_trace.log"
 local function trace(step, extra)
     if not vim.g.opencode_tmux_trace then
         return
     end
-    local ok, line = pcall(function()
-        local ms = vim.uv and vim.uv.now() or 0
-        local mode = (vim.api.nvim_get_mode() or {}).mode
-        local parts = { string.format("%d", ms), step, "mode=" .. tostring(mode) }
+    pcall(function()
+        local parts = { step }
         if extra ~= nil then
             table.insert(parts, type(extra) == "table" and vim.inspect(extra):gsub("%s+", " ") or tostring(extra))
         end
-        return table.concat(parts, " | ")
+        local fh = io.open(TRACE_FILE, "a")
+        if fh then
+            fh:write(table.concat(parts, " | ") .. "\n")
+            fh:close()
+        end
     end)
-    if ok then
-        pcall(function()
-            local fh = io.open(TRACE_FILE, "a")
-            if fh then
-                fh:write(line .. "\n")
-                fh:close()
-            end
-        end)
-    end
 end
 
 local function tmux(args)
@@ -39,496 +46,338 @@ local function tmux(args)
     return vim.trim(result.stdout)
 end
 
-local function origin_pane()
-    return vim.env.TMUX_PANE
+local function notify(msg, level)
+    vim.schedule(function()
+        vim.notify(tostring(msg), level or vim.log.levels.INFO, { title = "opencode" })
+    end)
 end
 
-local function current_location(tmux_pane)
-    tmux_pane = tmux_pane or origin_pane()
-    local output = tmux({ "display-message", "-t", tmux_pane, "-p", "#{window_index}\t#{pane_index}" })
-    local window_index, pane_index = output:match("^(%d+)\t(%d+)$")
-    return tonumber(window_index), tonumber(pane_index)
+-- ── project identity ────────────────────────────────────────────────────────
+
+local function git_root(path)
+    local result = vim.system({ "git", "-C", path, "rev-parse", "--show-toplevel" }, { text = true }):wait()
+    if result.code ~= 0 then
+        return nil
+    end
+    return vim.trim(result.stdout)
 end
 
-local function tmux_session_name(tmux_pane)
-    tmux_pane = tmux_pane or origin_pane()
-    return tmux({ "display-message", "-t", tmux_pane, "-p", "#{session_name}" })
+-- Two paths belong to the same project if they share a git root (or are equal).
+local function same_project(a, b)
+    if a == b then
+        return true
+    end
+    local ra = git_root(a)
+    return ra ~= nil and ra == git_root(b)
 end
 
-local function capture_delivery()
+-- ── where am I ──────────────────────────────────────────────────────────────
+
+-- The project is anchored on the EDITED FILE's directory, not nvim's cwd: the
+-- two can differ (global cwd, :tcd, files opened from elsewhere) and the file is
+-- what the prompt is about, so it must decide which opencode we target.
+local function project_anchor()
+    local name = vim.api.nvim_buf_get_name(0)
+    if name ~= "" then
+        return vim.fn.fnamemodify(name, ":p:h")
+    end
+    return vim.fn.getcwd()
+end
+
+local function origin()
+    local pane = vim.env.TMUX_PANE
+    local out = tmux({ "display-message", "-t", pane, "-p", "#{session_name}\t#{window_index}\t#{pane_index}" })
+    local session, window, index = out:match("^([^\t]*)\t(%d+)\t(%d+)$")
     return {
-        tmux_pane = origin_pane(),
-        cwd = vim.fn.getcwd(),
+        pane_id = pane,
+        session = session,
+        window = tonumber(window),
+        index = tonumber(index),
+        project_dir = project_anchor(),
     }
 end
 
-local function list_opencode_panes(session_name, cwd, window_index)
-    local output = tmux({
+-- ── finding opencode panes ──────────────────────────────────────────────────
+
+local function list_opencode_panes()
+    local out = tmux({
         "list-panes",
         "-a",
         "-F",
-        "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_pid}\t#{pane_current_path}",
+        "#{pane_id}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_current_command}\t#{pane_current_path}",
     })
-
     local panes = {}
-    for line in output:gmatch("[^\r\n]+") do
-        local pane_session_name, windex, pane_index, pid, path = line:match("^([^\t]+)\t(%d+)\t(%d+)\t(%d+)\t(.*)$")
-        if pane_session_name == session_name and path == cwd and tonumber(windex) == window_index then
+    for line in out:gmatch("[^\r\n]+") do
+        local id, session, window, index, cmd, path =
+            line:match("^(%S+)\t([^\t]*)\t(%d+)\t(%d+)\t([^\t]*)\t(.*)$")
+        if cmd == "opencode" then
             table.insert(panes, {
-                window_index = tonumber(windex),
-                pane_index = tonumber(pane_index),
-                pid = pid,
+                pane_id = id,
+                session = session,
+                window = tonumber(window),
+                index = tonumber(index),
+                path = path,
             })
         end
     end
     return panes
 end
 
-local function pane_port(pane)
-    local pane_process = vim.system({ "ps", "-p", pane.pid, "-o", "args=" }, { text = true }):wait()
-    if pane_process.code == 0 then
-        local port = pane_process.stdout:match("opencode.*%-%-port%s+(%d+)")
-        if port then
-            return tonumber(port)
-        end
+-- Proximity tier: lower is closer. 1 = same window, 2 = same session, 3 = other.
+local function tier(pane, from)
+    if pane.session == from.session and pane.window == from.window then
+        return 1
     end
-
-    local result = vim.system({ "pgrep", "-a", "-P", pane.pid }, { text = true }):wait()
-    if result.code ~= 0 then
-        return nil
+    if pane.session == from.session then
+        return 2
     end
-
-    for line in result.stdout:gmatch("[^\r\n]+") do
-        local port = line:match("opencode.*%-%-port%s+(%d+)")
-        if port then
-            return tonumber(port)
-        end
-    end
-    return nil
+    return 3
 end
 
-local function compare_panes(current_pane_index)
-    return function(left, right)
-        local left_distance = math.abs(left.pane_index - current_pane_index)
-        local right_distance = math.abs(right.pane_index - current_pane_index)
-        if left_distance ~= right_distance then
-            return left_distance < right_distance
-        end
-        return left.pane_index > right.pane_index
-    end
-end
-
-local function find_existing_port_in_current_window(delivery)
-    delivery = delivery or capture_delivery()
-    local cwd = delivery.cwd
-    local session_name = tmux_session_name(delivery.tmux_pane)
-    local window_index, pane_index = current_location(delivery.tmux_pane)
-    local panes = list_opencode_panes(session_name, cwd, window_index)
-    table.sort(panes, compare_panes(pane_index))
-
-    for _, pane in ipairs(panes) do
-        local port = pane_port(pane)
-        if port then
-            return port
+-- Find the nearest opencode pane in the SAME project as `from`, searching
+-- pane -> window -> session. Returns the pane table or nil.
+local function find_target(from)
+    local candidates = {}
+    for _, pane in ipairs(list_opencode_panes()) do
+        if pane.pane_id ~= from.pane_id and same_project(pane.path, from.project_dir) then
+            table.insert(candidates, pane)
         end
     end
-    return nil
+    table.sort(candidates, function(l, r)
+        local lt, rt = tier(l, from), tier(r, from)
+        if lt ~= rt then
+            return lt < rt
+        end
+        if l.window ~= r.window then
+            return math.abs(l.window - from.window) < math.abs(r.window - from.window)
+        end
+        return math.abs(l.index - from.index) < math.abs(r.index - from.index)
+    end)
+    trace("find_target", { count = #candidates, pick = candidates[1] })
+    return candidates[1]
 end
 
--- Spawn opencode in a new pane that is FOCUSED (note: no `-d`).
---
--- At startup opencode probes the terminal for capabilities (Kitty graphics
--- `\27_Gi=31337,a=q...`, DA, DECRPM, OSC colors). Under ghostty+tmux these are
--- forwarded to the outer terminal and the responses come back to tmux, which
--- routes them to whichever pane is *focused*. If we spawned detached (nvim
--- focused), the responses leak into the nvim buffer as literal keystrokes
--- (`\27_Gi=31337;OK` → `i` enters insert mode, `=31337;OK` is typed, a stray
--- `\` trips the yazi mapping, and the hit-enter prompt freezes nvim's loop).
--- Spawning opencode focused makes its own pane receive those responses
--- harmlessly. The caller restores focus to nvim once opencode is past the
--- probing phase (i.e. its HTTP server is up). Returns `origin` so callers know
--- which pane to focus back.
-local function spawn_opencode_pane(cwd, tmux_pane)
-    tmux_pane = tmux_pane or origin_pane()
-    local pane_id = tmux({
-        "split-window",
-        "-h",
-        "-t",
-        tmux_pane,
-        "-P",
-        "-F",
-        "#{pane_id}",
-        "-c",
-        cwd,
-        "oc",
-        "--new",
-    })
+-- ── spawning (fallback) ─────────────────────────────────────────────────────
+
+-- The opencode process under a pane exposes its HTTP port in its args; we only
+-- need it as a readiness signal for a freshly spawned instance.
+local function pane_port(pane_id)
     local pid = tmux({ "display-message", "-p", "-t", pane_id, "#{pane_pid}" })
-    return { pane_id = pane_id, pid = pid, origin = tmux_pane }
-end
-
--- Move tmux focus back to the given pane (the nvim pane). Best-effort.
-local function restore_focus(tmux_pane)
-    if tmux_pane then
-        pcall(tmux, { "select-pane", "-t", tmux_pane })
+    for _, p in ipairs({ pid }) do
+        local ps = vim.system({ "ps", "-p", p, "-o", "args=" }, { text = true }):wait()
+        local port = ps.code == 0 and ps.stdout:match("opencode.*%-%-port%s+(%d+)")
+        if port then
+            return tonumber(port)
+        end
     end
+    local kids = vim.system({ "pgrep", "-a", "-P", pid }, { text = true }):wait()
+    if kids.code == 0 then
+        local port = kids.stdout:match("opencode.*%-%-port%s+(%d+)")
+        if port then
+            return tonumber(port)
+        end
+    end
+    return nil
 end
 
--- A freshly spawned opencode loads plugins/MCP before its HTTP server answers,
--- which can take well over 5s on a cold start, so allow a generous budget.
-local HTTP_READY_ATTEMPTS = 200 -- ~200 * 100ms = 20s
-local function verify_port_http_async(port, on_ready, on_error, attempt)
-    attempt = attempt or 0
-    vim.system({
-        "curl",
-        "-s",
-        "-f",
-        "-o",
-        "/dev/null",
-        "--connect-timeout",
-        "1",
-        -- Bound the whole request: a cold opencode accepts the TCP connection
-        -- before its HTTP server answers, and without --max-time curl hangs on
-        -- that first request forever, stalling the readiness poll.
-        "--max-time",
-        "2",
+local function health_ok(port)
+    local r = vim.system({
+        "curl", "-sf", "--connect-timeout", "1", "--max-time", "2",
         "http://127.0.0.1:" .. port .. "/global/health",
-    }, {}, function(result)
-        if result.code == 0 then
-            trace("http_ready", { port = port, attempt = attempt })
-            on_ready(port)
+    }, { text = true }):wait()
+    return r.code == 0
+end
+
+local function pane_shows(pane_id, needle)
+    local cap = vim.system({ "tmux", "capture-pane", "-p", "-t", pane_id }, { text = true }):wait()
+    return cap.code == 0 and cap.stdout:find(needle, 1, true) ~= nil
+end
+
+-- Spawn opencode focused (so its terminal-probe responses land in its own pane,
+-- not nvim's), wait until its HTTP server answers, restore focus, then call
+-- on_ready(pane_id). The HTTP server answers before the TUI is ready for input,
+-- but send_to_pane verifies its paste landed and retries, so on_ready can fire
+-- as soon as the process is alive. Synchronous waits run on a timer.
+local function spawn_and_wait(from, on_ready, on_error)
+    local pane_id = tmux({
+        "split-window", "-h", "-t", from.pane_id, "-P", "-F", "#{pane_id}",
+        "-c", from.project_dir, "oc", "--new",
+    })
+    trace("spawned", pane_id)
+
+    local attempt = 0
+    local function poll()
+        attempt = attempt + 1
+        local port = pane_port(pane_id)
+        if port and health_ok(port) then
+            pcall(tmux, { "select-pane", "-t", from.pane_id }) -- restore focus to nvim
+            trace("spawn_health_ok", { pane_id = pane_id, port = port, attempt = attempt })
+            on_ready(pane_id)
             return
         end
-        if attempt >= HTTP_READY_ATTEMPTS then
-            trace("http_timeout", { port = port })
-            on_error("opencode HTTP API not ready on port " .. port)
+        if attempt >= HEALTH_MAX_ATTEMPTS then
+            on_error("opencode spawned but never became ready")
             return
         end
+        vim.defer_fn(poll, HEALTH_POLL_MS)
+    end
+    poll()
+end
+
+-- ── delivery ────────────────────────────────────────────────────────────────
+
+-- Paste `text` into the opencode pane and submit it.
+--
+-- Two things make this tricky and both are handled by verify-and-retry rather
+-- than fixed sleeps:
+--   * A freshly spawned opencode answers HTTP before its TUI reads stdin, so an
+--     early paste is dropped.
+--   * A fresh opencode also wipes its input box ONCE a couple seconds in, which
+--     erases a paste that landed just before it.
+-- So: paste, confirm the text shows AND still shows after a settle window (i.e.
+-- it survived the wipe), only then press Enter. If the paste was dropped or
+-- wiped, the box is empty again, so re-pasting is clean (no accumulation). The
+-- payload is a single line, so Enter submits without a stray newline.
+local SEND_MAX_ATTEMPTS = 15
+local SEND_SETTLE_MS = 450
+local function send_to_pane(pane_id, text, on_done)
+    -- Verify against the TAIL: the payload now leads with the file reference
+    -- (a path that may already be on screen in an existing session), whereas the
+    -- end of the text -- the user's message -- is distinctive. Short enough to
+    -- not span an input-box line wrap.
+    local needle = text:sub(-14)
+    local attempt = 0
+    local function try()
+        attempt = attempt + 1
+        vim.system({ "tmux", "load-buffer", "-b", "oc_nvim", "-" }, { stdin = text }):wait()
+        pcall(tmux, { "paste-buffer", "-d", "-b", "oc_nvim", "-t", pane_id })
         vim.defer_fn(function()
-            verify_port_http_async(port, on_ready, on_error, attempt + 1)
-        end, PORT_POLL_MS)
-    end)
-end
-
-local function wait_for_pane_port_async(pane, on_ready, on_error, attempt)
-    attempt = attempt or 0
-    local ok, port = pcall(pane_port, pane)
-    trace("wait_pane_port", { attempt = attempt, ok = ok, port = ok and port or tostring(port) })
-    if ok and port then
-        verify_port_http_async(port, on_ready, on_error, 0)
-        return
-    end
-    if attempt >= MAX_PORT_ATTEMPTS then
-        on_error("opencode pane started but --port not ready")
-        return
-    end
-    vim.defer_fn(function()
-        wait_for_pane_port_async(pane, on_ready, on_error, attempt + 1)
-    end, PORT_POLL_MS)
-end
-
----@param on_ready fun(port: integer, reused: boolean)
-local function resolve_port_async(on_ready, on_error, delivery)
-    delivery = delivery or capture_delivery()
-    if not vim.env.TMUX then
-        on_error("Not running inside tmux")
-        return
-    end
-
-    local port = find_existing_port_in_current_window(delivery)
-    trace("resolve_port", { found = port, delivery = delivery })
-    if port then
-        verify_port_http_async(port, function(ready_port)
-            trace("resolve_port.reused.ready", ready_port)
-            on_ready(ready_port, true, nil)
-        end, on_error, 0)
-        return
-    end
-
-    trace("resolve_port.spawning")
-    local ok, pane = pcall(spawn_opencode_pane, delivery.cwd, delivery.tmux_pane)
-    trace("resolve_port.spawned", { ok = ok, pane = ok and pane or tostring(pane) })
-    if not ok then
-        on_error(pane)
-        return
-    end
-    wait_for_pane_port_async(pane, function(ready_port)
-        -- HTTP is up => opencode is past its terminal-probing startup, so it is
-        -- now safe to move focus back to nvim without leaking probe responses.
-        restore_focus(pane.origin)
-        trace("resolve_port.focus_restored", pane.origin)
-        on_ready(ready_port, false, pane.pane_id)
-    end, on_error)
-end
-
-local function post_async(port, body, on_done)
-    -- vim.fn.json_encode is not allowed in vim.system callbacks (fast events).
-    vim.schedule(function()
-        local payload = vim.json.encode(body)
-        vim.system({
-            "curl",
-            "-s",
-            "-f",
-            "--connect-timeout",
-            "2",
-            "--max-time",
-            "5",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            payload,
-            "http://127.0.0.1:" .. port .. "/tui/publish",
-        }, { text = true }, function(result)
-            vim.schedule(function()
-                if on_done then
-                    on_done(result)
-                end
-            end)
-        end)
-    end)
-end
-
--- Empty the TUI input field so a new prompt never concatenates with leftover
--- unsubmitted text (session.new clears chat history but not the input box).
-local function clear_prompt_async(port, on_done)
-    vim.system({
-        "curl",
-        "-s",
-        "-f",
-        "--connect-timeout",
-        "2",
-        "--max-time",
-        "5",
-        "-X",
-        "POST",
-        "-H",
-        "Content-Type: application/json",
-        "-d",
-        "{}",
-        "http://127.0.0.1:" .. port .. "/tui/clear-prompt",
-    }, { text = true }, function(result)
-        vim.schedule(function()
-            if on_done then
-                on_done(result)
-            end
-        end)
-    end)
-end
-
-local TUI_READY_ATTEMPTS = 40 -- ~40 * 200ms = 8s
-local TUI_READY_POLL_MS = 200
-local TUI_SENTINEL = "OPENCODE_NVIM_READY_PROBE"
-
--- After spawning, opencode's HTTP server (which answers /global/health) is up
--- well before the TUI client subscribes to the event stream. A prompt published
--- in that gap is silently dropped. Probe by appending a sentinel and confirming
--- it actually rendered in the pane; only then is the TUI ready for real input.
-local function wait_for_tui_ready_async(port, pane_id, on_ready, on_error, attempt)
-    attempt = attempt or 0
-    post_async(port, { type = "tui.prompt.append", properties = { text = TUI_SENTINEL } }, function()
-        vim.defer_fn(function()
-            vim.system({ "tmux", "capture-pane", "-p", "-t", pane_id }, { text = true }, function(result)
-                local rendered = result.code == 0 and result.stdout:find(TUI_SENTINEL, 1, true) ~= nil
-                vim.schedule(function()
-                    trace("tui_ready.probe", { attempt = attempt, rendered = rendered })
-                    if rendered then
-                        clear_prompt_async(port, function()
-                            on_ready()
-                        end)
-                        return
-                    end
-                    if attempt >= TUI_READY_ATTEMPTS then
-                        on_error("opencode TUI did not become ready for input")
-                        return
-                    end
-                    wait_for_tui_ready_async(port, pane_id, on_ready, on_error, attempt + 1)
-                end)
-            end)
-        end, TUI_READY_POLL_MS)
-    end)
-end
-
-local function notify_error(err)
-    vim.schedule(function()
-        vim.notify(tostring(err), vim.log.levels.ERROR, { title = "opencode tmux" })
-    end)
-end
-
-local function render_prompt(prompt, context)
-    if context == nil then
-        return prompt
-    end
-    local rendered = context:render(prompt, {})
-    return context.plaintext(rendered.output)
-end
-
-local function defer(fn, delay_ms)
-    vim.defer_fn(fn, delay_ms)
-end
-
-local function append_and_submit(port, plaintext, opts)
-    if plaintext == nil or plaintext == "" then
-        notify_error("Prompt is empty")
-        return
-    end
-    trace("append_and_submit", { port = port, submit = opts.submit, len = #plaintext })
-    clear_prompt_async(port, function(clear_result)
-        trace("clear.done", { code = clear_result.code, stderr = clear_result.stderr })
-        if clear_result.code ~= 0 then
-            notify_error(clear_result.stderr ~= "" and clear_result.stderr or "Failed to clear opencode prompt")
-            return
-        end
-        post_async(port, { type = "tui.prompt.append", properties = { text = plaintext } }, function(append_result)
-            trace("append.done", { code = append_result.code, stdout = append_result.stdout, stderr = append_result.stderr })
-            if append_result.code ~= 0 then
-                notify_error(append_result.stderr ~= "" and append_result.stderr or "Failed to send prompt to opencode")
-                return
-            end
-            if not opts.submit then
-                return
-            end
-            post_async(port, { type = "tui.command.execute", properties = { command = "prompt.submit" } }, function(submit_result)
-                trace("submit.done", { code = submit_result.code, stdout = submit_result.stdout, stderr = submit_result.stderr })
-                if submit_result.code ~= 0 then
-                    notify_error(submit_result.stderr ~= "" and submit_result.stderr or "Failed to submit opencode prompt")
-                end
-            end)
-        end)
-    end)
-end
-
-function M.deliver_async(plaintext, opts, delivery)
-    opts = opts or {}
-    delivery = delivery or capture_delivery()
-    if opts.new_session == nil then
-        opts.new_session = false
-    end
-
-    resolve_port_async(function(port, reused, pane_id)
-        if not reused then
-            -- Freshly spawned: `oc --new` already starts a new session, so we
-            -- only need to wait until the TUI can actually receive input.
-            wait_for_tui_ready_async(port, pane_id, function()
-                append_and_submit(port, plaintext, opts)
-            end, notify_error)
-            return
-        end
-        if opts.new_session then
-            post_async(port, { type = "tui.command.execute", properties = { command = "session.new" } }, function(session_result)
-                if session_result.code ~= 0 then
-                    notify_error(session_result.stderr ~= "" and session_result.stderr or "Failed to start new opencode session")
+            if not pane_shows(pane_id, needle) then
+                -- Paste never landed (TUI not reading yet) or was wiped.
+                if attempt >= SEND_MAX_ATTEMPTS then
+                    trace("send_failed", { pane_id = pane_id, attempt = attempt })
+                    if on_done then on_done(false) end
                     return
                 end
-                defer(function()
-                    append_and_submit(port, plaintext, opts)
-                end, SESSION_NEW_DELAY_MS)
-            end)
-            return
-        end
-        append_and_submit(port, plaintext, opts)
-    end, notify_error, delivery)
-end
-
----Spawn opencode in the current tmux window if missing.
----Used by opencode.nvim discovery polling. The new pane is spawned focused (so
----opencode's terminal-probe responses don't leak into nvim); focus is restored
----to the origin pane once opencode's HTTP server is up.
-function M.ensure_sync()
-    if not vim.env.TMUX then
-        return
-    end
-    if find_existing_port_in_current_window() then
-        return
-    end
-    local origin = origin_pane()
-    local ok, pane = pcall(spawn_opencode_pane, vim.fn.getcwd(), origin)
-    if not ok then
-        return
-    end
-    wait_for_pane_port_async(pane, function()
-        restore_focus(pane.origin)
-    end, function()
-        restore_focus(pane.origin)
-    end)
-end
-
-function M.ensure()
-    M.ensure_sync()
-end
-
-local function open_ask_input(default, context, on_submit)
-    local input_opts = {
-        prompt = "Ask opencode: ",
-        default = default,
-    }
-
-    local ok_cfg, cfg = pcall(require, "opencode.config")
-    if ok_cfg and cfg.opts.ask then
-        input_opts = vim.tbl_deep_extend("force", input_opts, cfg.opts.ask)
-    end
-
-    if context ~= nil then
-        local rendered = context:render(default or "", {})
-        input_opts.highlight = function(text)
-            local live = context:render(text, {})
-            return context.input_highlight(live.input)
-        end
-    end
-
-    vim.ui.input(input_opts, on_submit)
-end
-
-function M.ask(default, opts)
-    opts = opts or {}
-    if not vim.env.TMUX then
-        vim.notify("Not running inside tmux", vim.log.levels.ERROR, { title = "opencode tmux" })
-        return
-    end
-
-    local context = nil
-    local ok_context, resolved_context = pcall(function()
-        return require("opencode.context").new()
-    end)
-    if ok_context then
-        context = resolved_context
-    end
-
-    trace("M.ask.open", { default = default })
-    open_ask_input(default, context, function(input)
-        trace("M.ask.on_submit", { input = input })
-        local delivery = capture_delivery()
-        if input == nil or input == "" then
-            if context ~= nil then
-                context:clear()
+                vim.defer_fn(try, SEND_SETTLE_MS)
+                return
             end
+            -- Landed; make sure it sticks (survives the one-shot input wipe).
+            vim.defer_fn(function()
+                if pane_shows(pane_id, needle) then
+                    pcall(tmux, { "send-keys", "-t", pane_id, "Enter" })
+                    trace("sent", { pane_id = pane_id, attempt = attempt, len = #text })
+                    if on_done then on_done(true) end
+                elseif attempt >= SEND_MAX_ATTEMPTS then
+                    trace("send_failed", { pane_id = pane_id, attempt = attempt })
+                    if on_done then on_done(false) end
+                else
+                    vim.defer_fn(try, SEND_SETTLE_MS)
+                end
+            end, SEND_SETTLE_MS)
+        end, SEND_SETTLE_MS)
+    end
+    try()
+end
+
+local function deliver(from, text)
+    local target = find_target(from)
+    if target then
+        notify("→ opencode (" .. target.session .. ":" .. target.window .. "." .. target.index .. ")")
+        send_to_pane(target.pane_id, text)
+        return
+    end
+    notify("no opencode in this project — spawning…")
+    spawn_and_wait(from, function(pane_id)
+        send_to_pane(pane_id, text)
+    end, function(err)
+        notify(err, vim.log.levels.ERROR)
+    end)
+end
+
+-- ── selection → opencode file reference ─────────────────────────────────────
+
+-- `<abspath>:L<start>-L<end>` is opencode's native reference syntax. In visual
+-- mode `line("v")` is the selection anchor and `line(".")` the cursor; in normal
+-- mode we reference the single cursor line.
+local function selection_ref()
+    local buf = vim.api.nvim_get_current_buf()
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name == "" then
+        return nil
+    end
+    local path = vim.fn.fnamemodify(name, ":p")
+
+    local sline, eline
+    if vim.fn.mode():match("^[vV\22]") then
+        sline, eline = vim.fn.line("v"), vim.fn.line(".")
+    else
+        sline = vim.fn.line(".")
+        eline = sline
+    end
+    if sline > eline then
+        sline, eline = eline, sline
+    end
+
+    if sline == eline then
+        return string.format("%s:L%d", path, sline)
+    end
+    return string.format("%s:L%d-L%d", path, sline, eline)
+end
+
+-- ── public API ──────────────────────────────────────────────────────────────
+
+-- Capture the range NOW (before the input box steals focus), prompt for a
+-- message, then deliver "<message> <ref>" to opencode.
+function M.ask()
+    if not vim.env.TMUX then
+        notify("not running inside tmux", vim.log.levels.ERROR)
+        return
+    end
+
+    local ref = selection_ref()
+    local from = origin()
+
+    -- Leave visual mode so the input float opens cleanly.
+    if vim.fn.mode():match("^[vV\22]") then
+        vim.cmd("normal! \27")
+    end
+
+    vim.ui.input({ prompt = "Ask opencode: " }, function(input)
+        if input == nil or vim.trim(input) == "" then
             return
         end
-
-        local plaintext = render_prompt(input, context)
-        trace("M.ask.rendered", { plaintext = plaintext })
-        if context ~= nil then
-            context:clear()
-        end
-        -- Defer delivery so the snacks input float fully tears down before any
-        -- blocking tmux/ps/curl work runs. Running the synchronous port
-        -- resolution inside the input callback disrupts the float teardown,
-        -- leaving nvim stuck in insert mode (keystrokes leak as buffer text)
-        -- and spilling terminal escape sequences into the window.
-        defer(function()
-            trace("M.ask.deferred_deliver")
-            M.deliver_async(plaintext, opts, delivery)
+        local text = ref and (ref .. " " .. vim.trim(input)) or vim.trim(input)
+        trace("ask.submit", { text = text, from = from })
+        -- Defer so the input float fully tears down before the tmux/curl work.
+        vim.defer_fn(function()
+            deliver(from, text)
         end, 50)
     end)
 end
 
-function M.ask_this()
-    return M.ask("@this: ", { submit = true })
+-- Back-compat alias used by the keymap.
+M.ask_this = M.ask
+
+-- Ensure an opencode exists for this project (used by opencode.nvim's server
+-- start hook). Spawns one in the current window if none is found.
+function M.ensure_sync()
+    if not vim.env.TMUX then
+        return
+    end
+    local from = origin()
+    if find_target(from) then
+        return
+    end
+    pcall(spawn_and_wait, from, function() end, function() end)
 end
 
-function M.debug_resolve_port()
-    return find_existing_port_in_current_window()
-end
+M.ensure = M.ensure_sync
+
+-- Exposed for live testing from headless nvim.
+M._find_target = find_target
+M._origin = origin
+M._deliver = deliver
+M._selection_ref = selection_ref
 
 return M
