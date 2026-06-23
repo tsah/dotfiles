@@ -1,7 +1,6 @@
 font-size = 14
 font-family = Adwaita Mono
 confirm-close-surface = false
-macos-option-as-alt = true
 
 # Alt key bindings for tmux (send Alt sequences directly to tmux)
 keybind = alt+t=text:\x1bt

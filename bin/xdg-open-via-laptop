@@ -5,12 +5,42 @@
 # itself or it shadows the real xdg-open.
 set -eu
 
-LAPTOP="${REMOTE_OPEN_HOST:-tsah-work-laptop}"
+# tmux run-shell does not source the interactive shell config, so load the
+# remote-open target and SSH agent info here as well.
+if [ -f "$HOME/.env" ]; then
+    set +u
+    . "$HOME/.env"
+    set -u
+fi
+
+if [ -f "$HOME/.ssh-agent-info" ]; then
+    set +u
+    . "$HOME/.ssh-agent-info" >/dev/null 2>&1 || true
+    set -u
+fi
+
+CLIENT_HOST="${SSH_CLIENT:-}"
+CLIENT_HOST="${CLIENT_HOST%% *}"
+LAPTOP="${CLIENT_HOST:-${REMOTE_OPEN_HOST:-tsah-work-laptop}}"
+DEV_HOST="${REMOTE_OPEN_LOCALHOST_HOST:-$(hostname)}"
 
 if [ "$#" -eq 0 ]; then
     echo "usage: xdg-open <url|path>" >&2
     exit 2
 fi
+
+target=$1
+case "$target" in
+    http://localhost:*|https://localhost:*|http://127.0.0.1:*|https://127.0.0.1:*)
+        scheme=${target%%://*}
+        rest=${target#*://}
+        rest=${rest#localhost}
+        rest=${rest#127.0.0.1}
+        target="${scheme}://${DEV_HOST}${rest}"
+        shift
+        set -- "$target" "$@"
+        ;;
+esac
 
 exec ssh \
     -o BatchMode=yes \
