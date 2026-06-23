@@ -1,17 +1,21 @@
--- Send a prompt from nvim to an opencode TUI running in another tmux pane/window.
+-- Send a prompt from nvim to a coding-agent TUI running in another tmux pane.
+--
+-- Generic over agents: opencode, claude, codex, pi. They are all just terminal
+-- programs that take a line of input and submit on Enter, so delivery is the
+-- same for all of them (tmux load-buffer + paste-buffer + send-keys). The only
+-- per-agent difference is how a file reference is written, captured in AGENTS.
 --
 -- First principles:
---   1. Capture the visual range (or cursor line) as an opencode file reference
---      `<abspath>:L<start>-L<end>`.
+--   1. Capture the visual range (or cursor line) as { path, sline, eline }.
 --   2. Ask the user for a message in an input box.
---   3. Find the opencode session for THIS project by searching, in order:
---        a. other panes in the current window
---        b. other windows in the current session
+--   3. Find the nearest agent for THIS project, searching in order:
+--        a. other panes in the current window   (precedence: pane)
+--        b. other windows in the current session (fallback: window)
 --        c. panes in other sessions
---      ...and if none exists, spawn one in a new pane.
---   4. Deliver the text by pasting it into that pane and pressing Enter
---      (tmux load-buffer + paste-buffer + send-keys). No HTTP, no port parsing
---      on the common path -- we just type into the terminal that is opencode.
+--      ...and if none exists, spawn opencode in a new pane.
+--   4. Format the reference for the chosen agent, then paste "<ref> <message>"
+--      into its pane and press Enter. No HTTP, no port parsing on the common
+--      path -- we just type into the terminal that is the agent.
 --
 -- Set vim.g.opencode_tmux_trace = true to log each step to /tmp/oc_tmux_trace.log.
 
@@ -97,9 +101,60 @@ local function origin()
     }
 end
 
--- ── finding opencode panes ──────────────────────────────────────────────────
+-- ── agent registry ──────────────────────────────────────────────────────────
 
-local function list_opencode_panes()
+-- Make `path` relative to `base` (the agent pane's cwd) when it lives under it;
+-- used for `@`-style mentions which resolve against the agent's working dir.
+local function rel_to(path, base)
+    if base and base ~= "" then
+        local prefix = base:gsub("/+$", "") .. "/"
+        if path:sub(1, #prefix) == prefix then
+            return path:sub(#prefix + 1)
+        end
+    end
+    return path
+end
+
+-- `<abspath>:L<start>-L<end>` -- opencode renders this as a context chip; codex
+-- and pi have no special mention syntax, so they just read the bare path.
+local function ref_path_lines(sel, _base)
+    if not sel.eline or sel.eline == sel.sline then
+        return string.format("%s:L%d", sel.path, sel.sline)
+    end
+    return string.format("%s:L%d-L%d", sel.path, sel.sline, sel.eline)
+end
+
+-- `@<relpath> (lines x-y)` -- Claude Code resolves the `@relpath` token (a valid
+-- path) as a real file mention; the parenthetical carries the range as a hint.
+local function ref_at_mention(sel, base)
+    local rel = rel_to(sel.path, base)
+    if not sel.eline or sel.eline == sel.sline then
+        return string.format("@%s (line %d)", rel, sel.sline)
+    end
+    return string.format("@%s (lines %d-%d)", rel, sel.sline, sel.eline)
+end
+
+-- Matched against `pane_current_command`. Order is the tie-break priority when
+-- two agents are equally near. Each `ref` is easy to tweak per your taste.
+local AGENTS = {
+    { cmd = "opencode", ref = ref_path_lines },
+    { cmd = "claude", ref = ref_at_mention },
+    { cmd = "codex", ref = ref_path_lines },
+    { cmd = "pi", ref = ref_path_lines },
+}
+
+local function agent_for_command(cmd)
+    for priority, agent in ipairs(AGENTS) do
+        if agent.cmd == cmd then
+            return agent, priority
+        end
+    end
+    return nil
+end
+
+-- ── finding agent panes ─────────────────────────────────────────────────────
+
+local function list_agent_panes()
     local out = tmux({
         "list-panes",
         "-a",
@@ -110,13 +165,16 @@ local function list_opencode_panes()
     for line in out:gmatch("[^\r\n]+") do
         local id, session, window, index, cmd, path =
             line:match("^(%S+)\t([^\t]*)\t(%d+)\t(%d+)\t([^\t]*)\t(.*)$")
-        if cmd == "opencode" then
+        local agent, priority = agent_for_command(cmd)
+        if agent then
             table.insert(panes, {
                 pane_id = id,
                 session = session,
                 window = tonumber(window),
                 index = tonumber(index),
                 path = path,
+                agent = agent,
+                priority = priority,
             })
         end
     end
@@ -134,11 +192,12 @@ local function tier(pane, from)
     return 3
 end
 
--- Find the nearest opencode pane in the SAME project as `from`, searching
--- pane -> window -> session. Returns the pane table or nil.
+-- Find the nearest agent pane in the SAME project as `from`, searching
+-- pane -> window -> session. Proximity wins; when two agents are equally near,
+-- AGENTS order breaks the tie. Returns the pane table (with `.agent`) or nil.
 local function find_target(from)
     local candidates = {}
-    for _, pane in ipairs(list_opencode_panes()) do
+    for _, pane in ipairs(list_agent_panes()) do
         if pane.pane_id ~= from.pane_id and same_project(pane.path, from.project_dir) then
             table.insert(candidates, pane)
         end
@@ -151,10 +210,14 @@ local function find_target(from)
         if l.window ~= r.window then
             return math.abs(l.window - from.window) < math.abs(r.window - from.window)
         end
-        return math.abs(l.index - from.index) < math.abs(r.index - from.index)
+        if l.index ~= r.index then
+            return math.abs(l.index - from.index) < math.abs(r.index - from.index)
+        end
+        return l.priority < r.priority
     end)
-    trace("find_target", { count = #candidates, pick = candidates[1] })
-    return candidates[1]
+    local pick = candidates[1]
+    trace("find_target", { count = #candidates, pick = pick and { pane = pick.pane_id, agent = pick.agent.cmd } })
+    return pick
 end
 
 -- ── spawning (fallback) ─────────────────────────────────────────────────────
@@ -280,34 +343,43 @@ local function send_to_pane(pane_id, text, on_done)
     try()
 end
 
-local function deliver(from, text)
+-- Build "<ref> <message>" for a given agent, or just the message if no buffer
+-- selection was captured.
+local function compose(agent, sel, message, base)
+    if not sel then
+        return message
+    end
+    return agent.ref(sel, base) .. " " .. message
+end
+
+local function deliver(from, sel, message)
     local target = find_target(from)
     if target then
-        notify("→ opencode (" .. target.session .. ":" .. target.window .. "." .. target.index .. ")")
-        send_to_pane(target.pane_id, text)
+        notify("→ " .. target.agent.cmd .. " (" .. target.session .. ":" .. target.window .. "." .. target.index .. ")")
+        send_to_pane(target.pane_id, compose(target.agent, sel, message, target.path))
         return
     end
-    notify("no opencode in this project — spawning…")
+    -- Nothing found: spawn opencode (the agent with a clean --new wrapper).
+    notify("no agent in this project — spawning opencode…")
+    local opencode = agent_for_command("opencode")
     spawn_and_wait(from, function(pane_id)
-        send_to_pane(pane_id, text)
+        send_to_pane(pane_id, compose(opencode, sel, message, from.project_dir))
     end, function(err)
         notify(err, vim.log.levels.ERROR)
     end)
 end
 
--- ── selection → opencode file reference ─────────────────────────────────────
+-- ── selection capture ───────────────────────────────────────────────────────
 
--- `<abspath>:L<start>-L<end>` is opencode's native reference syntax. In visual
+-- Capture the visual range (or cursor line) as { path, sline, eline }. In visual
 -- mode `line("v")` is the selection anchor and `line(".")` the cursor; in normal
--- mode we reference the single cursor line.
-local function selection_ref()
-    local buf = vim.api.nvim_get_current_buf()
-    local name = vim.api.nvim_buf_get_name(buf)
+-- mode the single cursor line. Per-agent formatting happens later, at delivery,
+-- once we know which agent we are talking to.
+local function capture_selection()
+    local name = vim.api.nvim_buf_get_name(0)
     if name == "" then
         return nil
     end
-    local path = vim.fn.fnamemodify(name, ":p")
-
     local sline, eline
     if vim.fn.mode():match("^[vV\22]") then
         sline, eline = vim.fn.line("v"), vim.fn.line(".")
@@ -318,24 +390,20 @@ local function selection_ref()
     if sline > eline then
         sline, eline = eline, sline
     end
-
-    if sline == eline then
-        return string.format("%s:L%d", path, sline)
-    end
-    return string.format("%s:L%d-L%d", path, sline, eline)
+    return { path = vim.fn.fnamemodify(name, ":p"), sline = sline, eline = eline }
 end
 
 -- ── public API ──────────────────────────────────────────────────────────────
 
 -- Capture the range NOW (before the input box steals focus), prompt for a
--- message, then deliver "<message> <ref>" to opencode.
+-- message, then deliver "<ref> <message>" to the nearest agent.
 function M.ask()
     if not vim.env.TMUX then
         notify("not running inside tmux", vim.log.levels.ERROR)
         return
     end
 
-    local ref = selection_ref()
+    local sel = capture_selection()
     local from = origin()
 
     -- Leave visual mode so the input float opens cleanly.
@@ -343,15 +411,15 @@ function M.ask()
         vim.cmd("normal! \27")
     end
 
-    vim.ui.input({ prompt = "Ask opencode: " }, function(input)
+    vim.ui.input({ prompt = "Ask agent: " }, function(input)
         if input == nil or vim.trim(input) == "" then
             return
         end
-        local text = ref and (ref .. " " .. vim.trim(input)) or vim.trim(input)
-        trace("ask.submit", { text = text, from = from })
-        -- Defer so the input float fully tears down before the tmux/curl work.
+        local message = vim.trim(input)
+        trace("ask.submit", { message = message, sel = sel, from = from })
+        -- Defer so the input float fully tears down before the tmux work.
         vim.defer_fn(function()
-            deliver(from, text)
+            deliver(from, sel, message)
         end, 50)
     end)
 end
@@ -360,14 +428,17 @@ end
 M.ask_this = M.ask
 
 -- Ensure an opencode exists for this project (used by opencode.nvim's server
--- start hook). Spawns one in the current window if none is found.
+-- start hook). Unlike M.ask this is opencode-specific: it ignores other agents
+-- and spawns opencode if none is found.
 function M.ensure_sync()
     if not vim.env.TMUX then
         return
     end
     local from = origin()
-    if find_target(from) then
-        return
+    for _, pane in ipairs(list_agent_panes()) do
+        if pane.agent.cmd == "opencode" and pane.pane_id ~= from.pane_id and same_project(pane.path, from.project_dir) then
+            return
+        end
     end
     pcall(spawn_and_wait, from, function() end, function() end)
 end
@@ -378,6 +449,6 @@ M.ensure = M.ensure_sync
 M._find_target = find_target
 M._origin = origin
 M._deliver = deliver
-M._selection_ref = selection_ref
+M._capture_selection = capture_selection
 
 return M
