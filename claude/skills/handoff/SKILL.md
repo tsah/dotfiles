@@ -2,7 +2,7 @@
 name: handoff
 description: >-
   Use when the user asks to hand off work, handoff this, spawn a visible tmux
-  worktree worker, create a tworker, or run a separate worker in the current
+  worktree worker, use /handoff, or run a separate worker in the current
   harness. A handoff means a visible tmux session/window with its own worktree,
   not a normal in-session agent/subagent and not remote/headless execution.
 ---
@@ -17,11 +17,10 @@ Use this skill when the user asks to:
 - hand off work
 - handoff this
 - hand this off
-- spawn a tworker
 - spawn a tmux worker
 - spawn a worktree worker
 - run a separate visible worker
-- use `/tw` or `/tworker`
+- use `/handoff`
 
 Do not use this skill for normal in-session agent/subagent delegation.
 
@@ -29,8 +28,8 @@ Do not use this skill for normal in-session agent/subagent delegation.
 
 Stay inside the current harness unless the user explicitly asks for another one.
 
-- Claude Code uses `/tworker` or `spawn-claude-tworker`.
-- OpenCode uses `/tworker` or `spawn-opencode-agent`.
+- Claude Code uses `/handoff` or `spawn-claude-tworker`.
+- OpenCode uses `/handoff` or `spawn-opencode-agent`.
 - pi uses `tworker`, `tmux_tworker`, or `spawn-pi-tworker`.
 
 Do not launch remote/headless workers unless the user explicitly asks for a

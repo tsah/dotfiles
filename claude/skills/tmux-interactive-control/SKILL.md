@@ -19,8 +19,8 @@ Use this skill when you need to:
 
 Do NOT use this skill to spawn worktree-backed workers.
 Use the harness-native tworker mechanism instead:
-- Claude Code: `/tworker` or `spawn-claude-tworker`
-- OpenCode: `/tworker` or `spawn-opencode-agent`
+- Claude Code: `/handoff` or `spawn-claude-tworker`
+- OpenCode: `/handoff` or `spawn-opencode-agent`
 - pi: `tworker` / `tmux_tworker` or `spawn-pi-tworker`
 
 ## Core Rules

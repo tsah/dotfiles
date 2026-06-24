@@ -87,8 +87,8 @@ rm -rf ~/.agents/skills/plannotator-*
 # Setup Claude Code commands and shared skills
 mkdir -p ~/.claude/commands
 mkdir -p ~/.claude/skills
-ln -sf ~/dotfiles/claude/commands/tworker.md ~/.claude/commands/tworker.md
-ln -sf ~/dotfiles/claude/commands/tw.md ~/.claude/commands/tw.md
+ln -sf ~/dotfiles/claude/commands/handoff.md ~/.claude/commands/handoff.md
+rm -f ~/.claude/commands/tworker.md ~/.claude/commands/tw.md
 CLAUDE_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture plannotator-annotate plannotator-compound plannotator-last plannotator-review plannotator-setup-goal tdd tmux-interactive-control tmux-worktree-worker to-prd"
 for skill in $CLAUDE_SKILLS; do
   rm -rf ~/.claude/skills/$skill

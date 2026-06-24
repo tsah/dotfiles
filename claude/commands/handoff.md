@@ -1,6 +1,6 @@
 ---
-name: tw
-description: Alias for /tworker; handoff work to a visible tmux worktree worker
+name: handoff
+description: Handoff work to a visible Claude Code tmux worktree worker
 ---
 
 Handoff work to a separate visible **Claude Code** tmux worktree worker with `spawn-claude-tworker`.
