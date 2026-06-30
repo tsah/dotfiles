@@ -74,10 +74,13 @@ rm -rf ~/.config/opencode/command
 ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/command
 rm -rf ~/.config/opencode/commands
 ln -sf ~/dotfiles/opencode/commands ~/.config/opencode/commands
+mkdir -p ~/.config/opencode/skills
+rm -rf ~/.config/opencode/skills/self-destruct
+ln -sf ~/dotfiles/claude/skills/self-destruct ~/.config/opencode/skills/self-destruct
 
 # Setup shared agent skills
 mkdir -p ~/.agents/skills
-AGENT_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture tdd to-prd"
+AGENT_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture self-destruct tdd to-prd"
 for skill in $AGENT_SKILLS; do
   rm -rf ~/.agents/skills/$skill
   ln -sf ~/dotfiles/claude/skills/$skill ~/.agents/skills/$skill
@@ -89,11 +92,16 @@ mkdir -p ~/.claude/commands
 mkdir -p ~/.claude/skills
 ln -sf ~/dotfiles/claude/commands/handoff.md ~/.claude/commands/handoff.md
 rm -f ~/.claude/commands/tworker.md ~/.claude/commands/tw.md
-CLAUDE_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture plannotator-annotate plannotator-compound plannotator-last plannotator-review plannotator-setup-goal tdd tmux-interactive-control tmux-worktree-worker to-prd"
+CLAUDE_SKILLS="find-skills grill-me grill-with-docs improve-codebase-architecture plannotator-annotate plannotator-compound plannotator-last plannotator-review plannotator-setup-goal self-destruct tdd tmux-interactive-control tmux-worktree-worker to-prd"
 for skill in $CLAUDE_SKILLS; do
   rm -rf ~/.claude/skills/$skill
   ln -sf ~/dotfiles/claude/skills/$skill ~/.claude/skills/$skill
 done
+
+# Setup Codex skills
+mkdir -p ~/.codex/skills
+rm -rf ~/.codex/skills/self-destruct
+ln -sf ~/dotfiles/claude/skills/self-destruct ~/.codex/skills/self-destruct
 
 # Setup pi configuration
 mkdir -p ~/.pi/agent/extensions
@@ -102,6 +110,7 @@ mkdir -p ~/.pi/agent/skills
 rm -rf ~/.pi/agent/extensions/tmux-agents
 rm -f ~/.pi/agent/extensions/herdr-agent-state.ts
 rm -rf ~/.pi/agent/skills/grill-me
+rm -rf ~/.pi/agent/skills/self-destruct
 rm -rf ~/.pi/agent/skills/tdd
 rm -rf ~/.pi/agent/skills/plannotator-*
 ln -sf ~/dotfiles/pi/extensions/tmux-agents ~/.pi/agent/extensions/tmux-agents
@@ -109,6 +118,7 @@ ln -sf ~/dotfiles/pi/agents/plan.md ~/.pi/agent/agents/plan.md
 ln -sf ~/dotfiles/pi/agents/build.md ~/.pi/agent/agents/build.md
 ln -sf ~/dotfiles/pi/agents/fast.md ~/.pi/agent/agents/fast.md
 ln -sf ~/dotfiles/claude/skills/grill-me ~/.pi/agent/skills/grill-me
+ln -sf ~/dotfiles/claude/skills/self-destruct ~/.pi/agent/skills/self-destruct
 ln -sf ~/dotfiles/claude/skills/tdd ~/.pi/agent/skills/tdd
 
 # Setup jj (jujutsu) configuration
