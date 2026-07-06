@@ -2,14 +2,20 @@
 name: Tmux Interactive Control
 description: >-
   Drive interactive CLIs inside tmux panes by sending keys, capturing pane
-  output, and waiting for prompts. Use this for REPL/debug loops, not worker
-  spawning.
+  output, and waiting for prompts. Use this for local, collaborative tmux work
+  in the current session, not isolated worktree worker spawning.
 ---
 
 # Tmux Interactive Control
 
 Use tmux as a programmable terminal for interactive tools (python, lldb, gdb,
-psql, mysql, node, bash).
+psql, mysql, node, bash) and for local, collaborative work in the current tmux
+session.
+
+This skill is for “nearby” interaction: controlling panes/windows in the current
+session or an explicitly named existing session, akin to working with a local
+collaborative sub-agent. It should not create an isolated branch/worktree for an
+independent worker.
 
 Use this skill when you need to:
 
@@ -17,11 +23,31 @@ Use this skill when you need to:
 - capture pane output to inspect progress
 - poll for prompts/readiness text before sending next commands
 
-Do NOT use this skill to spawn worktree-backed workers.
-Use the harness-native tworker mechanism instead:
+Do NOT use this skill to spawn worktree-backed workers. If the user asks for a
+handoff or an independent isolated implementation/research task, use the
+harness-native tworker mechanism instead:
 - Claude Code: `/handoff` or `spawn-claude-tworker`
 - OpenCode: `/handoff` or `spawn-opencode-agent`
 - pi: `tworker` / `tmux_tworker` or `spawn-pi-tworker`
+
+## Tmux Interactive vs Handoff
+
+Use **tmux interactive control** for local work in the current tmux context:
+
+- drive an existing pane, REPL, debugger, shell, test watcher, or agent
+- send keys, capture pane output, and wait for prompts
+- collaborate with a same-session sub-agent without isolating the worktree
+
+Use **handoff** for independent, isolated implementation/research or orchestration:
+
+- create a new git worktree and a separate tmux session/window
+- let a worker own a task branch independently
+- allow an orchestrator agent to monitor/review/coordinate an implementor agent
+- keep experimental edits away from the current working tree/session
+- never share worktrees, mutable state, or PR ownership between orchestrator and implementor
+
+Rule of thumb: tmux interactive control is “work with what is here”; handoff is
+“send this away to an isolated worker.”
 
 ## Core Rules
 

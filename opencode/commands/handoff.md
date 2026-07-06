@@ -4,9 +4,9 @@ description: Handoff work to a visible tmux worktree worker
 
 Handoff work to a separate visible **OpenCode** tmux worktree worker with `spawn-opencode-agent`.
 
-A handoff is a separate visible tmux worktree worker. Do not treat normal agent/subagent requests as handoff requests.
+A handoff is a separate visible tmux worktree worker for independent, isolated implementation, research, or orchestration. The new worktree + tmux session is intentional: it keeps the worker's edits and experiments separate from the current worktree/session. An orchestrator agent may keep tabs on, review, and coordinate an implementor agent, but they must not share worktrees, mutable state, or PR ownership. Do not treat normal local agent/subagent requests or tmux-interactive collaboration as handoff requests.
 
-Do **not** use `spawn-pi-tworker` or `spawn-claude-tworker` unless the user explicitly asks for pi or Claude Code.
+Do **not** use `spawn-pi-tworker` or `spawn-claude-tworker` unless the user explicitly asks for pi or Claude Code. If invoking Claude Code, run it without `ANTHROPIC_API_KEY` in the environment, e.g. `env -u ANTHROPIC_API_KEY spawn-claude-tworker ...`, so the subscription is used instead of direct API access.
 
 Do **not** use `remote-tworker`, remote jobs, detached jobs, background jobs, or any headless mode unless the user explicitly asks for remote/headless execution. This command should create a tmux session/window the user can attach to.
 
