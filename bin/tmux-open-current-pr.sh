@@ -45,4 +45,7 @@ if [[ -z "$pr_url" ]]; then
 fi
 
 notify "Opening PR for $branch_name"
-xdg-open "$pr_url" >/dev/null 2>&1 &
+if ! xdg-open "$pr_url" >/dev/null 2>&1; then
+    notify "Failed to open PR for $branch_name"
+    exit 1
+fi

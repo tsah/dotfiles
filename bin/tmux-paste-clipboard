@@ -27,8 +27,8 @@ elif command -v xsel >/dev/null 2>&1; then
 fi
 
 if [[ -z "$clipboard_text" ]]; then
-  tmux display-message "Clipboard has no text to paste"
-  exit 1
+  tmux display-message "Clipboard has no text to paste; use terminal paste (Ctrl+Shift+V) if remote"
+  exit 0
 fi
 
 if command -v wtype >/dev/null 2>&1 && [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
