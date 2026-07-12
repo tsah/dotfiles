@@ -157,12 +157,22 @@ require('yazi').setup({
 })
 
 local ts_languages = { "lua", "vim", "vimdoc", "javascript", "typescript", "python" }
+local function has_c_compiler()
+    for _, compiler in ipairs({ "cc", "gcc", "clang", "cl", "zig" }) do
+        if vim.fn.executable(compiler) == 1 then
+            return true
+        end
+    end
+    return false
+end
+
+local can_compile_treesitter = has_c_compiler()
 local has_ts_configs, ts_configs = pcall(require, 'nvim-treesitter.configs')
 
 if has_ts_configs then
     ts_configs.setup({
-        ensure_installed = ts_languages,
-        auto_install = true,
+        ensure_installed = can_compile_treesitter and ts_languages or {},
+        auto_install = can_compile_treesitter,
         highlight = {
             enable = true,
         },
@@ -190,8 +200,11 @@ else
                 end
             end
 
-            if #missing > 0 then
-                ts.install(missing)
+            if can_compile_treesitter and #missing > 0 then
+                local install_ok, install_err = pcall(ts.install, missing)
+                if not install_ok then
+                    vim.notify('Treesitter parser install failed: ' .. tostring(install_err), vim.log.levels.WARN)
+                end
             end
         end
 
