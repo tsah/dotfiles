@@ -2,13 +2,12 @@
 description: Handoff work to a visible tmux worktree worker
 ---
 
-Handoff work to a separate visible **OpenCode** tmux worktree worker with `spawn-opencode-agent`.
+Handoff work to a separate visible **OpenCode** tmux worktree worker with `worker-opencode`.
 
 A handoff is a separate visible tmux worktree worker for independent, isolated implementation, research, or orchestration. The new worktree + tmux session is intentional: it keeps the worker's edits and experiments separate from the current worktree/session. An orchestrator agent may keep tabs on, review, and coordinate an implementor agent, but they must not share worktrees, mutable state, or PR ownership. Do not treat normal local agent/subagent requests or tmux-interactive collaboration as handoff requests.
 
-Do **not** use `spawn-pi-tworker` or `spawn-claude-tworker` unless the user explicitly asks for pi or Claude Code. If invoking Claude Code, run it without `ANTHROPIC_API_KEY` in the environment, e.g. `env -u ANTHROPIC_API_KEY spawn-claude-tworker ...`, so the subscription is used instead of direct API access.
+Do **not** use `worker-pi` or `worker-claude` unless the user explicitly asks for pi or Claude Code. If invoking Claude Code, run it without `ANTHROPIC_API_KEY` in the environment, e.g. `env -u ANTHROPIC_API_KEY worker-claude ...`, so the subscription is used instead of direct API access.
 
-Do **not** use `remote-tworker`, remote jobs, detached jobs, background jobs, or any headless mode unless the user explicitly asks for remote/headless execution. This command should create a tmux session/window the user can attach to.
 
 Arguments: `$ARGUMENTS`
 
@@ -19,7 +18,7 @@ Interpret arguments in this order:
 4. `<initial-prompt>` (derive a short kebab-case branch name)
 
 Pass through these options when requested:
-- `--base <ref>`: base the new worktree branch on this ref. If omitted, `spawn-opencode-agent` defaults to `origin/master` after fetching.
+- `--base <ref>`: base the new worktree branch on this ref. If omitted, `worker-opencode` defaults to `origin/master` after fetching.
 - `--copy <path>`: copy a file or directory from the current worktree into the spawned worktree at the same relative path. Repeat it for multiple files, such as plan files.
 
 If the user does not provide `--agent`, use `--agent build`.

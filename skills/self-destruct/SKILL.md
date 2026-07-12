@@ -39,7 +39,7 @@ agent-self-destruct --yes
 If `agent-self-destruct` is not on `PATH`, use the bundled wrapper:
 
 ```bash
-bash "$HOME/dotfiles/claude/skills/self-destruct/scripts/self-destruct.sh" --yes
+bash "$HOME/dotfiles/skills/self-destruct/scripts/self-destruct.sh" --yes
 ```
 
 The script validates that it is inside tmux, inside a git worktree, not on the

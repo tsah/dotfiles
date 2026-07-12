@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 function extractAssistantResult(messages: Array<any>) {
 	for (let index = messages.length - 1; index >= 0; index--) {
@@ -42,15 +42,12 @@ export default function (pi: ExtensionAPI) {
 		writeFileSync(signalFile, `${JSON.stringify(payload)}\n`, "utf8");
 	};
 
+	let latestResult = { status: 1, stopReason: "no_result", errorMessage: "Agent settled without a result.", reply: "" };
 	pi.on("agent_end", async (event) => {
-		const result = extractAssistantResult(event.messages as Array<any>);
-		writeSignal({
-			timestamp: Date.now(),
-			status: result.status,
-			stopReason: result.stopReason,
-			errorMessage: result.errorMessage,
-			reply: result.reply,
-		});
+		latestResult = extractAssistantResult(event.messages as Array<any>);
+	});
+	pi.on("agent_settled", async () => {
+		writeSignal({ timestamp: Date.now(), ...latestResult });
 	});
 
 	pi.on("session_shutdown", async () => {

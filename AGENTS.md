@@ -1,5 +1,7 @@
 # Agent Guidelines for dotfiles Repository
 
+> **Workflow changes:** read [`docs/dotfiles-workflow.md`](docs/dotfiles-workflow.md) and execute the safety-scoped [`docs/qa/dotfiles-workflow.md`](docs/qa/dotfiles-workflow.md) QA plan. Never run its destructive scenarios against real sessions/worktrees.
+
 ## IMPORTANT: Edit Files in This Repository
 
 **All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/`, `~/.pi/`, or other live config directories directly.** The files here are symlinked to their destinations by `install-omarchy.sh`. For example:
@@ -13,8 +15,8 @@
 Personal dotfiles for Arch Linux with Hyprland (Omarchy), including configurations for:
 - Neovim, tmux, zsh, starship prompt
 - Hyprland window manager (via Omarchy)
-- Terminal emulators (Ghostty, Alacritty, WezTerm)
-- Development tools (jj/jujutsu, sesh, lazygit, opencode, pi)
+- Ghostty terminal configuration
+- Development tools (Worktrunk, lazygit, opencode, pi)
 
 ## Build/Lint/Test Commands
 
@@ -100,7 +102,7 @@ echo "Error: Branch not found" >&2
 if [[ -n "$TMUX" ]]; then
 
 # Use [ ] in POSIX sh scripts
-if [ -n "$NIRI_SOCKET" ]; then
+if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
 
 # Case statements for option parsing
 case $1 in
@@ -175,7 +177,7 @@ vim.lsp.enable({
 
 ### Configuration Files
 
-**TOML (starship, sesh, jj):**
+**TOML (starship and tool configuration):**
 ```toml
 # Use sections for grouping
 [section]
@@ -197,7 +199,7 @@ path = "~/dev/project"
 }
 ```
 
-**KDL (zellij):**
+**KDL:**
 ```kdl
 section {
     key value
@@ -225,8 +227,6 @@ All config files live in `~/dotfiles` and are symlinked by `install-omarchy.sh`:
 
 ```bash
 # Pattern: mkdir if needed, then symlink
-mkdir -p ~/.config/sesh
-ln -sf ~/dotfiles/sesh.toml ~/.config/sesh/sesh.toml
 
 # For directories, remove existing first
 rm -rf ~/.config/hypr
@@ -251,7 +251,7 @@ dotfiles/
 │   ├── hypr/             # Hyprland config files
 │   └── waybar/           # Waybar config
 ├── pi/                    # Pi agent extensions and agent definitions
-├── *.toml                 # Various tool configs (starship, sesh, jj)
+├── *.toml                 # Tool configuration
 ├── *.json                 # JSON configs (opencode)
 ├── zshrc                  # Zsh configuration
 ├── .tmux.conf            # Tmux configuration
@@ -273,12 +273,12 @@ dotfiles/
 ## Claude Code Configuration
 
 Claude Code commands are in `~/dotfiles/claude/commands/` and symlinked to `~/.claude/commands/`.
-Shared skills live in `~/dotfiles/claude/skills/` and are symlinked to `~/.claude/skills/`.
+Shared skills live in `~/dotfiles/skills/` and are symlinked to `~/.claude/skills/`.
 
 Harness-native worker launchers:
-- Claude Code: `spawn-claude-tworker`
-- OpenCode: `spawn-opencode-agent`
-- pi: `spawn-pi-tworker`
+- Claude Code: `worker-claude`
+- OpenCode: `worker-opencode`
+- pi: `worker-pi`
 
 ## OpenCode Configuration
 
@@ -328,7 +328,7 @@ dotfiles/
 
 OpenCode loads the **Omarchy skill** from `~/.claude/skills/omarchy/SKILL.md` (Claude Code compatibility path). This skill provides domain-specific knowledge for:
 - Hyprland, Waybar, Walker configuration
-- Terminal emulator configs (Ghostty, Alacritty, Kitty)
+- Terminal emulator configs (Ghostty)
 - Omarchy commands (`omarchy-*`)
 - Theme and keybinding customization
 - Safe customization patterns (never edit `~/.local/share/omarchy/`)

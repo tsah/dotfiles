@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+printf 'Branch name: '
+IFS= read -r branch
+[ -n "$branch" ] || exit 0
+result=$("${DOTFILES_DIR:-$HOME/dotfiles}/bin/dotfiles-workflow" spawn-session "$branch")
+session=$(printf '%s' "$result" | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"])')
+if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$session"; else exec tmux attach-session -t "=$session"; fi

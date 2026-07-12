@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+DOTFILES_DIR=${DOTFILES_DIR:-"$HOME/dotfiles"}
+exec bun "$DOTFILES_DIR/alt-k-tui/src/cli.ts" "$@"

@@ -2,7 +2,18 @@
 
 set -euo pipefail
 
-cd "$HOME/dotfiles/alt-k-tui"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if [[ -r "$SCRIPT_DIR/lib/bootstrap-path.sh" ]]; then
+    # Ensure ~/.bun/bin and other user tool dirs are available from tmux popups.
+    # shellcheck source=/dev/null
+    . "$SCRIPT_DIR/lib/bootstrap-path.sh"
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+    echo "workspace-picker requires bun" >&2; exit 1
+fi
+
+cd "${DOTFILES_DIR:-$HOME/dotfiles}/alt-k-tui" || exit 1
 
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/alt-k-tui-$(id -u)"
 PID_FILE="$STATE_DIR/server.pid"

@@ -35,11 +35,11 @@ subagent mechanism instead.
 
 Stay inside the current harness unless the user explicitly asks for another one.
 
-- Claude Code uses `/handoff` or `spawn-claude-tworker`.
+- Claude Code uses `/handoff` or `worker-claude`.
   When invoking Claude Code, ensure `ANTHROPIC_API_KEY` is unset so the Claude
   subscription is used rather than direct API access.
-- OpenCode uses `/handoff` or `spawn-opencode-agent`.
-- pi uses `tworker`, `tmux_tworker`, or `spawn-pi-tworker`.
+- OpenCode uses `/handoff` or `worker-opencode`.
+- pi uses `tworker`, `tmux_tworker`, or `worker-pi`.
 
 Do not launch remote/headless workers unless the user explicitly asks for a
 remote job, background job, detached job, or headless mode.
@@ -77,7 +77,7 @@ worktree worker.
 ### Claude Code
 
 ```bash
-env -u ANTHROPIC_API_KEY spawn-claude-tworker [--agent <agent-name>] <branch-name> <initial-prompt>
+env -u ANTHROPIC_API_KEY worker-claude [--agent <agent-name>] <branch-name> <initial-prompt>
 ```
 
 The launcher also unsets `ANTHROPIC_API_KEY` before executing `claude`.
@@ -85,11 +85,11 @@ The launcher also unsets `ANTHROPIC_API_KEY` before executing `claude`.
 ### OpenCode
 
 ```bash
-spawn-opencode-agent [--agent <agent-name>] <branch-name> <initial-prompt>
+worker-opencode [--agent <agent-name>] <branch-name> <initial-prompt>
 ```
 
 ### pi
 
 ```bash
-spawn-pi-tworker [--agent <agent-name>] <branch-name> <initial-prompt>
+worker-pi [--agent <agent-name>] <branch-name> <initial-prompt>
 ```

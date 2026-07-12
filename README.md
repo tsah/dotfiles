@@ -31,7 +31,7 @@ Use these scripts on Linux servers (Amazon Linux 2023 tested):
 - `install-server-packages.sh` installs shell and CLI tooling used by this repo.
 - `install-server-packages.sh` also installs an `xterm-ghostty` terminfo shim so tmux works when SSHing from Ghostty.
 - Neovim installs from `stable` by default (`NEOVIM_CHANNEL=nightly ./install-server-packages.sh` to opt into nightly).
-- `install-server.sh` creates symlinks for dotfiles and config files and sets the default shell to fish.
+- `install-server.sh` creates symlinks for dotfiles and config files.
 
 ## Notes
 

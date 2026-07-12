@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+scope=${1:-desktop}
+case "$scope" in desktop|server) ;; *) echo "Usage: dotfiles-install [desktop|server]" >&2; exit 2;; esac
+root=${DOTFILES_DIR:-"$HOME/dotfiles"}; manifest="$root/install-manifest.tsv"
+state=${XDG_STATE_HOME:-"$HOME/.local/state"}/dotfiles-install; ledger="$state/$scope.links"
+mkdir -p "$state"; next=$(mktemp); trap 'rm -f "$next"' EXIT
+while IFS=' ' read -r scopes source destination; do
+  case "$scopes" in ''|'#'*) continue;; esac
+  short=d; [ "$scope" = server ] && short=s
+  [ "$scopes" = a ] || [ "$scopes" = "$short" ] || continue
+  destination=$(printf '%s' "$destination" | sed "s|^~|$HOME|")
+  source="$root/$source"; mkdir -p "$(dirname "$destination")"
+  if [ -e "$destination" ] && [ ! -L "$destination" ]; then echo "Refusing to replace unmanaged path: $destination" >&2; exit 1; fi
+  ln -sfn "$source" "$destination"; printf '%s\n' "$destination" >> "$next"
+done < "$manifest"
+if [ -f "$ledger" ]; then while IFS= read -r old; do
+  grep -Fx "$old" "$next" >/dev/null && continue
+  [ -L "$old" ] || continue
+  target=$(readlink "$old"); case "$target" in "$root"/*) rm -f "$old";; esac
+done < "$ledger"; fi
+mv "$next" "$ledger"; trap - EXIT
+echo "Reconciled $scope manifest-owned links."

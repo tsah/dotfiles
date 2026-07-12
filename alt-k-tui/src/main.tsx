@@ -7,14 +7,14 @@ type Target =
   | { type: "tmux_session"; session: string }
   | { type: "tmux_window"; session: string; windowId: string }
   | { type: "opencode"; session: string; pane: string }
-  | { type: "zoxide"; raw: string; path: string }
+  | { type: "directory"; path: string }
 
 type AgentState = "running" | "done" | "attention" | "unknown"
 
 interface TmuxSession { name: string; recency: number; path: string }
 interface TmuxWindow { session: string; id: string; name: string; pane: string; pid: string; command: string; title: string }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string }
-interface ZoxideRow { raw: string; path: string }
+interface DirectoryRow { path: string }
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target }
 interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string }
@@ -56,12 +56,6 @@ const runCommand = (cmd: string[], options: { cwd?: string; allowFailure?: boole
 
 const parseTsv = (output: string) => output.split("\n").filter(Boolean).map((line) => line.split("\t"))
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "")
-const parseSeshLabel = (raw: string) => {
-  const plain = stripAnsi(raw).trim()
-  const match = plain.match(/^\S+\s+(.+)$/)
-  return match?.[1] ?? plain
-}
 const expandHome = (path: string) => path === "~" ? Bun.env.HOME ?? path : path.startsWith("~/") ? `${Bun.env.HOME}${path.slice(1)}` : path
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
 const ageFromUnixSeconds = (seconds: number) => {
@@ -105,8 +99,8 @@ const collectOpencode = runCommand(["opencode-status", "--tsv"], { allowFailure:
   }).filter((row): row is OpencodeStatus => Boolean(row?.session))),
 )
 
-const collectZoxide = runCommand(["sesh", "list", "-z", "--icons"], { allowFailure: true }).pipe(
-  Effect.map((output) => output.split("\n").filter(Boolean).map((raw): ZoxideRow => ({ raw, path: parseSeshLabel(raw) })).filter((row) => row.path.length > 0 && existsSync(expandHome(row.path)))),
+const collectDirectories = runCommand(["zoxide", "query", "-l"], { allowFailure: true }).pipe(
+  Effect.map((output) => output.split("\n").filter(Boolean).map((path): DirectoryRow => ({ path })).filter((row) => existsSync(expandHome(row.path)))),
 )
 
 const collectAgentReports = Effect.sync(() => {
@@ -177,20 +171,6 @@ const claudeStateFromTitle = (title: string): AgentState => {
   if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
   return "unknown"
 }
-const claudeStateFromPane = (pane: string, title: string) => runCommand(["tmux", "capture-pane", "-p", "-t", pane], { allowFailure: true }).pipe(
-  Effect.map((output): AgentState => {
-    const recent = output.split("\n").slice(-40).join("\n").toLowerCase()
-    if (recent.includes("\n❯") || recent.includes("auto mode on") || recent.includes("※ recap:")) return "done"
-    return claudeStateFromTitle(title)
-  }),
-)
-const piStateFromPane = (pane: string) => runCommand(["tmux", "capture-pane", "-p", "-t", pane], { allowFailure: true }).pipe(
-  Effect.map((output): AgentState => {
-    const recent = output.split("\n").slice(-80).join("\n").toLowerCase()
-    if (/\btook\s+\d+(?:\.\d+)?[a-z]*\b/.test(recent)) return "done"
-    return "running"
-  }),
-)
 
 const sessionState = (session: SessionRow): AgentState => {
   const states = session.details.map((detail) => detail.state)
@@ -202,7 +182,7 @@ const sessionState = (session: SessionRow): AgentState => {
 
 const sessionSortRank = (session: SessionRow) => ["attention", "running"].includes(sessionState(session)) ? 0 : 1
 
-const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], zoxideRows: ZoxideRow[], agentReports: AgentReport[]) => Effect.gen(function* () {
+const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], directoryRows: DirectoryRow[], agentReports: AgentReport[]) => Effect.gen(function* () {
   const windowsBySession = Map.groupBy(windows, (window) => window.session)
   const opencodesBySession = Map.groupBy(opencodes, (row) => row.session)
   const reportsByPane = new Map(agentReports.map((report) => [report.pane, report]))
@@ -230,7 +210,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     for (const window of agentWindows) {
       const kind = isPiWindow(window) ? "pi" : isClaudeWindow(window) ? "claude" : "codex"
       const report = reportsByPane.get(window.pane)
-      const state = report?.agent === kind ? report.state : kind === "codex" ? codexStateFromTitle(window.title || window.name) : kind === "claude" ? yield* claudeStateFromPane(window.pane, window.title || window.name) : kind === "pi" ? yield* piStateFromPane(window.pane) : "unknown"
+      const state = report?.agent === kind ? report.state : kind === "codex" ? codexStateFromTitle(window.title || window.name) : kind === "claude" ? claudeStateFromTitle(window.title || window.name) : "unknown"
       details.push({ kind, status: "", detail: "", title: window.title || window.name, age: "", state, target: { type: "tmux_window", session: window.session, windowId: window.id } })
     }
 
@@ -245,10 +225,10 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
   }
 
   const opencodeDirs = new Set(opencodes.map((row) => expandHome(row.directory.replace(/ \([0-9]+\)$/, ""))))
-  for (const zoxide of zoxideRows) {
-    if (opencodeDirs.has(expandHome(zoxide.path))) continue
-    const details: DetailRow[] = [{ kind: "directory", status: "", detail: "zoxide", title: zoxide.path, age: "", state: "unknown", target: { type: "zoxide", raw: zoxide.raw, path: zoxide.path } }]
-    const row: SessionRow = { name: zoxide.path, path: zoxide.path, branch: "", flags: "", markers: [], age: "", recency: 0, target: { type: "zoxide", raw: zoxide.raw, path: zoxide.path }, details, searchText: "" }
+  for (const directory of directoryRows) {
+    if (opencodeDirs.has(expandHome(directory.path))) continue
+    const details: DetailRow[] = [{ kind: "directory", status: "", detail: "zoxide", title: directory.path, age: "", state: "unknown", target: { type: "directory", path: directory.path } }]
+    const row: SessionRow = { name: directory.path, path: directory.path, branch: "", flags: "", markers: [], age: "", recency: 0, target: { type: "directory", path: directory.path }, details, searchText: "" }
     row.searchText = [row.name, row.path, "zoxide directory"].join(" ").toLowerCase()
     rows.push(row)
   }
@@ -256,8 +236,8 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
   return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || a.name.localeCompare(b.name))
 })
 
-const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectZoxide, collectAgentReports], { concurrency: "unbounded" }).pipe(
-  Effect.flatMap(([sessions, windows, opencodes, zoxideRows, agentReports]) => buildSessionRows(sessions, windows, opencodes, zoxideRows, agentReports)),
+const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports], { concurrency: "unbounded" }).pipe(
+  Effect.flatMap(([sessions, windows, opencodes, directoryRows, agentReports]) => buildSessionRows(sessions, windows, opencodes, directoryRows, agentReports)),
 )
 
 const writeCache = (sessions: SessionRow[]) => Effect.sync(() => {
@@ -371,7 +351,7 @@ const targetLabel = (target: Target) => {
     case "opencode": return `opencode pane ${target.pane}`
     case "tmux_session": return `tmux session ${target.session}`
     case "tmux_window": return `tmux window ${target.windowId}`
-    case "zoxide": return "zoxide directory"
+    case "directory": return "zoxide directory"
   }
 }
 const enterAction = (target: Target) => {
@@ -379,7 +359,7 @@ const enterAction = (target: Target) => {
     case "opencode": return "attach to opencode"
     case "tmux_session": return process.env.TMUX ? "switch to session" : "attach to session"
     case "tmux_window": return process.env.TMUX ? "switch to window" : "attach to window"
-    case "zoxide": return "sesh connect -s"
+    case "directory": return "open directory session"
   }
 }
 const detailStatusLabel = (detail: DetailRow) => detail.kind === "opencode" && detail.state === "done" ? "idle" : detail.status || detail.kind
@@ -393,7 +373,7 @@ const openTarget = (target: Target) => {
       case "tmux_window": return process.env.TMUX
         ? ["sh", "-c", "tmux switch-client -t \"$1\" && tmux select-window -t \"$2\"", "sh", target.session, target.windowId]
         : ["tmux", "attach-session", "-t", target.session, ";", "select-window", "-t", target.windowId]
-      case "zoxide": return ["sesh", "connect", "-s", target.path]
+      case "directory": return ["sh", "-c", "name=$(dotfiles-workflow session --cwd \"$1\") && tmux ${TMUX:+switch-client} ${TMUX:-attach-session} -t \"=$name\"", "sh", target.path]
     }
   })()
   return runCommand(command).pipe(Effect.asVoid)
@@ -416,8 +396,11 @@ const openTargetSync = (target: Target | undefined) => {
         { cwd: repoRoot, stdout: "ignore", stderr: "ignore" },
       )
       return
-    case "zoxide":
-      Bun.spawnSync(["sesh", "connect", "-s", target.path], { cwd: repoRoot, stdout: "ignore", stderr: "ignore" })
+    case "directory": {
+      const created = Bun.spawnSync([`${repoRoot}/bin/dotfiles-workflow`, "session", "--cwd", target.path], { cwd: repoRoot, stdout: "pipe", stderr: "ignore" })
+      const name = created.stdout.toString().trim()
+      if (name) Bun.spawnSync(["tmux", process.env.TMUX ? "switch-client" : "attach-session", "-t", `=${name}`], { stdout: "ignore", stderr: "ignore" })
+    }
   }
 }
 
@@ -479,7 +462,7 @@ function DetailBox(props: { session: SessionRow | undefined; frame: number }) {
           )}</For>
           <box flexDirection="row" height={1}>
             <text width={8} fg={theme.muted}>Enter:</text>
-            <text fg={theme.header}>{enterAction(props.session.target)}</text>
+            <text fg={theme.header}>{enterAction(props.session.target)} · ^s spawn/session · ^d delete</text>
           </box>
         </>
       ) : <text fg={theme.muted}>No matches</text>}
@@ -523,6 +506,17 @@ function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefine
     if (key.name === "up") return updateIndex(index() + 1)
     if (key.name === "down") return updateIndex(index() - 1)
     if (key.name === "return") return closeWith(selected()?.target)
+    if (key.ctrl && key.name === "s" && selected()?.path) {
+      const created = Bun.spawnSync([`${repoRoot}/bin/dotfiles-workflow`, "session", "--cwd", expandHome(selected()!.path)], { stdout: "pipe", stderr: "pipe" })
+      if (created.exitCode === 0) return closeWith({ type: "tmux_session", session: created.stdout.toString().trim() })
+      return
+    }
+    if (key.ctrl && key.name === "d" && selected()?.branch && selected()?.path) {
+      const path = expandHome(selected()!.path)
+      renderer.destroy()
+      Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, path], { stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+      return
+    }
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
       setQuery((value) => value + key.sequence)
       setIndex(0)

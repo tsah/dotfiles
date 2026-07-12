@@ -126,8 +126,8 @@ keymap('n', '<leader>on', function() require('opencode').command('session.new') 
 keymap({ 'n', 'v' }, '<leader>os', function() require('opencode').select() end, { desc = 'Select opencode prompt' })
 
 -- Pi tmux integration
-require("pi_tmux").setup({ mappings = false })
-keymap("n", "<leader>pp", function() require("pi_tmux").prompt_send() end, { desc = "Pi: prompt and send" })
-keymap("v", "<leader>ps", function() require("pi_tmux").send_selection() end, { desc = "Pi: send selection" })
-keymap("n", "<leader>pb", function() require("pi_tmux").send_buffer() end, { desc = "Pi: send buffer" })
-keymap("n", "<leader>pf", function() require("pi_tmux").focus() end, { desc = "Pi: focus tmux target" })
+require("pi_tmux").setup()
+keymap("n", "<leader>pp", "<cmd>AgentSendReference<cr>", { desc = "Agent: send reference" })
+keymap("v", "<leader>ps", ":AgentSendContents<cr>", { desc = "Agent: send selection" })
+keymap("n", "<leader>pb", "<cmd>%AgentSendContents<cr>", { desc = "Agent: send buffer" })
+keymap("n", "<leader>pf", "<cmd>AgentFocus<cr>", { desc = "Agent: focus" })

@@ -1,129 +1,28 @@
 #!/bin/bash
-
 set -euo pipefail
-
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-WT_BIN="$SCRIPT_DIR/wt"
-WT_COMPAT="$SCRIPT_DIR/lib/wt-compat.sh"
-
-usage() {
-    echo "Usage: $0 --yes"
-    echo ""
-    echo "Remove this agent's current git worktree and tmux session."
-    echo "This refuses to run unless the current tmux session matches the current worktree branch."
-}
-
-ASSUME_YES=false
 DRY_RUN=false
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --yes)
-            ASSUME_YES=true
-            shift
-            ;;
-        --dry-run)
-            DRY_RUN=true
-            shift
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        *)
-            echo "Error: Unknown option: $1" >&2
-            usage >&2
-            exit 1
-            ;;
-    esac
-done
-
-if [[ ! -f "$WT_COMPAT" ]]; then
-    echo "Error: wt compatibility helpers not found: $WT_COMPAT" >&2
-    exit 1
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+[[ -n "${TMUX:-}" ]] || { echo "Must run inside the agent's tmux session" >&2; exit 1; }
+identity=$($SCRIPT_DIR/dotfiles-workflow identity)
+readarray -t fields < <(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["path"]); print(d["branch"]); print(d["commonDir"])' <<<"$identity")
+worktree=${fields[0]}; branch=${fields[1]}; common=${fields[2]}
+session=$(tmux display-message -p '#S')
+tagged=$(tmux show-option -qv -t "=$session" @dotfiles_worktree_path)
+[[ -n "$tagged" && "$(realpath "$tagged")" == "$worktree" ]] || { echo "Session is not tagged for canonical worktree $worktree" >&2; exit 1; }
+[[ "$(realpath "$(tmux show-option -qv -t "=$session" @dotfiles_git_common_dir)")" == "$common" ]] || { echo "Repository identity mismatch" >&2; exit 1; }
+[[ "$branch" != "detached" ]] || { echo "Refusing detached HEAD" >&2; exit 1; }
+status=$(git -C "$worktree" status --porcelain)
+upstream=$(git -C "$worktree" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
+unpushed=true
+if [[ -n "$upstream" ]] && git -C "$worktree" merge-base --is-ancestor HEAD "$upstream"; then unpushed=false; fi
+unsafe=false; [[ -n "$status" || "$unpushed" == true ]] && unsafe=true
+printf 'Self destruct target:\n  Worktree: %s\n  Branch: %s\n  Session: %s\n' "$worktree" "$branch" "$session"
+if [[ "$unsafe" == true ]]; then
+  [[ -t 0 ]] || { echo "Unsafe state requires an interactive human confirmation" >&2; exit 1; }
+  printf "Dirty, untracked, or unpushed state detected. Type branch '%s' to destroy: " "$branch"
+  read -r confirmation; [[ "$confirmation" == "$branch" ]] || { echo "Aborted."; exit 1; }
 fi
-
-# shellcheck source=/dev/null
-. "$WT_COMPAT"
-
-if [[ ! -x "$WT_BIN" ]]; then
-    echo "Error: wt helper is not executable: $WT_BIN" >&2
-    exit 1
-fi
-
-if ! command -v git >/dev/null 2>&1; then
-    echo "Error: git is required" >&2
-    exit 1
-fi
-
-if ! command -v tmux >/dev/null 2>&1; then
-    echo "Error: tmux is required" >&2
-    exit 1
-fi
-
-if [[ -z "${TMUX:-}" ]]; then
-    echo "Error: self destruct must be run from inside the agent's own tmux session" >&2
-    exit 1
-fi
-
-if ! wt_compat_resolve_context "$PWD"; then
-    echo "Error: Not in a supported git repository" >&2
-    exit 1
-fi
-
-if [[ -z "$WT_COMPAT_WORKTREE_ROOT" ]]; then
-    echo "Error: This command must be run from a git worktree" >&2
-    exit 1
-fi
-
-CURRENT_BRANCH=$(git -C "$WT_COMPAT_WORKTREE_ROOT" branch --show-current)
-if [[ -z "$CURRENT_BRANCH" ]]; then
-    echo "Error: Could not determine current branch" >&2
-    exit 1
-fi
-
-DEFAULT_BRANCH=$(wt_compat_default_branch_name "$WT_COMPAT_COMMON_DIR" 2>/dev/null || true)
-if [[ -n "$DEFAULT_BRANCH" && "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" ]]; then
-    echo "Error: Refusing to self destruct from default branch '$DEFAULT_BRANCH'" >&2
-    exit 1
-fi
-
-CURRENT_SESSION=$(tmux display-message -p '#S' 2>/dev/null || true)
-if [[ -z "$CURRENT_SESSION" ]]; then
-    echo "Error: Could not determine current tmux session" >&2
-    exit 1
-fi
-
-EXPECTED_SESSION=$(wt_compat_session_name "$WT_COMPAT_CONTAINER_ROOT" "$CURRENT_BRANCH")
-if [[ "$CURRENT_SESSION" != "$EXPECTED_SESSION" ]]; then
-    echo "Error: Refusing to self destruct from tmux session '$CURRENT_SESSION'" >&2
-    echo "Expected session for this worktree branch: '$EXPECTED_SESSION'" >&2
-    echo "Run this only from the spawned worker's own tmux session." >&2
-    exit 1
-fi
-
-cat <<EOF
-Self destruct target:
-  Worktree: $WT_COMPAT_WORKTREE_ROOT
-  Branch:   $CURRENT_BRANCH
-  Session:  $CURRENT_SESSION
-EOF
-
-if [[ "$DRY_RUN" == true ]]; then
-    echo "Dry run only; no changes made."
-    exit 0
-fi
-
-if [[ "$ASSUME_YES" != true ]]; then
-    printf "Delete this worktree and kill this tmux session? [y/N] "
-    read -r response
-    case "$response" in
-        [yY]|[yY][eE][sS]) ;;
-        *)
-            echo "Aborted."
-            exit 0
-            ;;
-    esac
-fi
-
-exec env WT_DESTROY_ASSUME_YES=1 "$WT_BIN" destroy
+[[ "$DRY_RUN" == false ]] || { echo "Dry run only; no changes made."; exit 0; }
+# Worktrunk remains the authority for safe worktree teardown.
+exec wt destroy "$worktree"

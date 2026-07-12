@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+path=${1:?Usage: worktree-delete PATH}
+root=$(git -C "$path" rev-parse --show-toplevel); branch=$(git -C "$root" branch --show-current)
+[[ -n "$branch" ]] || { echo "Refusing detached worktree" >&2; exit 1; }
+status=$(git -C "$root" status --porcelain)
+upstream=$(git -C "$root" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
+unsafe=false
+[[ -n "$status" || -z "$upstream" ]] && unsafe=true
+if [[ -n "$upstream" ]] && ! git -C "$root" merge-base --is-ancestor HEAD "$upstream"; then unsafe=true; fi
+if [[ "$unsafe" == true ]]; then
+  printf "Unsafe state (dirty, untracked, or unpushed). Type '%s' to delete: " "$branch"; read -r answer
+  [[ "$answer" == "$branch" ]] || { echo "Aborted."; exit 1; }
+else
+  printf "Delete clean, pushed worktree '%s'? [y/N] " "$branch"; read -r answer
+  [[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]] || { echo "Aborted."; exit 1; }
+fi
+exec wt destroy "$root"

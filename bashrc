@@ -23,8 +23,15 @@ prepend_path "/Users/tsah/Library/Application Support/Coursier/bin"
 prepend_path "/Users/tsah/.opencode/bin"
 prepend_path "/usr/local/bin"
 
+prepend_path "$HOME/.local/bin"
+
 export PATH
 unset -f prepend_path
+
+# mise: activate global tool versions (e.g. python 3.12, node)
+if command -v mise >/dev/null 2>&1; then
+    eval "$(mise activate bash)"
+fi
 
 export BUN_INSTALL="$HOME/.bun"
 export EDITOR=nvim
@@ -45,7 +52,7 @@ alias ocu='brew install sst/tap/opencode'
 alias occ='oc -c'
 alias worktrunk='wt'
 alias wtd='wt destroy'
-alias cmd="$HOME/bin/cmd"
+alias cmd="$HOME/dotfiles/bin/cmd"
 alias cmdyolo='cmd --yolo'
 
 ve() {
@@ -58,34 +65,7 @@ ve() {
     fi
 }
 
-s() {
-    local selected name dir
-    selected=$(sesh list --icons | fzf --ansi --no-sort \
-        --border-label " sesh " \
-        --prompt "> " \
-        --header "  ^a all ^t tmux ^g configs ^x zoxide" \
-        --bind "ctrl-a:change-prompt(> )+reload(sesh list --icons)" \
-        --bind "ctrl-t:change-prompt(T )+reload(sesh list -t --icons)" \
-        --bind "ctrl-g:change-prompt(G )+reload(sesh list -c --icons)" \
-        --bind "ctrl-x:change-prompt(X )+reload(sesh list -z --icons)" \
-        --preview "sesh preview {}")
-
-    [ -z "$selected" ] && return
-
-    if [ -n "$TMUX" ]; then
-        sesh connect "$selected"
-        return
-    fi
-
-    name=$(printf '%s' "$selected" | sed 's/^[^ ]* //')
-    dir="${name/#\~/$HOME}"
-
-    if [ -d "$dir" ]; then
-        tmux new-session -A -s "$(basename "$dir")" -c "$dir"
-    else
-        tmux new-session -A -s "$name"
-    fi
-}
+s() { "$HOME/dotfiles/bin/workspace-picker"; }
 
 if [ -s "$NVM_DIR/nvm.sh" ]; then
     # shellcheck disable=SC1090

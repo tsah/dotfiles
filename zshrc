@@ -13,6 +13,8 @@ export EDITOR="nvim"
 export VISUAL="nvim"
 export PAGER="less"
 export BROWSER="xdg-open"
+export PLANNOTATOR_REMOTE="${PLANNOTATOR_REMOTE:-1}"
+export PLANNOTATOR_PORT="${PLANNOTATOR_PORT:-19432}"
 
 # Configure word boundaries (exclude / and . from word characters)
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
@@ -31,6 +33,11 @@ path=(
   "$HOME/.local/node/node-v22.19.0-linux-arm64/bin"
   $path
 )
+
+# ---- mise (activates global tool versions, e.g. python 3.12, node) ----
+if command -v mise >/dev/null 2>&1; then
+  eval "$(mise activate zsh)"
+fi
 
 # Load private env (if present)
 [[ -f "$HOME/.env" ]] && source "$HOME/.env"
@@ -183,7 +190,7 @@ alias ocu="brew install sst/tap/opencode"
 alias occ="oc -c"  # Continue most recent session for current directory
 alias worktrunk="wt"
 alias wtd="wt destroy"
-alias cmd="$HOME/bin/cmd"
+alias cmd="$HOME/dotfiles/bin/cmd"
 alias cmdyolo="cmd --yolo"
 
 # SSH + tmux in one command
@@ -191,32 +198,8 @@ ssht() {
     ssh -t "$1" "exec zsh -l -c 'tmux new-session -A -s main'"
 }
 
-# sesh launcher (kept)
-s() {
-  local selected name dir
-  selected=$(sesh list --icons | fzf --ansi --no-sort \
-    --border-label " sesh " \
-    --prompt "⚡  " \
-    --header "  ^a all ^t tmux ^g configs ^x zoxide" \
-    --bind "ctrl-a:change-prompt(⚡  )+reload(sesh list --icons)" \
-    --bind "ctrl-t:change-prompt(🪟  )+reload(sesh list -t --icons)" \
-    --bind "ctrl-g:change-prompt(⚙️  )+reload(sesh list -c --icons)" \
-    --bind "ctrl-x:change-prompt(📁  )+reload(sesh list -z --icons)" \
-    --preview "sesh preview {}")
-  [[ -z "$selected" ]] && return
-  if [[ -n "$TMUX" ]]; then
-    sesh connect "$selected"
-  else
-    # Outside tmux: extract name after icon, attach or create session
-    name=$(echo "$selected" | sed 's/^[^ ]* //')
-    dir="${name/#\~/$HOME}"
-    if [[ -d "$dir" ]]; then
-      tmux new-session -A -s "$(basename "$dir")" -c "$dir"
-    else
-      tmux new-session -A -s "$name"
-    fi
-  fi
-}
+# Unified session/worktree/directory picker
+s() { "$HOME/dotfiles/bin/workspace-picker"; }
 
 # ---- prompt ----
 if command -v starship >/dev/null 2>&1; then
@@ -237,4 +220,9 @@ fi
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
 
 # islo CLI completions
-source <(COMPLETE=zsh islo)
+if command -v islo >/dev/null 2>&1; then
+  source <(COMPLETE=zsh islo)
+fi
+
+# bun completions
+[ -s "/home/tsah/.bun/_bun" ] && source "/home/tsah/.bun/_bun"
