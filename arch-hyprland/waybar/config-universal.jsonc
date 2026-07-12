@@ -4,7 +4,7 @@
   "position": "top",
   "spacing": 0,
   "height": 26,
-   "modules-left": ["hyprland/workspaces", "niri/workspaces", "custom/scratchpad"],
+   "modules-left": ["hyprland/workspaces", "custom/scratchpad"],
   "modules-center": ["clock"],
   "modules-right": [
     "group/tray-expander",
@@ -31,22 +31,7 @@
        "active": "󱓻"
      }
    },
-   "niri/workspaces": {
-     "format": "{icon}",
-     "format-icons": {
-       "default": "",
-       "1": "1",
-       "2": "2",
-       "3": "3",
-       "4": "4",
-       "5": "5",
-       "6": "6",
-       "7": "7",
-       "8": "8",
-       "9": "9",
-       "active": "󱓻"
-     }
-   },
+
   "cpu": {
     "interval": 5,
     "format": "󰍛",
@@ -128,7 +113,7 @@
     "spacing": 12
   },
   "custom/keyboard-layout": {
-     "exec": "/home/tsah/dotfiles/niri/get-keyboard-layout.sh",
+     "exec": "/home/tsah/dotfiles/bin/keyboard-layout",
     "interval": 1,
     "format": "⌨ {}",
     "tooltip": false

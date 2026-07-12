@@ -138,7 +138,7 @@
     "exec": "/home/tsah/dotfiles/bin/keyboard-layout",
     "interval": 1,
     "format": "{}",
-    "on-click": "hyprctl switchxkblayout current +1"  // or niri command
+    "on-click": "hyprctl switchxkblayout current +1"
   },
   "custom/dropbox": {
     "exec": "/home/tsah/dotfiles/bin/dropbox-indicator",

@@ -22,7 +22,7 @@ fi
 install_base_packages() {
     if command -v dnf >/dev/null 2>&1; then
         log "Installing base packages with dnf..."
-        sudo dnf install -y \
+        sudo dnf install -y --allowerasing \
             git \
             zsh \
             tmux \
@@ -33,6 +33,11 @@ install_base_packages() {
             unzip \
             xz \
             python3 \
+            gnupg2 \
+            gcc \
+            gcc-c++ \
+            make \
+            libatomic \
             jq \
             sqlite \
             procps-ng \
@@ -40,7 +45,7 @@ install_base_packages() {
 
         for pkg in xclip zsh-autosuggestions; do
             if sudo dnf list --available "$pkg" >/dev/null 2>&1 || sudo dnf list --installed "$pkg" >/dev/null 2>&1; then
-                sudo dnf install -y "$pkg"
+                sudo dnf install -y --allowerasing "$pkg"
                 continue
             fi
 
@@ -54,7 +59,6 @@ install_base_packages() {
         sudo apt-get update
         sudo apt-get install -y \
             git \
-            fish \
             zsh \
             tmux \
             curl \
@@ -64,6 +68,9 @@ install_base_packages() {
             unzip \
             xz-utils \
             python3 \
+            gnupg \
+            build-essential \
+            libatomic1 \
             jq \
             sqlite3 \
             xclip \
@@ -163,16 +170,6 @@ PY
     rm -rf "$tmp_dir"
 }
 
-install_fish() {
-    local suffix="$1"
-
-    if command -v fish >/dev/null 2>&1; then
-        log "fish is already installed."
-        return
-    fi
-
-    install_binary_from_tar "fish-shell/fish-shell" "$suffix" "fish"
-}
 
 install_zsh_autosuggestions() {
     local plugin_dir="${HOME}/.zsh/plugins/zsh-autosuggestions"
@@ -274,25 +271,95 @@ EOF
     rm -f "$src_file"
 }
 
-install_opencode() {
-    if command -v opencode >/dev/null 2>&1; then
-        log "OpenCode is already installed."
+install_mise() {
+    if command -v mise >/dev/null 2>&1; then
+        log "mise is already installed."
         return
     fi
 
-    log "Installing OpenCode..."
-    if curl -fsSL https://opencode.ai/install | bash; then
-        log "OpenCode installation complete."
-    else
-        log "OpenCode installation skipped (installer unavailable)."
-    fi
+    log "Installing mise..."
+    curl -fsSL https://mise.run | sh
+    export PATH="$HOME/.local/bin:$PATH"
+}
+
+install_node_runtime() {
+    install_mise
+
+    log "Installing latest Node.js with mise..."
+    "$HOME/.local/bin/mise" use -g node@latest >/dev/null
+    export PATH="$($HOME/.local/bin/mise where node@latest)/bin:$HOME/.local/bin:$PATH"
+}
+
+install_python_runtime() {
+    install_mise
+
+    log "Installing Python 3.12 with mise and setting it as the global default..."
+    "$HOME/.local/bin/mise" use -g python@3.12 >/dev/null
+    export PATH="$($HOME/.local/bin/mise where python@3.12)/bin:$HOME/.local/bin:$PATH"
+}
+
+install_npx_wrapper() {
+    local binary_name="$1"
+    local package_name="$2"
+    local command_name="$3"
+    local target="$HOME/.local/bin/$binary_name"
+
+    mkdir -p "$HOME/.local/bin"
+
+    log "Installing ${binary_name} wrapper (${package_name})..."
+    cat >"$target" <<EOF
+#!/bin/bash
+set -euo pipefail
+package="$package_name"
+command="$command_name"
+
+if ! command -v mise >/dev/null 2>&1; then
+  echo "mise is required for $binary_name. Re-run install-server-packages.sh." >&2
+  exit 127
+fi
+
+if ! node_root="\$(mise where node@latest 2>/dev/null)"; then
+  mise use -g node@latest >/dev/null
+  node_root="\$(mise where node@latest)"
+fi
+
+node_bin="\$node_root/bin/node"
+npx_bin="\$node_root/bin/npx"
+
+exec_package_bin() {
+  local package_bin_path="\$1"
+  shift
+  if [[ -n "\$package_bin_path" ]]; then
+    PATH="\$node_root/bin:\$PATH" exec "\$package_bin_path" "\$@"
+  fi
+}
+
+"\$node_bin" "\$npx_bin" --yes --prefer-online --package "\$package" -- true
+package_bin_path="\$("\$node_bin" "\$npx_bin" --yes --package "\$package" -- which "\$package" 2>/dev/null || true)"
+exec_package_bin "\$package_bin_path" "\$@"
+package_bin_path="\$("\$node_bin" "\$npx_bin" --yes --package "\$package" -- which "\$command" 2>/dev/null || true)"
+exec_package_bin "\$package_bin_path" "\$@"
+
+echo "Could not resolve npm bin for \$package / \$command" >&2
+exit 127
+EOF
+    chmod 755 "$target"
+}
+
+install_ai_clis() {
+    install_node_runtime
+    install_python_runtime
+    install_npx_wrapper "opencode" "opencode-ai" "opencode"
+    install_npx_wrapper "pi" "@earendil-works/pi-coding-agent" "pi"
+    install_npx_wrapper "claude" "@anthropic-ai/claude-code" "claude"
+    install_npx_wrapper "codex" "@openai/codex" "codex"
 }
 
 print_versions() {
     log ""
     log "Installed tool versions:"
 
-    for cmd in fish zsh tmux nvim rg fd delta lazygit starship zoxide atuin jj sesh gh uv; do
+    for cmd in zsh tmux nvim rg fd delta lazygit starship zoxide atuin gh uv python opencode pi claude codex; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf '  - %s: %s\n' "$cmd" "$("$cmd" --version 2>/dev/null | head -1)"
         else
@@ -300,11 +367,6 @@ print_versions() {
         fi
     done
 
-    if command -v opencode >/dev/null 2>&1; then
-        printf '  - opencode: %s\n' "$(opencode --version 2>/dev/null | head -1)"
-    else
-        printf '  - opencode: not found\n'
-    fi
 }
 
 install_base_packages
@@ -318,7 +380,6 @@ case "$ARCH" in
     aarch64|arm64)
         GH_SUFFIX="linux_arm64.tar.gz"
         UV_SUFFIX="aarch64-unknown-linux-gnu.tar.gz"
-        FISH_SUFFIX="linux-aarch64.tar.xz"
         NEOVIM_SUFFIX="nvim-linux-arm64.tar.gz"
         FZF_SUFFIX="linux_arm64.tar.gz"
         RIPGREP_SUFFIX="aarch64-unknown-linux-gnu.tar.gz"
@@ -328,13 +389,10 @@ case "$ARCH" in
         STARSHIP_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-aarch64-unknown-linux-musl.tar.gz"
-        JJ_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
-        SESH_SUFFIX="sesh_Linux_arm64.tar.gz"
         ;;
     x86_64|amd64)
         GH_SUFFIX="linux_amd64.tar.gz"
         UV_SUFFIX="x86_64-unknown-linux-gnu.tar.gz"
-        FISH_SUFFIX="linux-x86_64.tar.xz"
         NEOVIM_SUFFIX="nvim-linux-x86_64.tar.gz"
         FZF_SUFFIX="linux_amd64.tar.gz"
         RIPGREP_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
@@ -344,15 +402,12 @@ case "$ARCH" in
         STARSHIP_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-x86_64-unknown-linux-musl.tar.gz"
-        JJ_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
-        SESH_SUFFIX="sesh_Linux_x86_64.tar.gz"
         ;;
     *)
         fail "Unsupported architecture: ${ARCH}"
         ;;
 esac
 
-install_fish "$FISH_SUFFIX"
 install_neovim "$NEOVIM_SUFFIX" "$NEOVIM_CHANNEL"
 install_binary_from_tar "junegunn/fzf" "$FZF_SUFFIX" "fzf"
 install_fzf_tmux_wrapper
@@ -363,13 +418,11 @@ install_binary_from_tar "jesseduffield/lazygit" "$LAZYGIT_SUFFIX" "lazygit"
 install_binary_from_tar "starship/starship" "$STARSHIP_SUFFIX" "starship"
 install_binary_from_tar "ajeetdsouza/zoxide" "$ZOXIDE_SUFFIX" "zoxide"
 install_binary_from_tar "atuinsh/atuin" "$ATUIN_SUFFIX" "atuin"
-install_binary_from_tar "martinvonz/jj" "$JJ_SUFFIX" "jj"
-install_binary_from_tar "joshmedeski/sesh" "$SESH_SUFFIX" "sesh"
 install_binary_from_tar "cli/cli" "$GH_SUFFIX" "gh"
 install_binary_from_tar "astral-sh/uv" "$UV_SUFFIX" "uv"
 install_ghostty_terminfo
 
-install_opencode
+install_ai_clis
 print_versions
 
 log ""

@@ -33,7 +33,7 @@ if [ -L /usr/local/bin/nvim ] && [ "$(readlink -f /usr/local/bin/nvim)" = "/opt/
 fi
 
 sudo pacman -S --needed \
-    fish \
+    base-devel \
     zsh \
     zsh-autosuggestions \
     neovim \
@@ -61,11 +61,29 @@ sudo systemctl enable --now iwd
 
 echo "📦 Installing AUR packages..."
 yay -S --needed \
-    sesh-bin \
     ghostty \
     hyprlock \
     wiremix \
     uwsm
+
+echo "📦 Installing Bun runtime..."
+export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+export PATH="$BUN_INSTALL/bin:$PATH"
+if ! command -v bun &> /dev/null; then
+    curl -fsSL https://bun.sh/install | bash
+    export PATH="$BUN_INSTALL/bin:$PATH"
+    echo "✅ Bun installed"
+else
+    echo "✅ Bun already installed"
+fi
+
+if command -v bun &> /dev/null; then
+    echo "📦 Installing Alt-K TUI dependencies..."
+    (cd "$HOME/dotfiles/alt-k-tui" && bun install)
+    echo "✅ Alt-K TUI dependencies installed"
+else
+    echo "⚠️  Bun not found after install; Alt-K TUI will fall back to fzf"
+fi
 
 echo "📦 Installing OpenCode (SST Claude CLI)..."
 if ! command -v opencode &> /dev/null; then
@@ -75,18 +93,6 @@ else
     echo "✅ OpenCode already installed"
 fi
 
-echo "📦 Installing starship-jj (jj prompt for Starship)..."
-if ! command -v starship-jj &> /dev/null; then
-    if command -v cargo &> /dev/null; then
-        cargo install starship-jj --locked
-        echo "✅ starship-jj installed"
-    else
-        echo "⚠️  Cargo not found. Install Rust first, then run: cargo install starship-jj --locked"
-    fi
-else
-    echo "✅ starship-jj already installed"
-fi
-
 echo ""
 echo "🎯 Optional packages (install as needed):"
 echo "   yay -S impala bt-device"
@@ -94,7 +100,6 @@ echo ""
 echo "✅ Core package installation complete!"
 echo ""
 echo "📋 Installed packages:"
-echo "   • fish - Fish shell"
 echo "   • zsh - Z shell"
 echo "   • zsh-autosuggestions - Fish-style command suggestions for Zsh"
 echo "   • iwd - Wireless daemon"
@@ -106,9 +111,8 @@ echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
 echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
-echo "   • sesh - Session manager"
+echo "   • bun - JavaScript runtime for Alt-K TUI"
 echo "   • opencode - SST Claude CLI"
-echo "   • starship-jj - jj prompt integration for Starship"
 echo "   • waybar - Status bar"
 echo "   • mako - Notification daemon"
 echo "   • fuzzel - App launcher"
