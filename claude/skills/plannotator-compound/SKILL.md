@@ -1,6 +1,5 @@
 ---
 name: plannotator-compound
-disable-model-invocation: true
 description: >
   Analyze a user's Plannotator plan archive to extract denial patterns, feedback
   taxonomy, evolution over time, and actionable prompt improvements — then produce

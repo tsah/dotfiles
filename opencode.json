@@ -2,13 +2,14 @@
   "$schema": "https://opencode.ai/config.json",
   "autoupdate": true,
   "default_agent": "build",
+  "command": {
+    "plannotator-last": {
+      "description": "Annotate the last assistant message",
+      "template": "Open Plannotator for the last assistant message in this OpenCode session."
+    }
+  },
   "plugin": [
-    [
-      "@plannotator/opencode@latest",
-      {
-        "workflow": "manual"
-      }
-    ],
+    "file:///home/tsah/dotfiles/opencode/plugins/plannotator-last-compat.js",
     [
       "@ishaksebsib/opencode-tree",
       {

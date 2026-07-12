@@ -83,6 +83,94 @@ check_link() {
     fi
 }
 
+check_skill_links() {
+    local dir="$1"
+    local link target resolved
+
+    if [[ -L "$dir" && ! -e "$dir" ]]; then
+        fail "broken skills directory link: $dir -> $(readlink "$dir")"
+        return
+    fi
+
+    if [[ ! -d "$dir" ]]; then
+        warn "missing skills directory: $dir"
+        return
+    fi
+
+    for link in "$dir"/*; do
+        [[ -L "$link" ]] || continue
+        target=$(readlink "$link")
+
+        if [[ ! -e "$link" ]]; then
+            fail "broken skill link: $link -> $target"
+        elif [[ ! -d "$link" ]]; then
+            fail "skill link is not a directory: $link -> $target"
+        elif [[ ! -f "$link/SKILL.md" ]]; then
+            fail "skill link missing SKILL.md: $link -> $target"
+        else
+            ok "skill link valid: $link -> $target"
+        fi
+    done
+}
+
+check_command_links() {
+    local dir="$1"
+    local link target
+
+    if [[ -L "$dir" && ! -e "$dir" ]]; then
+        fail "broken commands directory link: $dir -> $(readlink "$dir")"
+        return
+    fi
+
+    if [[ ! -d "$dir" ]]; then
+        warn "missing commands directory: $dir"
+        return
+    fi
+
+    for link in "$dir"/*; do
+        [[ -L "$link" ]] || continue
+        target=$(readlink "$link")
+
+        if [[ -e "$link" ]]; then
+            ok "command link valid: $link -> $target"
+        else
+            fail "broken command link: $link -> $target"
+        fi
+    done
+}
+
+check_opencode_plugins() {
+    local config="$1"
+    local plugin path
+
+    if [[ ! -f "$config" ]]; then
+        warn "missing opencode config: $config"
+        return
+    fi
+
+    while IFS= read -r plugin; do
+        path="${plugin#file://}"
+        if [[ -e "$path" ]]; then
+            ok "opencode plugin exists: $path"
+        else
+            fail "missing opencode plugin: $path"
+        fi
+    done < <(grep -o 'file://[^"]*' "$config")
+}
+
+is_desktop_profile() {
+    case "${DOTFILES_PROFILE:-}" in
+        omarchy|desktop|laptop)
+            return 0
+            ;;
+        server|dev-server|headless)
+            return 1
+            ;;
+    esac
+
+    command -v hyprctl >/dev/null 2>&1
+}
+
 dotfiles_root="$(realpath -m "$HOME/dotfiles")"
 
 printf 'Dotfiles doctor\n'
@@ -95,13 +183,30 @@ check_cmd opencode
 
 check_link "$HOME/.config/opencode/opencode.json" "$dotfiles_root"
 check_link "$HOME/.config/nvim" "$dotfiles_root"
-check_link "$HOME/.config/hypr" "$dotfiles_root"
+if is_desktop_profile; then
+    check_link "$HOME/.config/hypr" "$dotfiles_root"
+else
+    warn "skipping Hyprland link check on server/headless profile"
+fi
 check_link "$HOME/.tmux.conf" "$dotfiles_root"
+
+check_skill_links "$HOME/.claude/skills"
+check_skill_links "$HOME/.agents/skills"
+
+check_command_links "$HOME/.claude/commands"
+check_command_links "$HOME/.config/opencode/command"
+check_command_links "$HOME/.config/opencode/commands"
+
+check_opencode_plugins "$dotfiles_root/opencode.json"
 
 printf '\nSummary: %d checks, %d warnings, %d failures\n' "$checks" "$warnings" "$failures"
 
 if ((failures > 0)); then
-    printf 'Run ./install-omarchy.sh from %s to refresh local symlinks.\n' "$dotfiles_root"
+    if is_desktop_profile; then
+        printf 'Run ./install-omarchy.sh from %s to refresh desktop symlinks.\n' "$dotfiles_root"
+    else
+        printf 'Run ./install-server.sh from %s to refresh server symlinks.\n' "$dotfiles_root"
+    fi
     exit 1
 fi
 

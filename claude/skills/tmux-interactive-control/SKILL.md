@@ -26,9 +26,9 @@ Use this skill when you need to:
 Do NOT use this skill to spawn worktree-backed workers. If the user asks for a
 handoff or an independent isolated implementation/research task, use the
 harness-native tworker mechanism instead:
-- Claude Code: `/handoff` or `spawn-claude-tworker`
-- OpenCode: `/handoff` or `spawn-opencode-agent`
-- pi: `tworker` / `tmux_tworker` or `spawn-pi-tworker`
+- Claude Code: `/handoff` or `worker-claude`
+- OpenCode: `/handoff` or `worker-opencode`
+- pi: `tworker` / `tmux_tworker` or `worker-pi`
 
 ## Tmux Interactive vs Handoff
 
@@ -62,7 +62,7 @@ Rule of thumb: tmux interactive control is “work with what is here”; handoff
 ### Existing tmux server (default for your repo workflow)
 
 Use plain `tmux ...` commands when interacting with sessions created by
-`wt`, `spawn-opencode-agent`, `spawn-claude-tworker`, or `spawn-pi-tworker`.
+`wt`, `worker-opencode`, `worker-claude`, or `worker-pi`.
 
 ```bash
 tmux list-sessions
