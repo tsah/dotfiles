@@ -28,6 +28,7 @@ COLORS = {
     "age": "\033[90m",
     "generating": "\033[33m",
     "waiting question": "\033[36m",
+    "waiting permission": "\033[36m",
     "tool running": "\033[35m",
     "done": "\033[32m",
     "starting": "\033[34m",
@@ -204,12 +205,13 @@ def infer_status(last_msg, is_run_mode):
 
 def status_rank(status):
     order = {
-        "tool running": 0,
-        "waiting question": 1,
-        "generating": 2,
-        "starting": 3,
-        "done": 4,
-        "unknown": 5,
+        "waiting question": 0,
+        "waiting permission": 1,
+        "tool running": 2,
+        "generating": 3,
+        "starting": 4,
+        "done": 5,
+        "unknown": 6,
     }
     return order.get(status, 99)
 
@@ -423,6 +425,7 @@ def main():
                 "cwd": cwd,
                 "port": extract_port(cmdline),
                 "is_run_mode": is_run_mode,
+                "is_auto_mode": "--auto" in cmdline,
                 "session_name": session_name,
                 "pane_target": pane_target,
                 "session_id": "",
@@ -436,6 +439,9 @@ def main():
 
     # Fetch session lists per port (each port serves one project)
     port_sessions = {}
+    port_statuses = {}
+    port_permissions = {}
+    port_questions = {}
     session_titles = {}
     session_updated_times = {}
     scoped_session_cache = {}
@@ -469,6 +475,30 @@ def main():
                         session_updated_times[sid] = (
                             s.get("time", {}).get("updated", 0) or 0
                         )
+
+        requests = {}
+        for port in unique_ports:
+            requests[(port, "status")] = (port, "/session/status")
+            requests[(port, "permissions")] = (port, "/permission")
+            requests[(port, "questions")] = (port, "/question")
+
+        with ThreadPoolExecutor(max_workers=min(12, len(requests))) as executor:
+            future_to_key = {
+                executor.submit(api_get, port, path, SESSION_HTTP_TIMEOUT): key
+                for key, (port, path) in requests.items()
+            }
+            for future in as_completed(future_to_key):
+                port, kind = future_to_key[future]
+                try:
+                    result = future.result()
+                except Exception:
+                    result = None
+                if kind == "status":
+                    port_statuses[port] = result if isinstance(result, dict) else {}
+                elif kind == "permissions":
+                    port_permissions[port] = result if isinstance(result, list) else []
+                else:
+                    port_questions[port] = result if isinstance(result, list) else []
 
     # Resolve session IDs — always pick the most recently active
     # session for the directory rather than trusting the cmdline -s
@@ -596,6 +626,26 @@ def main():
         if port and session_id:
             message_key = f"{port}:{session_id}"
             messages = message_cache.get(message_key)
+            pending_question = next(
+                (
+                    request
+                    for request in port_questions.get(port, [])
+                    if request.get("sessionID") == session_id
+                ),
+                None,
+            )
+            pending_permission = next(
+                (
+                    request
+                    for request in port_permissions.get(port, [])
+                    if request.get("sessionID") == session_id
+                ),
+                None,
+            )
+            session_status = port_statuses.get(port, {}).get(session_id, {})
+            session_status_type = (
+                session_status.get("type") if isinstance(session_status, dict) else ""
+            )
             if isinstance(messages, list) and messages:
                 last_msg = messages[-1]
                 msg_time = (
@@ -607,9 +657,28 @@ def main():
                 status = "unknown"
                 detail = ""
                 age = format_age(session_updated_times.get(session_id, 0))
+            if session_status_type == "busy" and status in {"done", "unknown"}:
+                status = "generating"
+                detail = "session busy"
+            elif session_status_type == "retry":
+                status = "generating"
+                detail = "retrying"
+            elif session_status_type == "idle":
+                status = "done"
+                detail = "awaiting next task"
+            if pending_permission:
+                status = "waiting permission"
+                detail = pending_permission.get("permission", "permission")
+            if pending_question:
+                status = "waiting question"
+                detail = "question"
         else:
-            status = "unknown"
-            detail = ""
+            if inst["is_auto_mode"]:
+                status = "generating"
+                detail = "automated task"
+            else:
+                status = "unknown"
+                detail = ""
             if proc_age_seconds is not None:
                 age = format_age(now_ms - (proc_age_seconds * 1000))
 

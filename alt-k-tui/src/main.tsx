@@ -133,17 +133,6 @@ const processGroupContains = (pid: string, needle: string) => pid
   ? runCommand(["ps", "-o", "args=", "--forest", "-g", pid], { allowFailure: true }).pipe(Effect.map((output) => output.toLowerCase().includes(needle.toLowerCase())))
   : Effect.succeed(false)
 
-const ageToSeconds = (age: string) => {
-  const match = age.trim().match(/^(\d+)([smhd])$/)
-  if (!match) return 0
-  const value = Number(match[1] ?? 0)
-  const unit = match[2]
-  if (unit === "s") return value
-  if (unit === "m") return value * 60
-  if (unit === "h") return value * 60 * 60
-  return value * 24 * 60 * 60
-}
-
 const agentStateFromStatus = (status: string, detail = "", age = ""): AgentState => {
   const normalized = status.trim().toLowerCase()
   const normalizedDetail = detail.trim().toLowerCase()
@@ -151,8 +140,8 @@ const agentStateFromStatus = (status: string, detail = "", age = ""): AgentState
   if (["done", "idle", "complete", "completed", "success", "succeeded"].includes(normalized)) return "done"
   if (normalized === "waiting question") return "attention"
   if (normalized.includes("tool running") && ["question", "permission", "approval"].some((word) => normalizedDetail.includes(word))) return "attention"
-  if (["error", "failed", "failure", "blocked", "input", "attention", "confirm", "review", "question"].some((word) => normalized.includes(word))) return "attention"
-  if (["running", "generating", "streaming", "working"].some((word) => normalized.includes(word))) return ageToSeconds(age) > 30 * 60 ? "attention" : "running"
+  if (["error", "failed", "failure", "blocked", "input", "attention", "confirm", "review", "question", "permission", "approval"].some((word) => normalized.includes(word))) return "attention"
+  if (["running", "generating", "streaming", "working"].some((word) => normalized.includes(word))) return "running"
   return "unknown"
 }
 const codexStateFromTitle = (title: string): AgentState => {
