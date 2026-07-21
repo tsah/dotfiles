@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Recover a wedged MediaTek Bluetooth controller by reloading its kernel driver.
+set -euo pipefail
+
+VENDOR_ID="0e8d"
+PRODUCT_ID="e025"
+MOUSE_ADDRESS="DE:50:8A:8B:3B:A2"
+LOGFILE="$HOME/.cache/bluetooth-recovery.log"
+
+if [ "${1:-}" = "--root-reset" ]; then
+    trap 'systemctl start bluetooth >/dev/null 2>&1 || true' EXIT
+
+    systemctl stop bluetooth
+    timeout 15 modprobe -r btusb
+    sleep 2
+    modprobe btusb
+    udevadm settle
+    sleep 3
+    systemctl start bluetooth
+
+    trap - EXIT
+    exit 0
+fi
+
+mkdir -p "$(dirname "$LOGFILE")"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+}
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Bluetooth recovery" "$1"
+    fi
+}
+
+if ! lsusb -d "${VENDOR_ID}:${PRODUCT_ID}" >/dev/null 2>&1; then
+    log "ERROR: MediaTek Bluetooth USB device ${VENDOR_ID}:${PRODUCT_ID} not found"
+    notify "Failed: MediaTek Bluetooth controller not found"
+    exit 1
+fi
+
+log "=== Bluetooth recovery started ==="
+notify "Reloading the Bluetooth USB driver…"
+
+if [ "$EUID" -eq 0 ]; then
+    "$0" --root-reset
+elif command -v pkexec >/dev/null 2>&1; then
+    pkexec "$0" --root-reset
+else
+    sudo "$0" --root-reset
+fi
+
+for _ in {1..10}; do
+    if bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then
+        bluetoothctl connect "$MOUSE_ADDRESS" >/dev/null 2>&1 || true
+        log "Bluetooth controller recovered"
+        notify "Controller reset complete"
+        log "=== Bluetooth recovery finished ==="
+        exit 0
+    fi
+    sleep 1
+done
+
+log "ERROR: driver reloaded, but the Bluetooth controller is unavailable"
+notify "Driver reloaded, but Bluetooth is unavailable"
+exit 2
