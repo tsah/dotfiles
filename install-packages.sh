@@ -37,6 +37,7 @@ sudo pacman -S --needed \
     zsh \
     zsh-autosuggestions \
     neovim \
+    worktrunk \
     iwd \
     cliphist \
     wl-clipboard \

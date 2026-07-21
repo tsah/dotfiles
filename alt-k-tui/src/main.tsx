@@ -1,7 +1,8 @@
-import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { render, useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js"
 import { Effect, Exit } from "effect"
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
 
 type Target =
   | { type: "tmux_session"; session: string }
@@ -12,14 +13,16 @@ type Target =
 type AgentState = "running" | "done" | "attention" | "unknown"
 
 interface TmuxSession { name: string; recency: number; path: string }
-interface TmuxWindow { session: string; id: string; name: string; pane: string; pid: string; command: string; title: string }
+interface TmuxWindow { session: string; id: string; name: string; pane: string; pid: string; command: string; title: string; activity: number }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string }
-interface DirectoryRow { path: string }
+interface DirectoryRow { path: string; source: "worktree" | "zoxide"; branch: string }
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target }
 interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string }
 interface FuzzyResult { score: number; positions: number[] }
 interface CachePayload { generatedAt: number; sessions: SessionRow[] }
+interface BranchRow { name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
+type PickerMode = "jump" | "repo" | "new" | "branch" | "rename"
 
 const repoRoot = new URL("../..", import.meta.url).pathname.replace(/\/$/, "")
 const runtimeDir = `${Bun.env.XDG_RUNTIME_DIR ?? "/tmp"}/alt-k-tui-${process.getuid?.() ?? Bun.env.USER ?? "user"}`
@@ -27,6 +30,7 @@ const cachePath = `${runtimeDir}/state.json`
 const pidPath = `${runtimeDir}/server.pid`
 const agentStateDir = `${runtimeDir}/agent-state`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
+const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
   accentStrong: "#38bdf8",
@@ -75,7 +79,7 @@ const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{sessio
   })).filter((session) => session.name.length > 0)),
 )
 
-const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}"]).pipe(
+const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{window_activity}"]).pipe(
   Effect.map((output) => parseTsv(output).map((parts): TmuxWindow => ({
     session: parts[0] ?? "",
     id: parts[1] ?? "",
@@ -84,6 +88,7 @@ const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{se
     pid: parts[4] ?? "",
     command: (parts[5] ?? "").toLowerCase(),
     title: parts[6] ?? "",
+    activity: Number(parts[7] ?? 0) || 0,
   })).filter((window) => window.session.length > 0)),
 )
 
@@ -99,8 +104,42 @@ const collectOpencode = runCommand(["opencode-status", "--tsv"], { allowFailure:
   }).filter((row): row is OpencodeStatus => Boolean(row?.session))),
 )
 
-const collectDirectories = runCommand(["zoxide", "query", "-l"], { allowFailure: true }).pipe(
-  Effect.map((output) => output.split("\n").filter(Boolean).map((path): DirectoryRow => ({ path })).filter((row) => existsSync(expandHome(row.path)))),
+const collectZoxideDirectories = runCommand(["zoxide", "query", "-l"], { allowFailure: true }).pipe(
+  Effect.map((output) => output.split("\n").filter(Boolean).map((path): DirectoryRow => ({ path, source: "zoxide", branch: "" })).filter((row) => existsSync(expandHome(row.path)))),
+)
+
+const parseWorktrees = (output: string): DirectoryRow[] => output.trim().split("\n\n").flatMap((block) => {
+  let path = ""
+  let branch = ""
+  for (const line of block.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice("worktree ".length)
+    if (line.startsWith("branch refs/heads/")) branch = line.slice("branch refs/heads/".length)
+    if (line === "detached") branch = "detached"
+  }
+  return path && existsSync(path) ? [{ path, source: "worktree" as const, branch }] : []
+})
+
+const devRoot = Bun.env.ALT_K_TUI_DEV_ROOT ?? `${Bun.env.HOME ?? ""}/dev`
+const collectDevWorktrees = existsSync(devRoot)
+  ? runCommand(["fd", "--hidden", "--exclude", ".archive", "--type", "directory", "^\\.git$", devRoot], { allowFailure: true }).pipe(
+      Effect.flatMap((output) => Effect.forEach(
+        output.split("\n").filter(Boolean),
+        (gitDir) => runCommand(["git", "-C", dirname(gitDir), "worktree", "list", "--porcelain"], { allowFailure: true }),
+        { concurrency: 8 },
+      )),
+      Effect.map((outputs) => outputs.flatMap(parseWorktrees)),
+    )
+  : Effect.succeed([] as DirectoryRow[])
+
+const collectDirectories = Effect.all([collectDevWorktrees, collectZoxideDirectories], { concurrency: "unbounded" }).pipe(
+  Effect.map(([worktrees, zoxide]) => {
+    const directories = new Map<string, DirectoryRow>()
+    for (const row of [...worktrees, ...zoxide]) {
+      const path = expandHome(row.path)
+      if (!directories.has(path)) directories.set(path, row)
+    }
+    return [...directories.values()]
+  }),
 )
 
 const collectAgentReports = Effect.sync(() => {
@@ -155,8 +194,8 @@ const codexStateFromTitle = (title: string): AgentState => {
 const claudeStateFromTitle = (title: string): AgentState => {
   const normalized = title.trim().toLowerCase()
   if (!normalized) return "unknown"
-  if (/^[⠂✳✶✻✽✢·]/.test(normalized)) return "running"
-  if (/^[✓✔]/.test(normalized) || normalized.includes("done") || normalized.includes("complete")) return "done"
+  if (/^[⠁⠂⠄⡀⢀⠠⠐⠈]/.test(normalized)) return "running"
+  if (/^[✳✓✔]/.test(normalized) || normalized.includes("done") || normalized.includes("complete")) return "done"
   if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
   return "unknown"
 }
@@ -213,12 +252,17 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     rows.push(row)
   }
 
-  const opencodeDirs = new Set(opencodes.map((row) => expandHome(row.directory.replace(/ \([0-9]+\)$/, ""))))
+  const occupiedDirs = new Set([
+    ...sessions.map((session) => expandHome(session.path)),
+    ...opencodes.map((row) => expandHome(row.directory.replace(/ \([0-9]+\)$/, ""))),
+  ])
   for (const directory of directoryRows) {
-    if (opencodeDirs.has(expandHome(directory.path))) continue
-    const details: DetailRow[] = [{ kind: "directory", status: "", detail: "zoxide", title: directory.path, age: "", state: "unknown", target: { type: "directory", path: directory.path } }]
-    const row: SessionRow = { name: directory.path, path: directory.path, branch: "", flags: "", markers: [], age: "", recency: 0, target: { type: "directory", path: directory.path }, details, searchText: "" }
-    row.searchText = [row.name, row.path, "zoxide directory"].join(" ").toLowerCase()
+    const path = expandHome(directory.path)
+    if (occupiedDirs.has(path)) continue
+    occupiedDirs.add(path)
+    const details: DetailRow[] = [{ kind: "directory", status: "", detail: directory.source, title: path, age: "", state: "unknown", target: { type: "directory", path } }]
+    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age: "", recency: 0, target: { type: "directory", path }, details, searchText: "" }
+    row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`].join(" ").toLowerCase()
     rows.push(row)
   }
 
@@ -273,6 +317,78 @@ const cachedOrCollectedSessions = Effect.gen(function* () {
   yield* writeCache(sessions)
   return sessions
 })
+
+const repositoryRows = (rows: SessionRow[]) => Effect.gen(function* () {
+  const repositories = new Map<string, SessionRow>()
+  for (const row of rows) {
+    if (!row.path || !existsSync(expandHome(row.path))) continue
+    const path = expandHome(row.path)
+    const commonDir = yield* runCommand(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], { allowFailure: true }).pipe(Effect.map((output) => output.trim()))
+    if (!commonDir) continue
+    const repoPath = commonDir.endsWith("/.git") ? commonDir.slice(0, -5) : commonDir
+    const existing = repositories.get(commonDir)
+    if (existing && !["main", "master"].includes(row.branch)) continue
+    const name = repoPath.split("/").filter(Boolean).at(-1) ?? repoPath
+    const details: DetailRow[] = [{ kind: "repository", status: "", detail: "choose branch next", title: repoPath, age: "", state: "unknown", target: { type: "directory", path } }]
+    repositories.set(commonDir, { ...row, name, path, target: { type: "directory", path }, details, markers: [], age: "", searchText: `${name} ${repoPath} ${path}`.toLowerCase() })
+  }
+  return [...repositories.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
+
+const collectBranchesSync = (repoPath: string): BranchRow[] => {
+  const worktrees = new Map<string, string>()
+  const worktreeResult = Bun.spawnSync(["git", "-C", repoPath, "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "ignore" })
+  let currentPath = ""
+  for (const line of worktreeResult.stdout.toString().split("\n")) {
+    if (line.startsWith("worktree ")) currentPath = line.slice("worktree ".length)
+    if (line.startsWith("branch refs/heads/")) worktrees.set(line.slice("branch refs/heads/".length), currentPath)
+  }
+
+  const refsResult = Bun.spawnSync(
+    ["git", "-C", repoPath, "for-each-ref", "--format=%(refname)\t%(refname:short)\t%(committerdate:unix)", "refs/heads", "refs/remotes"],
+    { stdout: "pipe", stderr: "ignore" },
+  )
+  if (refsResult.exitCode !== 0) return []
+  const localBranches = new Set<string>()
+  const remoteBranches = new Set<string>()
+  const rows: BranchRow[] = []
+  const refs = parseTsv(refsResult.stdout.toString())
+  for (const [ref = "", short = "", timestamp = "0"] of refs) {
+    if (!ref.startsWith("refs/heads/")) continue
+    const name = ref.slice("refs/heads/".length)
+    localBranches.add(name)
+    const path = worktrees.get(name) ?? ""
+    const kind = path ? "worktree" : "local"
+    rows.push({ name, value: name, kind, path, recency: Number(timestamp) || 0, searchText: `${name} ${kind} ${path}`.toLowerCase() })
+  }
+  for (const [ref = "", short = "", timestamp = "0"] of refs) {
+    if (!ref.startsWith("refs/remotes/") || ref.endsWith("/HEAD")) continue
+    const slash = short.indexOf("/")
+    const branchName = slash >= 0 ? short.slice(slash + 1) : short
+    if (!branchName || localBranches.has(branchName) || remoteBranches.has(branchName)) continue
+    remoteBranches.add(branchName)
+    rows.push({ name: short, value: branchName, kind: "remote", path: "", recency: Number(timestamp) || 0, searchText: `${short} ${branchName} remote`.toLowerCase() })
+  }
+  const rank = { worktree: 0, local: 1, remote: 2, create: 3 }
+  return rows.sort((a, b) => rank[a.kind] - rank[b.kind] || (a.kind === "remote" ? b.recency - a.recency : a.name.localeCompare(b.name)))
+}
+
+const switchBranchSessionSync = (repoPath: string, branch: string, create: boolean, base = "^") => {
+  const wtArgs = ["wt", "-C", repoPath, "switch", ...(create ? ["--create"] : []), branch, "--no-cd", "--format", "json", ...(create && base ? ["--base", base] : [])]
+  const switched = Bun.spawnSync(wtArgs, { cwd: repoRoot, stdout: "pipe", stderr: "pipe" })
+  if (switched.exitCode !== 0) return { error: switched.stderr.toString().trim() || `wt exited ${switched.exitCode}` }
+  try {
+    const worktree = JSON.parse(switched.stdout.toString()) as { path?: string }
+    if (!worktree.path) return { error: "Worktrunk did not return a worktree path" }
+    const created = Bun.spawnSync([`${repoRoot}/bin/dotfiles-workflow`, "session", "--cwd", worktree.path], { cwd: repoRoot, stdout: "pipe", stderr: "pipe" })
+    if (created.exitCode !== 0) return { error: created.stderr.toString().trim() || `session creation exited ${created.exitCode}` }
+    const session = created.stdout.toString().trim()
+    if (!session) return { error: "Session creation did not return a session name" }
+    return { session }
+  } catch {
+    return { error: "Worktrunk returned invalid JSON" }
+  }
+}
 
 const dumpState = collectSessions.pipe(
   Effect.flatMap((sessions) => Effect.sync(() => {
@@ -340,7 +456,7 @@ const targetLabel = (target: Target) => {
     case "opencode": return `opencode pane ${target.pane}`
     case "tmux_session": return `tmux session ${target.session}`
     case "tmux_window": return `tmux window ${target.windowId}`
-    case "directory": return "zoxide directory"
+    case "directory": return "directory"
   }
 }
 const enterAction = (target: Target) => {
@@ -351,7 +467,12 @@ const enterAction = (target: Target) => {
     case "directory": return "open directory session"
   }
 }
-const detailStatusLabel = (detail: DetailRow) => detail.kind === "opencode" && detail.state === "done" ? "idle" : detail.status || detail.kind
+const detailStatusLabel = (detail: DetailRow) => {
+  if (detail.kind === "opencode" && detail.state === "done") return "idle"
+  if (detail.status) return detail.status
+  if (["pi", "claude", "codex"].includes(detail.kind) && detail.state !== "unknown") return detail.state
+  return detail.kind
+}
 const detailColor = (state: AgentState) => state === "attention" ? theme.warning : state === "running" ? theme.ok : theme.muted
 
 const openTarget = (target: Target) => {
@@ -451,7 +572,7 @@ function DetailBox(props: { session: SessionRow | undefined; frame: number }) {
           )}</For>
           <box flexDirection="row" height={1}>
             <text width={8} fg={theme.muted}>Enter:</text>
-            <text fg={theme.header}>{enterAction(props.session.target)} · ^s spawn/session · ^d delete</text>
+            <text fg={theme.header}>{enterAction(props.session.target)} · Alt-k open/create{props.session.target.type === "tmux_session" ? " · Alt-r rename" : ""} · Alt-d delete</text>
           </box>
         </>
       ) : <text fg={theme.muted}>No matches</text>}
@@ -459,85 +580,339 @@ function DetailBox(props: { session: SessionRow | undefined; frame: number }) {
   )
 }
 
-function App(props: { sessions: SessionRow[]; onOpen: (target: Target | undefined) => void }) {
+function PickerRowView(props: { name: string; meta: string; selected: boolean; query: string }) {
+  const color = () => props.selected ? theme.selectedFg : theme.header
+  return (
+    <box flexDirection="row" height={1} backgroundColor={props.selected ? theme.selectedBg : undefined}>
+      <text width={2} fg={color()}>{props.selected ? ">" : " "}</text>
+      <text fg={color()} flexShrink={1}><HighlightText text={props.name} query={props.query} fg={color()} /></text>
+      <text flexGrow={1}> </text>
+      <text fg={props.selected ? theme.selectedFg : theme.muted}>{props.meta}</text>
+    </box>
+  )
+}
+
+function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; currentSession: string; onOpen: (target: Target | undefined) => void }) {
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
+  const [sessions, setSessions] = createSignal(props.sessions)
+  const [mode, setMode] = createSignal<PickerMode>(spawnMode ? "repo" : "jump")
   const [query, setQuery] = createSignal("")
-  const [index, setIndex] = createSignal(0)
+  const initialIndex = props.sessions.findIndex((row) => row.target.type === "tmux_session" && row.target.session === props.currentSession)
+  const [index, setIndex] = createSignal(Math.max(0, initialIndex))
   const [frame, setFrame] = createSignal(0)
-  const filtered = createMemo(() => filterSessions(props.sessions, query()))
-  const selected = createMemo(() => filtered()[index()])
-  const visibleCount = createMemo(() => Math.max(1, dimensions().height - 11))
-  const start = createMemo(() => Math.max(0, Math.min(filtered().length - visibleCount(), index() - visibleCount() + 1)))
-  const visible = createMemo(() => filtered().slice(start(), start() + visibleCount()).reverse())
+  const [repository, setRepository] = createSignal<SessionRow>()
+  const [branches, setBranches] = createSignal<BranchRow[]>([])
+  const [branchName, setBranchName] = createSignal("")
+  const [base, setBase] = createSignal("^")
+  const [renameName, setRenameName] = createSignal("")
+  const [renameSession, setRenameSession] = createSignal<SessionRow>()
+  const [deleteSession, setDeleteSession] = createSignal<SessionRow>()
+  const [newField, setNewField] = createSignal<"branch" | "base">("branch")
+  const [error, setError] = createSignal("")
+  const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
+  let fetchRequest = 0
 
-  const updateIndex = (next: number) => setIndex(clamp(next, 0, Math.max(0, filtered().length - 1)))
+  const filteredSessions = createMemo(() => filterSessions(sessions(), query()))
+  const filteredRepositories = createMemo(() => filterSessions(props.repositories, query()))
+  const filteredBranches = createMemo(() => {
+    const normalized = query().trim().toLowerCase()
+    if (!normalized) return branches()
+    const matches = branches()
+      .map((branch) => ({ branch, match: fuzzyResult(branch.searchText, normalized) }))
+      .filter((row): row is { branch: BranchRow; match: FuzzyResult } => Boolean(row.match))
+      .sort((a, b) => b.match.score - a.match.score)
+      .map((row) => row.branch)
+    const exact = branches().some((branch) => branch.value.toLowerCase() === normalized || branch.name.toLowerCase() === normalized)
+    return exact ? matches : [{ name: query().trim(), value: query().trim(), kind: "create" as const, path: "", recency: 0, searchText: `${normalized} create new branch` }, ...matches]
+  })
+  const activeLength = createMemo(() => mode() === "jump" ? filteredSessions().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : 0)
+  const selectedSession = createMemo(() => mode() === "jump" ? filteredSessions()[index()] : undefined)
+  const selectedRepository = createMemo(() => mode() === "repo" ? filteredRepositories()[index()] : undefined)
+  const selectedBranch = createMemo(() => mode() === "branch" ? filteredBranches()[index()] : undefined)
+  const visibleCount = createMemo(() => Math.max(1, dimensions().height - 11))
+  const visibleSessions = createMemo(() => visibleSlice(filteredSessions(), index(), visibleCount()))
+  const visibleRepositories = createMemo(() => visibleSlice(filteredRepositories(), index(), visibleCount()))
+  const visibleBranches = createMemo(() => visibleSlice(filteredBranches(), index(), visibleCount()))
+
+  const resetList = (nextMode: PickerMode) => {
+    setMode(nextMode)
+    setQuery("")
+    setIndex(0)
+    setError("")
+  }
+  const updateIndex = (next: number) => setIndex(clamp(next, 0, Math.max(0, activeLength() - 1)))
   const closeWith = (target?: Target) => {
     props.onOpen(target)
     openTargetSync(target)
     renderer.destroy()
   }
+  const finishBranch = (branch: string, create: boolean) => {
+    const repo = repository()
+    if (!repo) return
+    setError("")
+    const result = switchBranchSessionSync(expandHome(repo.path), branch, create, base())
+    if (!result.session) {
+      setError(result.error ?? "Unable to open worktree")
+      return
+    }
+    closeWith({ type: "tmux_session", session: result.session })
+  }
+  const appendInput = (raw: string) => {
+    const text = raw.replace(/[\x00-\x1f\x7f]/g, "")
+    if (!text) return
+    if (mode() === "new") {
+      if (newField() === "branch") setBranchName((value) => value + text)
+      else setBase((value) => value + text)
+    } else if (mode() === "rename") {
+      setRenameName((value) => value + text)
+    } else {
+      setQuery((value) => value + text)
+      setIndex(0)
+    }
+  }
+  const refreshRemoteBranches = (repo: SessionRow) => {
+    const request = ++fetchRequest
+    const path = expandHome(repo.path)
+    setFetchStatus("fetching")
+    void (async () => {
+      try {
+        const proc = Bun.spawn(["git", "-C", path, "fetch", "--all", "--prune", "--quiet"], {
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+          env: { ...Bun.env, GIT_TERMINAL_PROMPT: "0" },
+        })
+        proc.unref()
+        const exitCode = await proc.exited
+        if (request !== fetchRequest) return
+        if (exitCode !== 0) {
+          setFetchStatus("failed")
+          return
+        }
+        setBranches(collectBranchesSync(path))
+        setFetchStatus("done")
+        setIndex((value) => clamp(value, 0, Math.max(0, filteredBranches().length - 1)))
+      } catch {
+        if (request === fetchRequest) setFetchStatus("failed")
+      }
+    })()
+  }
+
+  usePaste((event) => {
+    appendInput(new TextDecoder().decode(event.bytes))
+    event.preventDefault()
+  })
 
   useKeyboard((key) => {
-    if (key.meta && key.name === "k") return closeWith()
+    if (deleteSession()) {
+      if (key.name === "n" || key.name === "escape") {
+        setDeleteSession(undefined)
+        return
+      }
+      if (key.name !== "y") return
+      const selected = deleteSession()!
+      setDeleteSession(undefined)
+      renderer.destroy()
+      if (selected.target.type === "tmux_session") {
+        const sessionName = selected.target.session
+        const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "ignore" })
+        const sessionId = parseTsv(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
+        if (sessionId) Bun.spawnSync(["tmux", "kill-session", "-t", sessionId], { stdout: "ignore", stderr: "ignore" })
+      } else if (selected.branch && selected.path) {
+        Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, expandHome(selected.path)], { stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+      }
+      return
+    }
+    if (key.meta && key.name === "k") return resetList("repo")
+    if (key.meta && key.name === "r" && mode() === "jump") {
+      const selected = selectedSession()
+      if (selected?.target.type !== "tmux_session") return
+      setRenameSession(selected)
+      setRenameName(selected.target.session)
+      setError("")
+      setMode("rename")
+      return
+    }
+    if (key.ctrl && key.name === "r" && mode() === "branch" && repository()) {
+      refreshRemoteBranches(repository()!)
+      return
+    }
     if (key.name === "escape") {
+      if (mode() === "rename") {
+        setMode("jump")
+        setError("")
+        return
+      }
+      if (mode() === "new") {
+        const name = branchName()
+        resetList("branch")
+        setQuery(name)
+        return
+      }
+      if (mode() === "branch") return resetList("repo")
       if (query()) {
         setQuery("")
         setIndex(0)
-      } else closeWith()
+        return
+      }
+      if (mode() === "repo") return resetList("jump")
+      return closeWith()
+    }
+    if (key.name === "tab" && mode() === "new") {
+      setNewField((field) => field === "branch" ? "base" : "branch")
       return
     }
     if (key.name === "backspace") {
-      setQuery((value) => value.slice(0, -1))
-      setIndex(0)
+      if (mode() === "new") {
+        if (newField() === "branch") setBranchName((value) => value.slice(0, -1))
+        else setBase((value) => value.slice(0, -1))
+      } else if (mode() === "rename") {
+        setRenameName((value) => value.slice(0, -1))
+      } else {
+        setQuery((value) => value.slice(0, -1))
+        setIndex(0)
+      }
       return
     }
     if (key.name === "up") return updateIndex(index() + 1)
     if (key.name === "down") return updateIndex(index() - 1)
-    if (key.name === "return") return closeWith(selected()?.target)
-    if (key.ctrl && key.name === "s" && selected()?.path) {
-      const created = Bun.spawnSync([`${repoRoot}/bin/dotfiles-workflow`, "session", "--cwd", expandHome(selected()!.path)], { stdout: "pipe", stderr: "pipe" })
-      if (created.exitCode === 0) return closeWith({ type: "tmux_session", session: created.stdout.toString().trim() })
+    if (key.name === "return") {
+      if (mode() === "rename" && renameSession()?.target.type === "tmux_session" && renameName().trim()) {
+        const row = renameSession()!
+        const oldName = row.target.type === "tmux_session" ? row.target.session : ""
+        const found = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
+        const sessionId = parseTsv(found.stdout.toString()).find(([, name]) => name === oldName)?.[0] ?? ""
+        if (found.exitCode !== 0 || !sessionId) {
+          setError(found.stderr.toString().trim() || "Selected session no longer exists")
+          return
+        }
+        const renamed = Bun.spawnSync(["tmux", "rename-session", "-t", sessionId, renameName().trim()], { stdout: "pipe", stderr: "pipe" })
+        if (renamed.exitCode !== 0) {
+          setError(renamed.stderr.toString().trim() || "Unable to rename session")
+          return
+        }
+        const refreshed = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
+        const actual = parseTsv(refreshed.stdout.toString()).find(([id]) => id === sessionId)?.[1] || renameName().trim()
+        const updateTarget = (target: Target): Target => target.type === "tmux_session" ? { ...target, session: actual } : target.type === "tmux_window" || target.type === "opencode" ? { ...target, session: actual } : target
+        row.name = actual
+        row.target = updateTarget(row.target)
+        row.details = row.details.map((detail) => ({ ...detail, target: updateTarget(detail.target) }))
+        row.searchText = `${actual} ${row.searchText}`.toLowerCase()
+        setRenameSession(undefined)
+        resetList("jump")
+        setIndex(Math.max(0, sessions().indexOf(row)))
+        return
+      }
+      if (mode() === "jump") return closeWith(selectedSession()?.target)
+      if (mode() === "repo") {
+        const repo = selectedRepository()
+        if (!repo) return
+        setRepository(repo)
+        setBranches(collectBranchesSync(expandHome(repo.path)))
+        resetList("branch")
+        refreshRemoteBranches(repo)
+        return
+      }
+      if (mode() === "branch" && selectedBranch()?.kind === "create") {
+        setBranchName(selectedBranch()!.value)
+        setBase("^")
+        setNewField("base")
+        return resetList("new")
+      }
+      if (mode() === "branch" && selectedBranch()) return finishBranch(selectedBranch()!.value, false)
+      if (mode() === "new" && branchName().trim()) return finishBranch(branchName().trim(), true)
       return
     }
-    if (key.ctrl && key.name === "d" && selected()?.branch && selected()?.path) {
-      const path = expandHome(selected()!.path)
-      renderer.destroy()
-      Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, path], { stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+    if (key.meta && key.name === "d" && mode() === "jump") {
+      const selected = selectedSession()
+      if (!selected) return
+      setDeleteSession(selected)
       return
     }
-    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      setQuery((value) => value + key.sequence)
-      setIndex(0)
-    }
+    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) appendInput(key.sequence)
   }, {})
 
   onMount(() => {
-    setIndex(0)
     const interval = setInterval(() => setFrame((value) => value + 1), 120)
-    onCleanup(() => clearInterval(interval))
+    const cacheInterval = setInterval(() => {
+      const refreshed = readCache()
+      if (!refreshed) return
+      const byName = new Map(refreshed.map((session) => [session.name, session]))
+      const currentNames = new Set(sessions().map((session) => session.name))
+      setSessions([
+        ...sessions().map((session) => byName.get(session.name) ?? session),
+        ...refreshed.filter((session) => !currentNames.has(session.name)),
+      ])
+    }, 500)
+    onCleanup(() => {
+      clearInterval(interval)
+      clearInterval(cacheInterval)
+    })
   })
+
+  const title = () => mode() === "jump" ? "Jump" : mode() === "repo" ? "Open or create branch · choose repository" : mode() === "branch" ? `Open or create branch · ${repository()?.name ?? ""}` : mode() === "rename" ? "Rename tmux session" : `New branch · ${repository()?.name ?? ""}`
 
   return (
     <box flexDirection="column" width="100%" height="100%">
-      <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
-        <For each={visible()}>{(session) => <SessionRowView session={session} selected={session === selected()} query={query()} frame={frame()} />}</For>
-      </box>
-      <DetailBox session={selected()} frame={frame()} />
-      <box flexDirection="row" height={1}>
-        <text fg={theme.accent}>{"> "}{query()}_</text>
+      <box height={1} flexDirection="row">
+        <text fg={theme.accentStrong}>{title()}</text>
         <text flexGrow={1}> </text>
-        <text fg={theme.muted}>{filtered().length}/{props.sessions.length} {agentSummary(props.sessions)}</text>
+        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>Alt-k open/create  {mode() === "jump" && selectedSession()?.target.type === "tmux_session" ? "Alt-r rename" : ""}{mode() === "branch" ? `^r refresh · ${fetchStatus() === "fetching" ? "fetching remotes…" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "remotes synced" : ""}` : ""}  Esc back</text>
       </box>
+      <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
+        {mode() === "jump" ? <For each={visibleSessions()}>{(session) => <SessionRowView session={session} selected={session === selectedSession()} query={query()} frame={frame()} />}</For> : null}
+        {mode() === "repo" ? <For each={visibleRepositories()}>{(repo) => <PickerRowView name={repo.name} meta={repo.path} selected={repo === selectedRepository()} query={query()} />}</For> : null}
+        {mode() === "branch" ? <For each={visibleBranches()}>{(branch) => <PickerRowView name={branch.name} meta={branch.kind === "worktree" ? `worktree · ${branch.path}` : branch.kind === "create" ? "create new branch" : branch.kind === "remote" ? `remote${branch.recency ? ` · ${ageFromUnixSeconds(branch.recency)}` : ""}` : branch.kind} selected={branch === selectedBranch()} query={query()} />}</For> : null}
+        {mode() === "new" ? (
+          <box flexDirection="column" padding={2}>
+            <text fg={newField() === "branch" ? theme.accentStrong : theme.header}>Branch: {branchName()}{newField() === "branch" ? "_" : ""}</text>
+            <text fg={newField() === "base" ? theme.accentStrong : theme.header}>Base:   {base()}{newField() === "base" ? "_" : ""}</text>
+            <text fg={theme.muted}>Tab changes field · Enter creates worktree and session</text>
+          </box>
+        ) : mode() === "rename" ? (
+          <box flexDirection="column" padding={2}>
+            <text fg={theme.accentStrong}>Session: {renameName()}_</text>
+            <text fg={theme.muted}>Enter renames only the tmux display label</text>
+          </box>
+        ) : null}
+      </box>
+      {deleteSession() ? (
+        <box border borderStyle="single" borderColor={theme.warning} height={8} flexDirection="column" padding={1}>
+          <text fg={theme.warning}>Destroy {deleteSession()!.target.type === "tmux_session" ? "session" : "worktree"} '{deleteSession()!.name}'?</text>
+          <text fg={theme.header}>Press y to confirm or n to cancel.</text>
+        </box>
+      ) : mode() === "jump" ? <DetailBox session={selectedSession()} frame={frame()} /> : (
+        <box border borderStyle="single" borderColor={theme.border} height={8} flexDirection="column">
+          <text fg={theme.header}>{mode() === "rename" ? renameSession()?.path ?? "" : mode() === "repo" ? selectedRepository()?.path ?? "Select a repository" : repository()?.path ?? "Select a repository"}</text>
+          <text fg={theme.muted}>{mode() === "branch" ? "Worktrees, local branches, and recently updated remote branches; remotes refresh in the background" : mode() === "new" ? "Worktrunk will create the branch, worktree, and setup hooks" : mode() === "rename" ? "Canonical worktree identity and included agents are unchanged" : "Enter chooses repository"}</text>
+          {error() ? <text fg={theme.warning}>{error()}</text> : null}
+        </box>
+      )}
+      {mode() !== "new" && mode() !== "rename" ? (
+        <box flexDirection="row" height={1}>
+          <text fg={theme.accent}>{"> "}{query()}_</text>
+          <text flexGrow={1}> </text>
+          <text fg={theme.muted}>{activeLength()} items</text>
+        </box>
+      ) : <box height={1}><text fg={theme.muted}>{mode() === "rename" ? "Enter rename · Esc cancel" : "Enter create · Tab field · Esc branch picker"}</text></box>}
     </box>
   )
 }
 
+const visibleSlice = <T,>(rows: T[], index: number, count: number) => {
+  const start = Math.max(0, Math.min(rows.length - count, index - count + 1))
+  return rows.slice(start, start + count).reverse()
+}
+
 const program = process.argv.includes("--server") ? serverProgram : process.argv.includes("--dump-cache") ? dumpCachedState : process.argv.includes("--dump-state") ? dumpState : Effect.gen(function* () {
   const sessions = yield* cachedOrCollectedSessions
+  const repositories = yield* repositoryRows(sessions)
+  let currentSession = ""
+  if (Bun.env.TMUX) currentSession = yield* runCommand(["tmux", "display-message", "-p", "#{session_name}"], { allowFailure: true }).pipe(Effect.map((output) => output.trim()))
   let target: Target | undefined
   yield* Effect.tryPromise({
-    try: () => render(() => <App sessions={sessions} onOpen={(next) => { target = next }} />, { exitOnCtrlC: true }),
+    try: () => render(() => <App sessions={sessions} repositories={repositories} currentSession={currentSession} onOpen={(next) => { target = next }} />, { exitOnCtrlC: true }),
     catch: (error) => error instanceof Error ? error : new Error(String(error)),
   })
 })

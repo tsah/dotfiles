@@ -266,9 +266,12 @@ Pi configs are in `~/dotfiles/pi/` and symlinked to `~/.pi/agent/`:
 ```
 dotfiles/
 └── pi/
-    ├── agents/                # Reusable pi agent definitions (markdown frontmatter)
-    └── extensions/            # Pi extensions (TypeScript)
+    ├── extensions/
+    │   └── tmux-worker-lifecycle.ts  # Globally loaded tmux Pi lifecycle status hooks
+    └── subagents.json                # @tintinweb/pi-subagents limits and UI settings
 ```
+
+`bin/install-pi-packages` installs the pinned in-process subagent package. Use its `Agent` tool for same-session delegation and `worker-pi` for visible, Worktrunk-isolated handoffs.
 
 ## Claude Code Configuration
 

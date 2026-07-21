@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+if ! command -v pi >/dev/null 2>&1; then
+    echo "pi is required. Run the platform package installer first." >&2
+    exit 1
+fi
+
+pi install npm:@tintinweb/pi-subagents@0.14.0

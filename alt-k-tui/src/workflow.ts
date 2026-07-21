@@ -21,29 +21,49 @@ export async function identity(cwd = process.cwd()): Promise<WorktreeIdentity> {
 }
 
 const safeName = (value: string) => value.replace(/[.:]/g, "-").replace(/[^A-Za-z0-9_@-]/g, "-").slice(0, 80)
-export async function sessionName(id: WorktreeIdentity) {
-  const human = safeName(`${id.repo}@${id.branch}`)
-  const result = await command(["tmux", "display-message", "-p", "-t", human, "#{session_path}"], undefined, true)
-  if (result.code !== 0 || !result.stdout || realpathSafe(result.stdout) === id.path) return human
-  return `${human}-${createHash("sha256").update(id.path).digest("hex").slice(0, 8)}`
-}
 const realpathSafe = (path: string) => { try { return realpathSync(path) } catch { return resolve(path) } }
 
+async function sessionForPath(path: string) {
+  const canonical = realpathSafe(path)
+  const result = await command([
+    "tmux", "list-sessions", "-F",
+    "#{session_id}\t#{session_name}\t#{@dotfiles_worktree_path}\t#{@dotfiles_directory_path}\t#{session_path}\t#{session_activity}",
+  ], undefined, true)
+  if (result.code !== 0) return undefined
+  return result.stdout.split("\n").filter(Boolean).map((line) => {
+    const [id = "", name = "", worktreePath = "", directoryPath = "", sessionPath = "", activity = "0"] = line.split("\t")
+    const taggedPath = worktreePath || directoryPath
+    const candidatePath = taggedPath || sessionPath
+    return { id, name, candidatePath, activity: Number(activity) || 0 }
+  }).filter((session) => session.id && session.name && session.candidatePath && realpathSafe(session.candidatePath) === canonical)
+    .sort((a, b) => b.activity - a.activity)[0]
+}
+
+export async function sessionName(id: WorktreeIdentity) {
+  const human = safeName(`${id.repo}@${id.branch}`)
+  const result = await command(["tmux", "display-message", "-p", "-t", `=${human}`, "#{@dotfiles_worktree_path}\t#{session_path}"], undefined, true)
+  if (result.code !== 0 || !result.stdout) return human
+  const [taggedPath = "", sessionPath = ""] = result.stdout.split("\t")
+  if (realpathSafe(taggedPath || sessionPath) === id.path) return human
+  return `${human}-${createHash("sha256").update(id.path).digest("hex").slice(0, 8)}`
+}
+
 export async function ensureSession(id: WorktreeIdentity) {
-  const name = await sessionName(id)
-  const exists = (await command(["tmux", "has-session", "-t", `=${name}`], undefined, true)).code === 0
-  if (!exists) {
+  const existing = await sessionForPath(id.path)
+  const name = existing?.name ?? await sessionName(id)
+  if (!existing && (await command(["tmux", "has-session", "-t", `=${name}`], undefined, true)).code !== 0) {
     await command(["tmux", "new-session", "-d", "-s", name, "-n", "main", "-c", id.path])
-    await command(["tmux", "set-option", "-t", `=${name}`, "@dotfiles_worktree_path", id.path])
-    await command(["tmux", "set-option", "-t", `=${name}`, "@dotfiles_git_common_dir", id.commonDir])
   }
+  // Session IDs remain unambiguous even when a user-chosen name contains tmux target punctuation.
+  const target = existing?.id || name
+  await command(["tmux", "set-option", "-t", target, "@dotfiles_worktree_path", id.path])
+  await command(["tmux", "set-option", "-t", target, "@dotfiles_git_common_dir", id.commonDir])
   return name
 }
 
 function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: string, signalFile?: string) {
   if (harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", "claude", ...(agent ? ["--agent", agent] : []), prompt]
   if (harness === "opencode") return ["oc", ...(agent ? ["--agent", agent] : []), "--prompt", prompt]
-  const extension = resolve(import.meta.dir, "../../pi/extensions/tmux-agents/wait-signal.ts")
   const presetArgs: string[] = []
   if (agent) {
     const helper = resolve(import.meta.dir, "../../bin/pi-agent-config")
@@ -56,7 +76,8 @@ function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: s
     const body = Bun.spawnSync([helper, "--cwd", cwd, "--body", agent], { stdout: "pipe" }).stdout.toString()
     if (body.trim()) presetArgs.push("--append-system-prompt", body)
   }
-  return ["env", ...(signalFile ? [`PI_TMUX_WAIT_SIGNAL_FILE=${signalFile}`] : []), "pi", ...(signalFile ? ["--extension", extension] : []), ...presetArgs, prompt]
+  const lifecycleEnv = signalFile ? [`PI_TMUX_WAIT_SIGNAL_FILE=${signalFile}`] : []
+  return ["env", ...lifecycleEnv, "pi", ...presetArgs, prompt]
 }
 
 export async function spawnAgent(harness: Harness, cwd: string, prompt: string, agent?: string, requestedName?: string, wait = false) {
@@ -89,13 +110,12 @@ export async function spawnAgent(harness: Harness, cwd: string, prompt: string, 
 
 export async function spawnWorktreeSession(branch: string, base?: string) {
   // Worktrunk remains authoritative for creation and project setup.
-  await command(["wt", "spawn", branch, "--no-switch", ...(base ? ["--base", base] : [])])
-  const common = (await identity()).commonDir
-  const rows = (await command(["git", `--git-dir=${common}`, "worktree", "list", "--porcelain"])).stdout.split("\n\n")
-  const row = rows.find((r) => r.split("\n").includes(`branch refs/heads/${branch}`))
-  const path = row?.match(/^worktree (.+)$/m)?.[1]
-  if (!path) throw new Error(`Worktrunk created '${branch}', but its canonical path could not be resolved`)
-  const id = await identity(path)
+  const result = await command(["wt", "switch", "--create", branch, "--no-cd", "--format", "json", ...(base ? ["--base", base] : [])])
+  let worktree: { path?: string }
+  try { worktree = JSON.parse(result.stdout) }
+  catch { throw new Error(`Worktrunk returned invalid JSON while creating '${branch}'`) }
+  if (!worktree.path) throw new Error(`Worktrunk created '${branch}', but did not return its path`)
+  const id = await identity(worktree.path)
   return { identity: id, session: await ensureSession(id) }
 }
 
@@ -106,11 +126,20 @@ export async function spawnWorktree(harness: Harness, branch: string, prompt: st
 
 export async function ensureDirectorySession(directory: string) {
   const canonical = realpathSync(directory)
+  const existing = await sessionForPath(canonical)
+  if (existing) {
+    await command(["tmux", "set-option", "-t", existing.id, "@dotfiles_directory_path", canonical])
+    return existing.name
+  }
   const base = safeName(basename(canonical)) || "shell"
   let name = base
-  const current = await command(["tmux", "display-message", "-p", "-t", `=${name}`, "#{session_path}"], undefined, true)
-  if (current.code === 0 && realpathSafe(current.stdout) !== canonical) name = `${base}-${createHash("sha256").update(canonical).digest("hex").slice(0, 8)}`
+  const current = await command(["tmux", "display-message", "-p", "-t", `=${name}`, "#{@dotfiles_worktree_path}\t#{@dotfiles_directory_path}\t#{session_path}"], undefined, true)
+  if (current.code === 0) {
+    const [worktreePath = "", directoryPath = "", sessionPath = ""] = current.stdout.split("\t")
+    if (realpathSafe(worktreePath || directoryPath || sessionPath) !== canonical) name = `${base}-${createHash("sha256").update(canonical).digest("hex").slice(0, 8)}`
+  }
   if ((await command(["tmux", "has-session", "-t", `=${name}`], undefined, true)).code !== 0) await command(["tmux", "new-session", "-d", "-s", name, "-n", "main", "-c", canonical])
+  await command(["tmux", "set-option", "-t", name, "@dotfiles_directory_path", canonical])
   return name
 }
 

@@ -39,7 +39,7 @@ Stay inside the current harness unless the user explicitly asks for another one.
   When invoking Claude Code, ensure `ANTHROPIC_API_KEY` is unset so the Claude
   subscription is used rather than direct API access.
 - OpenCode uses `/handoff` or `worker-opencode`.
-- pi uses `tworker`, `tmux_tworker`, or `worker-pi`.
+- pi uses `worker-pi`. The in-process `Agent` tool is for same-session delegation, not a visible handoff.
 
 Do not launch remote/headless workers unless the user explicitly asks for a
 remote job, background job, detached job, or headless mode.

@@ -1,8 +1,28 @@
 #!/bin/sh
 set -eu
-printf 'Branch name: '
-IFS= read -r branch
-[ -n "$branch" ] || exit 0
-result=$("${DOTFILES_DIR:-$HOME/dotfiles}/bin/dotfiles-workflow" spawn-session "$branch")
-session=$(printf '%s' "$result" | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"])')
-if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$session"; else exec tmux attach-session -t "=$session"; fi
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if [ -r "$SCRIPT_DIR/lib/bootstrap-path.sh" ]; then
+    # Tmux servers often predate shell PATH changes (notably ~/.cargo/bin/wt).
+    # shellcheck source=/dev/null
+    . "$SCRIPT_DIR/lib/bootstrap-path.sh"
+fi
+
+repo_path=${1:-$PWD}
+if ! git -C "$repo_path" rev-parse --git-common-dir >/dev/null 2>&1; then
+    printf 'Not a Git repository: %s\nPress Enter to close.' "$repo_path" >&2
+    read -r _
+    exit 1
+fi
+
+# Native Worktrunk owns branch/worktree selection. Its picker lists existing
+# worktrees, local branches, and remotes, and handles Escape itself.
+result=$(wt -C "$repo_path" switch --branches --remotes --no-cd --format json) || exit $?
+
+worktree_path=$(printf '%s' "$result" | python3 -c 'import json,sys; print(json.load(sys.stdin)["path"])')
+session=$("$SCRIPT_DIR/dotfiles-workflow" session --cwd "$worktree_path")
+
+if [ -n "${TMUX:-}" ]; then
+    exec tmux switch-client -t "=$session"
+fi
+exec tmux attach-session -t "=$session"

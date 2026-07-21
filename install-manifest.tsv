@@ -9,9 +9,9 @@ a .tmux.conf ~/.tmux.conf
 a opencode.json ~/.config/opencode/opencode.json
 a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands
-a pi/extensions/tmux-agents ~/.pi/agent/extensions/tmux-agents
-a pi/agents ~/.pi/agent/agents
+a pi/extensions/tmux-worker-lifecycle.ts ~/.pi/agent/extensions/tmux-worker-lifecycle.ts
 a pi/prompts ~/.pi/agent/prompts
+a pi/subagents.json ~/.pi/agent/subagents.json
 a starship.toml ~/.config/starship.toml
 a atuin-config.toml ~/.config/atuin/config.toml
 d ghostty-config ~/.config/ghostty/config

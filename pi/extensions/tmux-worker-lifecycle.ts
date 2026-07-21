@@ -1,6 +1,19 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+type State = "running" | "done" | "attention" | "unknown";
+
+function report(state: State, event: string) {
+	try {
+		const pane = process.env.TMUX_PANE;
+		if (!pane) return;
+		const directory = join(process.env.XDG_RUNTIME_DIR || "/tmp", `alt-k-tui-${process.getuid?.() || 0}`, "agent-state");
+		mkdirSync(directory, { recursive: true });
+		const file = join(directory, `${pane.replace(/[^\w.%-]/g, "_")}.json`);
+		writeFileSync(file, JSON.stringify({ agent: "pi", state, pane, updatedAt: Date.now(), hookEvent: event }));
+	} catch {}
+}
 
 function extractAssistantResult(messages: Array<any>) {
 	for (let index = messages.length - 1; index >= 0; index--) {
@@ -26,9 +39,9 @@ function extractAssistantResult(messages: Array<any>) {
 
 export default function (pi: ExtensionAPI) {
 	const signalFile = process.env.PI_TMUX_WAIT_SIGNAL_FILE?.trim();
-	if (!signalFile) {
-		return;
-	}
+
+	pi.on("session_start", () => report("done", "session_start"));
+	pi.on("agent_start", () => report("running", "agent_start"));
 
 	let signaled = false;
 
@@ -38,8 +51,10 @@ export default function (pi: ExtensionAPI) {
 		}
 		signaled = true;
 
-		mkdirSync(dirname(signalFile), { recursive: true });
-		writeFileSync(signalFile, `${JSON.stringify(payload)}\n`, "utf8");
+		if (signalFile) {
+			mkdirSync(dirname(signalFile), { recursive: true });
+			writeFileSync(signalFile, `${JSON.stringify(payload)}\n`, "utf8");
+		}
 	};
 
 	let latestResult = { status: 1, stopReason: "no_result", errorMessage: "Agent settled without a result.", reply: "" };
@@ -47,10 +62,12 @@ export default function (pi: ExtensionAPI) {
 		latestResult = extractAssistantResult(event.messages as Array<any>);
 	});
 	pi.on("agent_settled", async () => {
+		report(latestResult.status === 0 ? "done" : "attention", "agent_settled");
 		writeSignal({ timestamp: Date.now(), ...latestResult });
 	});
 
 	pi.on("session_shutdown", async () => {
+		report("unknown", "session_shutdown");
 		writeSignal({
 			timestamp: Date.now(),
 			status: 130,

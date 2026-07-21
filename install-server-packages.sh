@@ -389,6 +389,7 @@ case "$ARCH" in
         STARSHIP_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-aarch64-unknown-linux-musl.tar.gz"
+        WORKTRUNK_SUFFIX="worktrunk-aarch64-unknown-linux-musl.tar.xz"
         ;;
     x86_64|amd64)
         GH_SUFFIX="linux_amd64.tar.gz"
@@ -402,6 +403,7 @@ case "$ARCH" in
         STARSHIP_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-x86_64-unknown-linux-musl.tar.gz"
+        WORKTRUNK_SUFFIX="worktrunk-x86_64-unknown-linux-musl.tar.xz"
         ;;
     *)
         fail "Unsupported architecture: ${ARCH}"
@@ -420,6 +422,7 @@ install_binary_from_tar "ajeetdsouza/zoxide" "$ZOXIDE_SUFFIX" "zoxide"
 install_binary_from_tar "atuinsh/atuin" "$ATUIN_SUFFIX" "atuin"
 install_binary_from_tar "cli/cli" "$GH_SUFFIX" "gh"
 install_binary_from_tar "astral-sh/uv" "$UV_SUFFIX" "uv"
+install_binary_from_tar "max-sixty/worktrunk" "$WORKTRUNK_SUFFIX" "wt"
 install_ghostty_terminfo
 
 install_ai_clis

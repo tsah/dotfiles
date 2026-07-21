@@ -177,7 +177,9 @@ printf 'Dotfiles doctor\n'
 printf 'Repository: %s\n\n' "$dotfiles_root"
 
 check_cmd git critical
-check_cmd tmux
+check_cmd tmux critical
+check_cmd bun critical
+check_cmd wt critical
 check_cmd nvim
 check_cmd opencode
 

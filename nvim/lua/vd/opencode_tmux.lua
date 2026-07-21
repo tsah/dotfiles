@@ -411,10 +411,15 @@ function M.ask()
         vim.cmd("normal! \27")
     end
 
+    local submitted = false
     vim.ui.input({ prompt = "Ask agent: " }, function(input)
         if input == nil or vim.trim(input) == "" then
             return
         end
+        if submitted then
+            return
+        end
+        submitted = true
         local message = vim.trim(input)
         trace("ask.submit", { message = message, sel = sel, from = from })
         -- Defer so the input float fully tears down before the tmux work.

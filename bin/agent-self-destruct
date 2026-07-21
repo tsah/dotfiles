@@ -8,9 +8,9 @@ identity=$($SCRIPT_DIR/dotfiles-workflow identity)
 readarray -t fields < <(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["path"]); print(d["branch"]); print(d["commonDir"])' <<<"$identity")
 worktree=${fields[0]}; branch=${fields[1]}; common=${fields[2]}
 session=$(tmux display-message -p '#S')
-tagged=$(tmux show-option -qv -t "=$session" @dotfiles_worktree_path)
+tagged=$(tmux show-option -qv -t "$session" @dotfiles_worktree_path)
 [[ -n "$tagged" && "$(realpath "$tagged")" == "$worktree" ]] || { echo "Session is not tagged for canonical worktree $worktree" >&2; exit 1; }
-[[ "$(realpath "$(tmux show-option -qv -t "=$session" @dotfiles_git_common_dir)")" == "$common" ]] || { echo "Repository identity mismatch" >&2; exit 1; }
+[[ "$(realpath "$(tmux show-option -qv -t "$session" @dotfiles_git_common_dir)")" == "$common" ]] || { echo "Repository identity mismatch" >&2; exit 1; }
 [[ "$branch" != "detached" ]] || { echo "Refusing detached HEAD" >&2; exit 1; }
 status=$(git -C "$worktree" status --porcelain)
 upstream=$(git -C "$worktree" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
@@ -25,4 +25,5 @@ if [[ "$unsafe" == true ]]; then
 fi
 [[ "$DRY_RUN" == false ]] || { echo "Dry run only; no changes made."; exit 0; }
 # Worktrunk remains the authority for safe worktree teardown.
-exec wt destroy "$worktree"
+wt -C "$worktree" -y remove --foreground --force --no-delete-branch
+exec tmux kill-session -t "$session"

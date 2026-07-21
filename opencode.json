@@ -20,11 +20,7 @@
   "mcp": {
     "linear": {
       "type": "remote",
-      "url": "https://mcp.linear.app/mcp",
-      "oauth": false,
-      "headers": {
-        "Authorization": "Bearer {env:LINEAR_API_KEY}"
-      }
+      "url": "https://mcp.linear.app/mcp"
     }
   },
   "lsp": false,
@@ -38,22 +34,11 @@
     }
   },
   "agent": {
-    "plan": {
-      "model": "openai/gpt-5.5",
-      "variant": "xhigh",
-      "color": "#9B59B6"
-    },
     "build": {
       "mode": "primary",
-      "model": "openai/gpt-5.5",
+      "model": "openai/gpt-5.6-sol",
       "variant": "low",
       "color": "#3498DB"
-    },
-    "fast": {
-      "description": "Fast build agent",
-      "mode": "primary",
-      "model": "openai/gpt-5.5-fast",
-      "color": "#2ECC71"
     }
   }
 }

@@ -25,10 +25,10 @@ Use this skill when you need to:
 
 Do NOT use this skill to spawn worktree-backed workers. If the user asks for a
 handoff or an independent isolated implementation/research task, use the
-harness-native tworker mechanism instead:
+harness-native worker mechanism instead:
 - Claude Code: `/handoff` or `worker-claude`
 - OpenCode: `/handoff` or `worker-opencode`
-- pi: `tworker` / `tmux_tworker` or `worker-pi`
+- pi: `worker-pi`
 
 ## Tmux Interactive vs Handoff
 

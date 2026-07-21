@@ -15,22 +15,36 @@ fi
 
 cd "${DOTFILES_DIR:-$HOME/dotfiles}/alt-k-tui" || exit 1
 
+tmux set-option -gq @alt_k_tui_open 1
+trap 'tmux set-option -gu @alt_k_tui_open 2>/dev/null || true' EXIT
+
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/alt-k-tui-$(id -u)"
 PID_FILE="$STATE_DIR/server.pid"
 CACHE_FILE="$STATE_DIR/state.json"
 LOG_FILE="$STATE_DIR/server.log"
+SOCKET_FILE="$STATE_DIR/server.tmux-socket"
+CURRENT_TMUX_SOCKET=${TMUX%%,*}
 
 server_running() {
     local pid=""
     [[ -r "$PID_FILE" ]] || return 1
     pid=$(<"$PID_FILE")
     [[ "$pid" =~ ^[0-9]+$ ]] || return 1
-    kill -0 "$pid" 2>/dev/null
+    kill -0 "$pid" 2>/dev/null || return 1
+    # A cache process inherited from another tmux socket cannot observe this
+    # client's sessions or agents (common after isolated QA runs).
+    [[ -r "$SOCKET_FILE" ]] || return 1
+    [[ "$(<"$SOCKET_FILE")" == "$CURRENT_TMUX_SOCKET" ]]
 }
 
 mkdir -p "$STATE_DIR"
 if ! server_running; then
-    rm -f "$PID_FILE"
+    if [[ -r "$PID_FILE" ]]; then
+        old_pid=$(<"$PID_FILE")
+        [[ "$old_pid" =~ ^[0-9]+$ ]] && kill "$old_pid" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE" "$CACHE_FILE"
+    printf '%s\n' "$CURRENT_TMUX_SOCKET" > "$SOCKET_FILE"
     nohup bun src/main.tsx --server >>"$LOG_FILE" 2>&1 &
 fi
 
@@ -39,4 +53,4 @@ for _ in {1..20}; do
     sleep 0.05
 done
 
-exec bun src/main.tsx
+bun src/main.tsx

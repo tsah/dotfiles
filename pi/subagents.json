@@ -1,0 +1,7 @@
+{
+  "maxConcurrent": 3,
+  "defaultJoinMode": "smart",
+  "toolDescriptionMode": "compact",
+  "widgetMode": "background",
+  "fleetView": true
+}

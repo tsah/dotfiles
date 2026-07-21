@@ -12,7 +12,7 @@ Claude Code state is reported through hooks installed by:
 ~/dotfiles/bin/alt-k-install-claude-hooks
 ```
 
-Those hooks write per-pane state into the same runtime cache directory, keyed by `TMUX_PANE`. The cache server prefers those structured reports over pane-title and pane-content heuristics.
+Those hooks write per-pane state into the same runtime cache directory, keyed by `TMUX_PANE`. Pi uses the globally installed `pi/extensions/tmux-worker-lifecycle.ts` extension for the same purpose, including Pi sessions started directly. The cache server prefers these structured reports over pane-title and pane-content heuristics.
 
 Run directly:
 
@@ -30,11 +30,18 @@ The `alt+k` tmux binding launches this TUI. The previous live fzf switcher is ke
 
 Controls:
 - `Up/Down`: move selection
-- `Enter`: switch to the selected tmux session, agent pane, or zoxide directory
-- Type: fuzzy filter rows
-- `Esc`: clear search when searching, otherwise close
-- `Ctrl-C` or `Alt-K`: close
+- `Enter`: switch to the selected target or advance the current flow
+- `Alt-R`: rename the selected tmux session without changing its worktree identity
+- Type or paste: fuzzy filter rows and fill the branch/base form
+- `Alt-K` while the picker is open: choose a repository, then open an existing worktree/branch or type a new branch name to create it
+- `Ctrl-R`: refresh remotes while in the branch picker
+- `Alt-D`: delete the selected worktree/session
+- `Esc`: clear search, move back one flow step, or close
+- `Ctrl-C`: close
+
+On startup, the tmux session containing the popup is selected when it appears in the jump list. Renaming stays inside the TUI and preserves the session's canonical path metadata and included agents.
+
+The branch flow always begins with the repository picker; it never infers a repository from the current pane or selected jump target. Selecting a repository immediately shows cached refs and starts `git fetch --all --prune` in the background; remote rows are ordered by most recent commit and refresh when the fetch settles. In the branch picker, a query without an exact branch match adds a `create new branch` row. Selecting it asks for the base before creating the worktree and session. Alt-B opens the same TUI directly at the repository picker.
 
 Not implemented yet:
-- `Ctrl-D` worktree/session destroy confirmation
 - `Ctrl-Y` copy PR URL

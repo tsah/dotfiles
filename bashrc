@@ -108,3 +108,4 @@ if [ "$IS_INTERACTIVE_SHELL" = true ] && command -v wt >/dev/null 2>&1; then
         eval "$WT_SHELL_INIT"
     fi
 fi
+. "$HOME/.cargo/env"
