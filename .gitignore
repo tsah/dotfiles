@@ -48,3 +48,6 @@ node_modules/
 dist/
 build/
 .turbo/
+
+# Timestamped backups created by config refreshes
+*.bak.*
