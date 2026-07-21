@@ -24,10 +24,10 @@ typeset -U path PATH
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 
 path=(
+  "$HOME/.opencode/bin"
   "$HOME/.local/bin"
   "$HOME/bin"
   "$HOME/dotfiles/bin"
-  "$HOME/.opencode/bin"
   "$HOME/.cargo/bin"
   "$BUN_INSTALL/bin"
   "$HOME/.local/node/node-v22.19.0-linux-arm64/bin"
