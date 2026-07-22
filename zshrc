@@ -14,7 +14,7 @@ export VISUAL="nvim"
 export PAGER="less"
 export BROWSER="xdg-open"
 export PLANNOTATOR_REMOTE="${PLANNOTATOR_REMOTE:-1}"
-export PLANNOTATOR_PORT="${PLANNOTATOR_PORT:-19432}"
+export PLANNOTATOR_PORT="${PLANNOTATOR_PORT:-19432-19439}"
 
 # Configure word boundaries (exclude / and . from word characters)
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'

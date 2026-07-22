@@ -9,7 +9,12 @@
     }
   },
   "plugin": [
-    "file:///home/tsah/dotfiles/opencode/plugins/plannotator-last-compat.js",
+    [
+      "@plannotator/opencode@latest",
+      {
+        "workflow": "manual"
+      }
+    ],
     [
       "@ishaksebsib/opencode-tree",
       {
