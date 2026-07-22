@@ -25,5 +25,15 @@ if [[ "$unsafe" == true ]]; then
 fi
 [[ "$DRY_RUN" == false ]] || { echo "Dry run only; no changes made."; exit 0; }
 # Worktrunk remains the authority for safe worktree teardown.
-wt -C "$worktree" -y remove --foreground --force --no-delete-branch
+remove_status=0
+wt -C "$worktree" -y remove --foreground --force --no-delete-branch || remove_status=$?
+if ! worktree_list=$(git --git-dir="$common" worktree list --porcelain); then
+  echo "Unable to verify worktree removal; preserving tmux session" >&2
+  exit 1
+fi
+if grep -Fqx "worktree $worktree" <<<"$worktree_list"; then
+  echo "Worktree removal failed; preserving tmux session (wt exited $remove_status)" >&2
+  [[ "$remove_status" -ne 0 ]] || remove_status=1
+  exit "$remove_status"
+fi
 exec tmux kill-session -t "$session"
