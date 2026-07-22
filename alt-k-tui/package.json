@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun run src/main.tsx",
     "server": "bun run src/main.tsx --server",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@opentui/core": "latest",

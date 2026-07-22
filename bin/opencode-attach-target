@@ -18,8 +18,12 @@ fi
 if [[ -n "${TMUX:-}" ]]; then
     tmux switch-client -t "$SESSION_NAME"
     if [[ -n "$PANE_TARGET" ]]; then
-        tmux select-pane -t "$PANE_TARGET" 2>/dev/null || true
+        tmux select-pane -t "$PANE_TARGET"
     fi
 else
-    tmux attach-session -t "$SESSION_NAME"
+    if [[ -n "$PANE_TARGET" ]]; then
+        tmux attach-session -t "$SESSION_NAME" \; select-pane -t "$PANE_TARGET"
+    else
+        tmux attach-session -t "$SESSION_NAME"
+    fi
 fi

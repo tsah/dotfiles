@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import argparse
+import hashlib
 import time
 import urllib.error
 import urllib.parse
@@ -346,7 +347,7 @@ def tmux_tty_lookup():
                 "list-panes",
                 "-a",
                 "-F",
-                "#{pane_tty}\t#{session_name}\t#{session_name}:#{window_index}.#{pane_index}",
+                "#{pane_tty}\t#{session_name}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_id}",
             ],
             check=False,
             capture_output=True,
@@ -360,12 +361,13 @@ def tmux_tty_lookup():
 
     for line in result.stdout.splitlines():
         parts = line.split("\t")
-        if len(parts) != 3:
+        if len(parts) != 4:
             continue
-        pane_tty, session_name, pane_target = parts
+        pane_tty, session_name, pane_target, pane_id = parts
         lookup[pane_tty] = {
             "session": session_name,
             "pane": pane_target,
+            "pane_id": pane_id,
         }
 
     return lookup
@@ -377,7 +379,9 @@ def main():
     parser.add_argument("--no-cache", action="store_true", help="disable short-lived TSV cache")
     args = parser.parse_args()
 
-    cache_path = f"/tmp/opencode-status-{os.getuid()}.tsv"
+    tmux_socket = os.environ.get("TMUX", "").split(",", 1)[0] or "default"
+    cache_scope = hashlib.sha256(tmux_socket.encode("utf-8")).hexdigest()[:12]
+    cache_path = f"/tmp/opencode-status-{os.getuid()}-v2-{cache_scope}.tsv"
     cache_ttl_seconds = TSV_CACHE_TTL_SECONDS
 
     if args.tsv and not args.no_cache:
@@ -413,11 +417,13 @@ def main():
         is_run_mode = len(cmdline) > 1 and cmdline[1] == "run"
         session_name = ""
         pane_target = ""
+        pane_id = ""
 
         tty = tty_for_pid(pid)
         if tty and tty in tty_lookup:
             session_name = tty_lookup[tty]["session"]
             pane_target = tty_lookup[tty]["pane"]
+            pane_id = tty_lookup[tty]["pane_id"]
 
         instances.append(
             {
@@ -428,6 +434,7 @@ def main():
                 "is_auto_mode": "--auto" in cmdline,
                 "session_name": session_name,
                 "pane_target": pane_target,
+                "pane_id": pane_id,
                 "session_id": "",
                 "start_ticks": process_start_ticks(pid),
             }
@@ -621,6 +628,7 @@ def main():
         status = "starting"
         title = session_titles.get(session_id, "")
         age = "-"
+        state_updated_at = session_updated_times.get(session_id, 0)
         proc_age_seconds = process_age_seconds(inst.get("start_ticks", 0), clock_ticks, uptime_seconds)
 
         if port and session_id:
@@ -650,6 +658,11 @@ def main():
                 last_msg = messages[-1]
                 msg_time = (
                     last_msg.get("info", {}).get("time", {}).get("created", 0)
+                )
+                state_updated_at = (
+                    last_msg.get("info", {}).get("time", {}).get("completed", 0)
+                    or msg_time
+                    or state_updated_at
                 )
                 status, detail = infer_status(last_msg, inst["is_run_mode"])
                 age = format_age(msg_time)
@@ -681,6 +694,7 @@ def main():
                 detail = ""
             if proc_age_seconds is not None:
                 age = format_age(now_ms - (proc_age_seconds * 1000))
+                state_updated_at = now_ms - (proc_age_seconds * 1000)
 
         grouped[cwd].append(
             (
@@ -691,6 +705,8 @@ def main():
                 age,
                 inst["session_name"],
                 inst["pane_target"],
+                state_updated_at,
+                inst["pane_id"],
             )
         )
 
@@ -701,7 +717,7 @@ def main():
         total = len(sorted_entries)
 
         for idx, entry in enumerate(sorted_entries, start=1):
-            status, detail, title, pid, age, session_name, pane_target = entry
+            status, detail, title, pid, age, session_name, pane_target, state_updated_at, pane_id = entry
             label = short_dir
             if total > 1:
                 label = f"{short_dir} ({idx})"
@@ -716,6 +732,8 @@ def main():
                     "session": session_name,
                     "pane": pane_target,
                     "pid": pid,
+                    "updated_at": state_updated_at,
+                    "stable_pane": pane_id,
                 }
             )
 
@@ -732,7 +750,9 @@ def main():
             session = (row["session"] or "").replace("\t", " ")
             pane = (row["pane"] or "").replace("\t", " ")
             pid = str(row["pid"])
-            lines.append("\t".join([directory, status, detail, title, age, session, pane, pid]))
+            updated_at = str(row["updated_at"] or 0)
+            stable_pane = (row["stable_pane"] or "").replace("\t", " ")
+            lines.append("\t".join([directory, status, detail, title, age, session, pane, pid, updated_at, stable_pane]))
 
         output = "\n".join(lines)
         if output:

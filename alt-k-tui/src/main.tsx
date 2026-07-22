@@ -3,24 +3,15 @@ import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js"
 import { Effect, Exit } from "effect"
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
+import { buildTreeRows, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen } from "./model"
+import type { AgentState, DetailRow, FuzzyResult, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 
-type Target =
-  | { type: "tmux_session"; session: string }
-  | { type: "tmux_window"; session: string; windowId: string }
-  | { type: "opencode"; session: string; pane: string }
-  | { type: "directory"; path: string }
-
-type AgentState = "running" | "done" | "attention" | "unknown"
-
-interface TmuxSession { name: string; recency: number; path: string }
-interface TmuxWindow { session: string; id: string; name: string; pane: string; pid: string; command: string; title: string; activity: number }
-interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string }
+interface TmuxSession { name: string; recency: number; path: string; attached: boolean }
+interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
+interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string; updatedAt: number; stablePane: string }
 interface DirectoryRow { path: string; source: "worktree" | "zoxide"; branch: string }
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
-interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target }
-interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string }
-interface FuzzyResult { score: number; positions: number[] }
-interface CachePayload { generatedAt: number; sessions: SessionRow[] }
+interface CachePayload { version: number; generatedAt: number; sessions: SessionRow[] }
 interface BranchRow { name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
 type PickerMode = "jump" | "repo" | "new" | "branch" | "rename"
 
@@ -28,8 +19,13 @@ const repoRoot = new URL("../..", import.meta.url).pathname.replace(/\/$/, "")
 const runtimeDir = `${Bun.env.XDG_RUNTIME_DIR ?? "/tmp"}/alt-k-tui-${process.getuid?.() ?? Bun.env.USER ?? "user"}`
 const cachePath = `${runtimeDir}/state.json`
 const pidPath = `${runtimeDir}/server.pid`
+const versionPath = `${runtimeDir}/server.version`
 const agentStateDir = `${runtimeDir}/agent-state`
+const seenStateDir = `${runtimeDir}/seen-state`
+const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
+const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
+const cacheVersion = 2
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -38,6 +34,7 @@ const theme = {
   header: "#e2e8f0",
   muted: "#94a3b8",
   ok: "#86efac",
+  idle: "#c4b5fd",
   selectedBg: "#1e3a5f",
   selectedFg: "#f8fafc",
   warning: "#fde68a",
@@ -71,36 +68,39 @@ const ageFromUnixSeconds = (seconds: number) => {
   return `${Math.floor(diff / 86400)}d`
 }
 
-const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_path}"]).pipe(
+const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_path}\t#{session_attached}"]).pipe(
   Effect.map((output) => parseTsv(output).map((parts): TmuxSession => ({
     name: parts[0] ?? "",
     recency: Math.max(Number(parts[1] ?? 0) || 0, Number(parts[2] ?? 0) || 0, Number(parts[3] ?? 0) || 0),
     path: parts[4] ?? "",
+    attached: Number(parts[5] ?? 0) > 0,
   })).filter((session) => session.name.length > 0)),
 )
 
-const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{window_activity}"]).pipe(
+const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{window_activity}\t#{window_active}"]).pipe(
   Effect.map((output) => parseTsv(output).map((parts): TmuxWindow => ({
     session: parts[0] ?? "",
     id: parts[1] ?? "",
-    name: parts[2] ?? "",
-    pane: parts[3] ?? "",
-    pid: parts[4] ?? "",
-    command: (parts[5] ?? "").toLowerCase(),
-    title: parts[6] ?? "",
-    activity: Number(parts[7] ?? 0) || 0,
+    index: parts[2] ?? "",
+    name: parts[3] ?? "",
+    pane: parts[4] ?? "",
+    pid: parts[5] ?? "",
+    command: (parts[6] ?? "").toLowerCase(),
+    title: parts[7] ?? "",
+    activity: Number(parts[8] ?? 0) || 0,
+    active: parts[9] === "1",
   })).filter((window) => window.session.length > 0)),
 )
 
-const collectOpencode = runCommand(["opencode-status", "--tsv"], { allowFailure: true }).pipe(
+const collectOpencode = runCommand([Bun.env.ALT_K_TUI_OPENCODE_STATUS || "opencode-status", "--tsv"], { allowFailure: true }).pipe(
   Effect.map((output) => parseTsv(output).map((parts): OpencodeStatus | undefined => {
     if (parts.length < 7) return undefined
     const directory = parts[0] ?? ""
     if (directory.endsWith("(deleted)")) return undefined
     if (parts.length >= 8) {
-      return { directory, status: parts[1] ?? "", detail: parts[2] ?? "", title: parts[3] ?? "", age: parts[4] ?? "", session: parts[5] ?? "", pane: parts[6] ?? "" }
+      return { directory, status: parts[1] ?? "", detail: parts[2] ?? "", title: parts[3] ?? "", age: parts[4] ?? "", session: parts[5] ?? "", pane: parts[6] ?? "", updatedAt: Number(parts[8] ?? 0) || 0, stablePane: parts[9] ?? "" }
     }
-    return { directory, status: parts[1] ?? "", detail: "", title: parts[2] ?? "", age: parts[3] ?? "", session: parts[4] ?? "", pane: parts[5] ?? "" }
+    return { directory, status: parts[1] ?? "", detail: "", title: parts[2] ?? "", age: parts[3] ?? "", session: parts[4] ?? "", pane: parts[5] ?? "", updatedAt: 0, stablePane: "" }
   }).filter((row): row is OpencodeStatus => Boolean(row?.session))),
 )
 
@@ -148,13 +148,37 @@ const collectAgentReports = Effect.sync(() => {
   for (const entry of readdirSync(agentStateDir)) {
     if (!entry.endsWith(".json")) continue
     try {
-      const raw = JSON.parse(readFileSync(`${agentStateDir}/${entry}`, "utf8")) as Partial<AgentReport>
-      if (!raw.agent || !raw.pane || !raw.state || !["running", "done", "attention", "unknown"].includes(raw.state)) continue
-      reports.push({ agent: raw.agent, pane: raw.pane, state: raw.state, updatedAt: Number(raw.updatedAt ?? 0) || 0, hookEvent: raw.hookEvent })
+      const raw = JSON.parse(readFileSync(`${agentStateDir}/${entry}`, "utf8")) as Partial<AgentReport> & { state?: ReportedAgentState }
+      if (!raw.agent || !raw.pane || !raw.state || !["blocked", "working", "done", "idle", "unknown", "running", "attention"].includes(raw.state)) continue
+      reports.push({ agent: raw.agent, pane: raw.pane, state: normalizeReportedState(raw.state, raw.hookEvent), updatedAt: Number(raw.updatedAt ?? 0) || 0, hookEvent: raw.hookEvent })
     } catch {}
   }
   return reports
 })
+
+const readSeenState = () => {
+  const seen = new Map<string, number>()
+  if (!existsSync(seenStateDir)) return seen
+  for (const entry of readdirSync(seenStateDir)) {
+    if (!entry.endsWith(".json")) continue
+    try {
+      const record = JSON.parse(readFileSync(`${seenStateDir}/${entry}`, "utf8")) as { key?: string; seenAt?: number }
+      if (record.key) seen.set(record.key, Number(record.seenAt ?? 0) || 0)
+    } catch {}
+  }
+  return seen
+}
+
+const markSeen = (key: string, seenAt = Date.now()) => {
+  mkdirSync(seenStateDir, { recursive: true })
+  const target = `${seenStateDir}/${encodeURIComponent(key)}.json`
+  const tmp = `${target}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify({ key, seenAt }))
+  renameSync(tmp, target)
+}
+
+const paneCompletionKey = (pane: string) => `${tmuxServerKey}:pane:${pane}`
+const windowCompletionKey = (window: string) => `${tmuxServerKey}:window:${window}`
 
 const gitMeta = (path: string) => Effect.gen(function* () {
   if (!path) return { branch: "", flags: "" }
@@ -176,41 +200,36 @@ const agentStateFromStatus = (status: string, detail = "", age = ""): AgentState
   const normalized = status.trim().toLowerCase()
   const normalizedDetail = detail.trim().toLowerCase()
   if (!normalized) return "unknown"
-  if (["done", "idle", "complete", "completed", "success", "succeeded"].includes(normalized)) return "done"
-  if (normalized === "waiting question") return "attention"
-  if (normalized.includes("tool running") && ["question", "permission", "approval"].some((word) => normalizedDetail.includes(word))) return "attention"
-  if (["error", "failed", "failure", "blocked", "input", "attention", "confirm", "review", "question", "permission", "approval"].some((word) => normalized.includes(word))) return "attention"
-  if (["running", "generating", "streaming", "working"].some((word) => normalized.includes(word))) return "running"
+  if (["done", "complete", "completed", "success", "succeeded"].includes(normalized)) return "done"
+  if (normalized === "idle") return "idle"
+  if (normalized === "waiting question") return "blocked"
+  if (normalized.includes("tool running") && ["question", "permission", "approval"].some((word) => normalizedDetail.includes(word))) return "blocked"
+  if (["error", "failed", "failure", "blocked", "input", "attention", "confirm", "review", "question", "permission", "approval"].some((word) => normalized.includes(word))) return "blocked"
+  if (["running", "generating", "streaming", "working"].some((word) => normalized.includes(word))) return "working"
   return "unknown"
+}
+const opencodeState = (opencode: OpencodeStatus) => {
+  const state = agentStateFromStatus(opencode.status, opencode.detail, opencode.age)
+  return !opencode.updatedAt && state === "done" ? "idle" : state
 }
 const codexStateFromTitle = (title: string): AgentState => {
   const normalized = title.trim().toLowerCase()
   if (!normalized) return "unknown"
-  if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(normalized)) return "running"
+  if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(normalized)) return "working"
   if (/^[✓✔]/.test(normalized) || normalized.includes("done") || normalized.includes("complete")) return "done"
-  if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
+  if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "blocked"
   return "unknown"
 }
 const claudeStateFromTitle = (title: string): AgentState => {
   const normalized = title.trim().toLowerCase()
   if (!normalized) return "unknown"
-  if (/^[⠁⠂⠄⡀⢀⠠⠐⠈]/.test(normalized)) return "running"
+  if (/^[⠁⠂⠄⡀⢀⠠⠐⠈]/.test(normalized)) return "working"
   if (/^[✳✓✔]/.test(normalized) || normalized.includes("done") || normalized.includes("complete")) return "done"
-  if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "attention"
+  if (/^[!✗×]/.test(normalized) || ["error", "failed", "blocked", "attention"].some((word) => normalized.includes(word))) return "blocked"
   return "unknown"
 }
 
-const sessionState = (session: SessionRow): AgentState => {
-  const states = session.details.map((detail) => detail.state)
-  if (states.includes("attention")) return "attention"
-  if (states.includes("running")) return "running"
-  if (states.includes("done")) return "done"
-  return "unknown"
-}
-
-const sessionSortRank = (session: SessionRow) => ["attention", "running"].includes(sessionState(session)) ? 0 : 1
-
-const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], directoryRows: DirectoryRow[], agentReports: AgentReport[]) => Effect.gen(function* () {
+const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], directoryRows: DirectoryRow[], agentReports: AgentReport[], seen: Map<string, number>) => Effect.gen(function* () {
   const windowsBySession = Map.groupBy(windows, (window) => window.session)
   const opencodesBySession = Map.groupBy(opencodes, (row) => row.session)
   const reportsByPane = new Map(agentReports.map((report) => [report.pane, report]))
@@ -230,20 +249,50 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     const meta = yield* gitMeta(session.path)
     const details: DetailRow[] = []
 
-    for (const opencode of sessionOpencodes) {
-      details.push({ kind: "opencode", status: opencode.status, detail: opencode.detail, title: opencode.title || opencode.directory, age: opencode.age, state: agentStateFromStatus(opencode.status, opencode.detail, opencode.age), target: { type: "opencode", session: opencode.session, pane: opencode.pane } })
+    const opencodesByWindow = Map.groupBy(sessionOpencodes, (opencode) => {
+      if (opencode.stablePane) return sessionWindows.find((window) => window.pane === opencode.stablePane)?.id ?? ""
+      const prefix = `${opencode.session}:`
+      const windowIndex = opencode.pane.startsWith(prefix) ? opencode.pane.slice(prefix.length).split(".")[0] : ""
+      return sessionWindows.find((window) => window.index === windowIndex)?.id ?? ""
+    })
+
+    for (const window of sessionWindows) {
+      const focused = session.attached && window.active
+      const windowOpencodes = opencodesByWindow.get(window.id) ?? []
+      for (const opencode of windowOpencodes) {
+        const completionKey = paneCompletionKey(opencode.stablePane || window.pane || opencode.pane)
+        const sourceState = opencodeState(opencode)
+        const state = stateWithSeen(sourceState, opencode.updatedAt, seen.get(completionKey), focused)
+        if (sourceState === "done" && focused) {
+          markSeen(completionKey)
+          seen.set(completionKey, Date.now())
+        }
+        details.push({ kind: "opencode", status: opencode.status, detail: opencode.detail, title: opencode.title || window.name || opencode.directory, age: opencode.age, state, target: { type: "opencode", session: opencode.session, pane: opencode.stablePane || opencode.pane }, completionKey, updatedAt: opencode.updatedAt })
+      }
+      if (windowOpencodes.length > 0) continue
+
+      const kind = isPiWindow(window) ? "pi" : isClaudeWindow(window) ? "claude" : codexPanes.has(window.pane) ? "codex" : "window"
+      const report = reportsByPane.get(window.pane)
+      const sourceState = report?.agent === kind ? report.state : kind === "codex" ? codexStateFromTitle(window.title || window.name) : kind === "claude" ? claudeStateFromTitle(window.title || window.name) : "unknown"
+      const updatedAt = report?.agent === kind ? report.updatedAt : window.activity * 1000
+      const completionKey = kind === "window" ? windowCompletionKey(window.id) : paneCompletionKey(window.pane)
+      const state = stateWithSeen(sourceState, updatedAt, seen.get(completionKey), focused)
+      if (sourceState === "done" && focused) {
+        markSeen(completionKey)
+        seen.set(completionKey, Date.now())
+      }
+      details.push({ kind, status: kind === "window" ? window.command : "", detail: "", title: kind === "window" ? window.name || window.title : window.title || window.name, age: ageFromUnixSeconds(window.activity), state, target: { type: "tmux_window", session: window.session, windowId: window.id }, completionKey, updatedAt })
     }
 
-    const agentWindows = sessionWindows.filter((window) => isPiWindow(window) || isClaudeWindow(window) || codexPanes.has(window.pane))
-    for (const window of agentWindows) {
-      const kind = isPiWindow(window) ? "pi" : isClaudeWindow(window) ? "claude" : "codex"
-      const report = reportsByPane.get(window.pane)
-      const state = report?.agent === kind ? report.state : kind === "codex" ? codexStateFromTitle(window.title || window.name) : kind === "claude" ? claudeStateFromTitle(window.title || window.name) : "unknown"
-      details.push({ kind, status: "", detail: "", title: window.title || window.name, age: "", state, target: { type: "tmux_window", session: window.session, windowId: window.id } })
+    for (const opencode of opencodesByWindow.get("") ?? []) {
+      const completionKey = paneCompletionKey(opencode.stablePane || opencode.pane)
+      const sourceState = opencodeState(opencode)
+      const state = stateWithSeen(sourceState, opencode.updatedAt, seen.get(completionKey))
+      details.push({ kind: "opencode", status: opencode.status, detail: opencode.detail, title: opencode.title || opencode.directory, age: opencode.age, state, target: { type: "opencode", session: opencode.session, pane: opencode.stablePane || opencode.pane }, completionKey, updatedAt: opencode.updatedAt })
     }
 
     if (details.length === 0) {
-      details.push({ kind: "session", status: meta.flags, detail: "", title: session.path, age: ageFromUnixSeconds(session.recency), state: "unknown", target: { type: "tmux_session", session: session.name } })
+      details.push({ kind: "session", status: meta.flags, detail: "", title: session.path, age: ageFromUnixSeconds(session.recency), state: "unknown", target: { type: "tmux_session", session: session.name }, updatedAt: 0 })
     }
 
     const markers = [sessionOpencodes.length > 0 ? "oc" : "", sessionWindows.some(isPiWindow) ? "pi" : "", sessionWindows.some(isClaudeWindow) ? "C" : "", sessionWindows.some((window) => codexPanes.has(window.pane)) ? "codex" : ""].filter(Boolean)
@@ -260,7 +309,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     const path = expandHome(directory.path)
     if (occupiedDirs.has(path)) continue
     occupiedDirs.add(path)
-    const details: DetailRow[] = [{ kind: "directory", status: "", detail: directory.source, title: path, age: "", state: "unknown", target: { type: "directory", path } }]
+    const details: DetailRow[] = [{ kind: "directory", status: "", detail: directory.source, title: path, age: "", state: "unknown", target: { type: "directory", path }, updatedAt: 0 }]
     const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age: "", recency: 0, target: { type: "directory", path }, details, searchText: "" }
     row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`].join(" ").toLowerCase()
     rows.push(row)
@@ -269,21 +318,21 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
   return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || a.name.localeCompare(b.name))
 })
 
-const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports], { concurrency: "unbounded" }).pipe(
-  Effect.flatMap(([sessions, windows, opencodes, directoryRows, agentReports]) => buildSessionRows(sessions, windows, opencodes, directoryRows, agentReports)),
+const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports, Effect.sync(readSeenState)], { concurrency: "unbounded" }).pipe(
+  Effect.flatMap(([sessions, windows, opencodes, directoryRows, agentReports, seen]) => buildSessionRows(sessions, windows, opencodes, directoryRows, agentReports, seen)),
 )
 
 const writeCache = (sessions: SessionRow[]) => Effect.sync(() => {
   mkdirSync(runtimeDir, { recursive: true })
   const tmpPath = `${cachePath}.${process.pid}.tmp`
-  writeFileSync(tmpPath, JSON.stringify({ generatedAt: Date.now(), sessions } satisfies CachePayload))
+  writeFileSync(tmpPath, JSON.stringify({ version: cacheVersion, generatedAt: Date.now(), sessions } satisfies CachePayload))
   renameSync(tmpPath, cachePath)
 })
 
 const readCache = () => {
   try {
     const payload = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<CachePayload>
-    return Array.isArray(payload.sessions) ? payload.sessions as SessionRow[] : undefined
+    return payload.version === cacheVersion && Array.isArray(payload.sessions) ? payload.sessions as SessionRow[] : undefined
   } catch {
     return undefined
   }
@@ -293,8 +342,11 @@ const serverProgram = Effect.gen(function* () {
   yield* Effect.sync(() => {
     mkdirSync(runtimeDir, { recursive: true })
     writeFileSync(pidPath, `${process.pid}\n`)
+    writeFileSync(versionPath, `${cacheVersion}\n`)
     const cleanup = () => {
-      try { unlinkSync(pidPath) } catch {}
+      try {
+        if (readFileSync(pidPath, "utf8").trim() === String(process.pid)) unlinkSync(pidPath)
+      } catch {}
     }
     process.once("exit", cleanup)
     process.once("SIGINT", () => { cleanup(); process.exit(0) })
@@ -329,7 +381,7 @@ const repositoryRows = (rows: SessionRow[]) => Effect.gen(function* () {
     const existing = repositories.get(commonDir)
     if (existing && !["main", "master"].includes(row.branch)) continue
     const name = repoPath.split("/").filter(Boolean).at(-1) ?? repoPath
-    const details: DetailRow[] = [{ kind: "repository", status: "", detail: "choose branch next", title: repoPath, age: "", state: "unknown", target: { type: "directory", path } }]
+    const details: DetailRow[] = [{ kind: "repository", status: "", detail: "choose branch next", title: repoPath, age: "", state: "unknown", target: { type: "directory", path }, updatedAt: 0 }]
     repositories.set(commonDir, { ...row, name, path, target: { type: "directory", path }, details, markers: [], age: "", searchText: `${name} ${repoPath} ${path}`.toLowerCase() })
   }
   return [...repositories.values()].sort((a, b) => a.name.localeCompare(b.name))
@@ -410,31 +462,6 @@ const dumpCachedState = Effect.sync(() => {
   console.log(JSON.stringify(readCache() ?? [], null, 2))
 })
 
-const fuzzyResult = (text: string, query: string): FuzzyResult | undefined => {
-  const chars = Array.from(text.toLowerCase())
-  const normalizedQuery = query.toLowerCase().trim()
-  if (!normalizedQuery) return { score: 0, positions: [] }
-  const positions: number[] = []
-  let searchFrom = 0
-  for (const char of Array.from(normalizedQuery)) {
-    const index = chars.indexOf(char, searchFrom)
-    if (index < 0) return undefined
-    positions.push(index)
-    searchFrom = index + 1
-  }
-  const span = positions[positions.length - 1]! - positions[0]! + 1
-  let score = normalizedQuery.length * 100 - span * 8 - positions[0]! * 2
-  for (let i = 0; i < positions.length; i += 1) {
-    const position = positions[i]!
-    const previousPosition = positions[i - 1]
-    const previousChar = position > 0 ? chars[position - 1] ?? "" : ""
-    if (position === 0) score += 35
-    if (["/", "@", "-", "_", " ", "."].includes(previousChar)) score += 30
-    if (previousPosition !== undefined && position === previousPosition + 1) score += 45
-  }
-  return { score, positions }
-}
-
 const filterSessions = (sessions: SessionRow[], query: string) => {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return sessions
@@ -445,12 +472,11 @@ const filterSessions = (sessions: SessionRow[], query: string) => {
     .map((row) => row.session)
 }
 
-const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-const stateGlyph = (state: AgentState, frame = 0) => state === "running" ? spinnerFrames[frame % spinnerFrames.length]! : state === "done" ? "✓" : state === "attention" ? "!" : "·"
-const agentIcon = (kind: string) => kind === "opencode" ? "🤖" : kind === "pi" ? "π" : kind === "claude" ? "🥐" : kind === "codex" ? "📜" : kind === "directory" ? "" : kind
-const agentSummary = (sessions: SessionRow[]) => ["oc", "pi", "C", "codex"].map((marker) => `[${marker}:${sessions.filter((session) => session.markers.includes(marker)).length}]`).join(" ")
+const stateGlyph = (state: AgentState) => state === "unknown" ? "○" : "●"
+const stateColor = (state: AgentState) => state === "blocked" ? theme.warning : state === "working" ? theme.accent : state === "done" ? theme.ok : state === "idle" ? theme.idle : theme.muted
+const stateLabel = (state: AgentState) => state === "blocked" ? "waiting" : state === "done" ? "ready" : state
 const sessionGitMeta = (session: SessionRow) => [session.branch, session.flags === "dirty" ? "dirty" : ""].filter(Boolean).join(", ")
-const selectedColor = (selected: boolean, state: AgentState) => selected ? theme.selectedFg : state === "attention" ? theme.warning : state === "running" ? theme.ok : theme.header
+const selectedColor = (selected: boolean) => selected ? theme.selectedFg : theme.header
 const targetLabel = (target: Target) => {
   switch (target.type) {
     case "opencode": return `opencode pane ${target.pane}`
@@ -468,12 +494,10 @@ const enterAction = (target: Target) => {
   }
 }
 const detailStatusLabel = (detail: DetailRow) => {
-  if (detail.kind === "opencode" && detail.state === "done") return "idle"
+  if (["opencode", "pi", "claude", "codex"].includes(detail.kind) && detail.state !== "unknown") return stateLabel(detail.state)
   if (detail.status) return detail.status
-  if (["pi", "claude", "codex"].includes(detail.kind) && detail.state !== "unknown") return detail.state
   return detail.kind
 }
-const detailColor = (state: AgentState) => state === "attention" ? theme.warning : state === "running" ? theme.ok : theme.muted
 
 const openTarget = (target: Target) => {
   const command = (() => {
@@ -490,26 +514,20 @@ const openTarget = (target: Target) => {
 }
 
 const openTargetSync = (target: Target | undefined) => {
-  if (!target) return
+  if (!target) return false
   switch (target.type) {
-    case "opencode":
-      Bun.spawnSync(["opencode-attach-target", target.session, target.pane], { cwd: repoRoot, stdout: "ignore", stderr: "ignore" })
-      return
-    case "tmux_session":
-      Bun.spawnSync(["tmux", process.env.TMUX ? "switch-client" : "attach-session", "-t", target.session], { cwd: repoRoot, stdout: "ignore", stderr: "ignore" })
-      return
-    case "tmux_window":
-      Bun.spawnSync(
+    case "opencode": return Bun.spawnSync(["opencode-attach-target", target.session, target.pane], { cwd: repoRoot, stdout: "ignore", stderr: "ignore" }).exitCode === 0
+    case "tmux_session": return Bun.spawnSync(["tmux", process.env.TMUX ? "switch-client" : "attach-session", "-t", target.session], { cwd: repoRoot, stdout: "ignore", stderr: "ignore" }).exitCode === 0
+    case "tmux_window": return Bun.spawnSync(
         process.env.TMUX
           ? ["sh", "-c", "tmux switch-client -t \"$1\" && tmux select-window -t \"$2\"", "sh", target.session, target.windowId]
           : ["tmux", "attach-session", "-t", target.session, ";", "select-window", "-t", target.windowId],
         { cwd: repoRoot, stdout: "ignore", stderr: "ignore" },
-      )
-      return
+      ).exitCode === 0
     case "directory": {
       const created = Bun.spawnSync([`${repoRoot}/bin/dotfiles-workflow`, "session", "--cwd", target.path], { cwd: repoRoot, stdout: "pipe", stderr: "ignore" })
       const name = created.stdout.toString().trim()
-      if (name) Bun.spawnSync(["tmux", process.env.TMUX ? "switch-client" : "attach-session", "-t", `=${name}`], { stdout: "ignore", stderr: "ignore" })
+      return Boolean(name) && Bun.spawnSync(["tmux", process.env.TMUX ? "switch-client" : "attach-session", "-t", `=${name}`], { stdout: "ignore", stderr: "ignore" }).exitCode === 0
     }
   }
 }
@@ -519,63 +537,43 @@ function HighlightText(props: { text: string; query: string; fg: string }) {
   return <>{Array.from(props.text).map((char, index) => positions().includes(index) ? <b>{char}</b> : char)}</>
 }
 
-function AgentBadge(props: { detail: DetailRow; selected: boolean; frame: number }) {
-  const color = () => props.detail.state === "running" ? theme.ok : props.detail.state === "attention" ? theme.warning : props.selected ? theme.selectedFg : theme.muted
-  return <text fg={color()} flexShrink={0}>{agentIcon(props.detail.kind)} {stateGlyph(props.detail.state, props.frame)}</text>
-}
-
-function SessionRowView(props: { session: SessionRow; selected: boolean; query: string; frame: number }) {
-  const state = () => sessionState(props.session)
-  const rowFg = () => selectedColor(props.selected, state())
-  const agents = () => props.session.details.filter((detail) => ["opencode", "pi", "claude", "codex"].includes(detail.kind))
+function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; expanded: boolean }) {
+  const rowFg = () => selectedColor(props.selected)
+  const detail = () => props.row.detail
+  const expandable = () => props.row.session.details.some((row) => !["directory", "repository", "session"].includes(row.kind))
+  const childName = () => detail()?.kind === "window" ? detail()!.title : detail()?.kind ?? ""
+  const childTitle = () => detail()?.kind === "window" ? "" : detail()?.title || detail()?.detail || ""
   return (
     <box flexDirection="row" height={1} backgroundColor={props.selected ? theme.selectedBg : undefined}>
       <text width={2} fg={rowFg()}>{props.selected ? ">" : " "}</text>
-      <text width={2} fg={rowFg()}>{stateGlyph(state(), props.frame)}</text>
-      <text fg={rowFg()} flexShrink={1}><HighlightText text={props.session.name} query={props.query} fg={rowFg()} /></text>
-      <text width={2}> </text>
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <For each={agents()}>{(detail) => <AgentBadge detail={detail} selected={props.selected} frame={props.frame} />}</For>
-      </box>
-      <text flexGrow={1}> </text>
-      <text flexShrink={0} fg={props.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted}>{sessionGitMeta(props.session) ? `[${sessionGitMeta(props.session)}]` : ""}</text>
+      <text width={props.row.depth === 0 ? 2 : 4} fg={theme.muted}>{props.row.depth === 0 ? expandable() ? props.expanded ? "▾" : "▸" : " " : " "}</text>
+      <text width={2} fg={stateColor(props.row.state)}>{stateGlyph(props.row.state)}</text>
+      {detail() ? (
+        <>
+          <text width={12} fg={rowFg()}><HighlightText text={childName()} query={props.query} fg={rowFg()} /></text>
+          <text fg={theme.muted} flexShrink={1}><HighlightText text={childTitle()} query={props.query} fg={theme.muted} /></text>
+          <text flexGrow={1}> </text>
+          <text width={9} flexShrink={0} fg={stateColor(detail()!.state)}>{detailStatusLabel(detail()!)}</text>
+        </>
+      ) : (
+        <text fg={rowFg()} flexShrink={1}><HighlightText text={props.row.session.name} query={props.query} fg={rowFg()} /></text>
+      )}
+      {props.row.depth === 0 ? (
+        <>
+          <text flexGrow={1}> </text>
+          <text flexShrink={0} fg={props.row.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted}>{sessionGitMeta(props.row.session) ? `[${sessionGitMeta(props.row.session)}]` : ""}</text>
+        </>
+      ) : null}
     </box>
   )
 }
 
-function DetailBox(props: { session: SessionRow | undefined; frame: number }) {
+function JumpFooter(props: { row: TreeRow | undefined }) {
   return (
-    <box border borderStyle="single" borderColor={theme.border} height={8} flexDirection="column">
-      {props.session ? (
-        <>
-          <box flexDirection="row" height={1}>
-            <text fg={theme.accentStrong} flexShrink={1}>{props.session.name}</text>
-            <text flexGrow={1}> </text>
-            <text fg={props.session.flags === "dirty" ? theme.warning : theme.muted}>{sessionGitMeta(props.session)}</text>
-          </box>
-          <text height={1} fg={theme.muted}>{props.session.path || targetLabel(props.session.target)}</text>
-          <box flexDirection="row" height={1}>
-            <text width={8} fg={theme.muted}>Target:</text>
-            <text fg={theme.header}>{targetLabel(props.session.target)}</text>
-          </box>
-          <For each={props.session.details.slice(0, 3)}>{(detail) => (
-            <box flexDirection="row" height={1}>
-              <text width={8} fg={theme.muted}>{detail.kind === "directory" || detail.kind === "session" ? "Info:" : "Agent:"}</text>
-              <text fg={detailColor(detail.state)}>{agentIcon(detail.kind)} {stateGlyph(detail.state, props.frame)} {detail.kind}</text>
-              <text fg={theme.muted}>  ·  </text>
-              <text fg={theme.header}>{detailStatusLabel(detail)}</text>
-              {detail.detail ? <text fg={theme.muted}>  ·  {detail.detail}</text> : null}
-              {detail.title ? <text fg={theme.muted}>  ·  {detail.title}</text> : null}
-              <text flexGrow={1}> </text>
-              {detail.age ? <text fg={theme.muted}>{detail.age}</text> : null}
-            </box>
-          )}</For>
-          <box flexDirection="row" height={1}>
-            <text width={8} fg={theme.muted}>Enter:</text>
-            <text fg={theme.header}>{enterAction(props.session.target)} · Alt-k open/create{props.session.target.type === "tmux_session" ? " · Alt-r rename" : ""} · Alt-d delete</text>
-          </box>
-        </>
-      ) : <text fg={theme.muted}>No matches</text>}
+    <box height={1} flexDirection="row">
+      <text fg={theme.muted} flexShrink={1}>{props.row?.session.path ?? "No matches"}</text>
+      <text flexGrow={1}> </text>
+      <text fg={theme.muted} flexShrink={0}>{props.row?.depth === 0 ? "← collapse  → expand  Enter open" : "← parent  Enter focus"}</text>
     </box>
   )
 }
@@ -595,12 +593,14 @@ function PickerRowView(props: { name: string; meta: string; selected: boolean; q
 function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; currentSession: string; onOpen: (target: Target | undefined) => void }) {
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
+  const initialExpanded = new Set(props.currentSession ? [props.currentSession] : [])
+  const initialRows = buildTreeRows(props.sessions, "", { expandedSessions: initialExpanded, bottomUp: true })
   const [sessions, setSessions] = createSignal(props.sessions)
+  const [expandedSessions, setExpandedSessions] = createSignal<ReadonlySet<string>>(initialExpanded)
   const [mode, setMode] = createSignal<PickerMode>(spawnMode ? "repo" : "jump")
   const [query, setQuery] = createSignal("")
-  const initialIndex = props.sessions.findIndex((row) => row.target.type === "tmux_session" && row.target.session === props.currentSession)
+  const initialIndex = initialRows.findIndex((row) => row.depth === 0 && row.target.type === "tmux_session" && row.target.session === props.currentSession)
   const [index, setIndex] = createSignal(Math.max(0, initialIndex))
-  const [frame, setFrame] = createSignal(0)
   const [repository, setRepository] = createSignal<SessionRow>()
   const [branches, setBranches] = createSignal<BranchRow[]>([])
   const [branchName, setBranchName] = createSignal("")
@@ -613,7 +613,8 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
   let fetchRequest = 0
 
-  const filteredSessions = createMemo(() => filterSessions(sessions(), query()))
+  const treeRows = (rows = sessions(), search = query(), expanded = expandedSessions()) => buildTreeRows(rows, search, { expandedSessions: expanded, bottomUp: true })
+  const filteredTreeRows = createMemo(() => treeRows())
   const filteredRepositories = createMemo(() => filterSessions(props.repositories, query()))
   const filteredBranches = createMemo(() => {
     const normalized = query().trim().toLowerCase()
@@ -626,25 +627,37 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     const exact = branches().some((branch) => branch.value.toLowerCase() === normalized || branch.name.toLowerCase() === normalized)
     return exact ? matches : [{ name: query().trim(), value: query().trim(), kind: "create" as const, path: "", recency: 0, searchText: `${normalized} create new branch` }, ...matches]
   })
-  const activeLength = createMemo(() => mode() === "jump" ? filteredSessions().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : 0)
-  const selectedSession = createMemo(() => mode() === "jump" ? filteredSessions()[index()] : undefined)
+  const activeLength = createMemo(() => mode() === "jump" ? filteredTreeRows().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : 0)
+  const selectedTreeRow = createMemo(() => mode() === "jump" ? filteredTreeRows()[index()] : undefined)
+  const selectedParent = createMemo(() => selectedTreeRow()?.depth === 0 ? selectedTreeRow()!.session : undefined)
   const selectedRepository = createMemo(() => mode() === "repo" ? filteredRepositories()[index()] : undefined)
   const selectedBranch = createMemo(() => mode() === "branch" ? filteredBranches()[index()] : undefined)
-  const visibleCount = createMemo(() => Math.max(1, dimensions().height - 11))
-  const visibleSessions = createMemo(() => visibleSlice(filteredSessions(), index(), visibleCount()))
+  const visibleCount = createMemo(() => Math.max(1, dimensions().height - (mode() === "jump" && !deleteSession() ? 5 : 11)))
+  const visibleTreeRows = createMemo(() => visibleSlice(filteredTreeRows(), index(), visibleCount()))
   const visibleRepositories = createMemo(() => visibleSlice(filteredRepositories(), index(), visibleCount()))
   const visibleBranches = createMemo(() => visibleSlice(filteredBranches(), index(), visibleCount()))
 
   const resetList = (nextMode: PickerMode) => {
     setMode(nextMode)
     setQuery("")
-    setIndex(0)
+    const parentIndex = nextMode === "jump" ? treeRows(sessions(), "").findIndex((row) => row.depth === 0) : 0
+    setIndex(Math.max(0, parentIndex))
     setError("")
   }
   const updateIndex = (next: number) => setIndex(clamp(next, 0, Math.max(0, activeLength() - 1)))
-  const closeWith = (target?: Target) => {
+  const setExpanded = (session: string, expanded: boolean) => {
+    const next = new Set(expandedSessions())
+    if (expanded) next.add(session)
+    else next.delete(session)
+    setExpandedSessions(next)
+    const rows = treeRows(sessions(), query(), next)
+    const nextIndex = rows.findIndex((row) => row.depth === 0 && row.session.name === session)
+    setIndex(Math.max(0, nextIndex))
+  }
+  const closeWith = (target?: Target, completionKey?: string) => {
     props.onOpen(target)
-    openTargetSync(target)
+    const opened = target ? openTargetSync(target) : true
+    if (opened && completionKey) markSeen(completionKey)
     renderer.destroy()
   }
   const finishBranch = (branch: string, create: boolean) => {
@@ -726,7 +739,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     }
     if (key.meta && key.name === "k") return resetList("repo")
     if (key.meta && key.name === "r" && mode() === "jump") {
-      const selected = selectedSession()
+      const selected = selectedParent()
       if (selected?.target.type !== "tmux_session") return
       setRenameSession(selected)
       setRenameName(selected.target.session)
@@ -753,7 +766,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       if (mode() === "branch") return resetList("repo")
       if (query()) {
         setQuery("")
-        setIndex(0)
+        setIndex(Math.max(0, treeRows(sessions(), "").findIndex((row) => row.depth === 0)))
         return
       }
       if (mode() === "repo") return resetList("jump")
@@ -770,9 +783,23 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       } else if (mode() === "rename") {
         setRenameName((value) => value.slice(0, -1))
       } else {
-        setQuery((value) => value.slice(0, -1))
-        setIndex(0)
+        setQuery((value) => {
+          const next = value.slice(0, -1)
+          if (!next) setIndex(Math.max(0, treeRows(sessions(), "").findIndex((row) => row.depth === 0)))
+          else setIndex(0)
+          return next
+        })
       }
+      return
+    }
+    if (mode() === "jump" && key.name === "right") {
+      const selected = selectedTreeRow()
+      if (selected?.depth === 0) setExpanded(selected.session.name, true)
+      return
+    }
+    if (mode() === "jump" && key.name === "left") {
+      const selected = selectedTreeRow()
+      if (selected) setExpanded(selected.session.name, false)
       return
     }
     if (key.name === "up") return updateIndex(index() + 1)
@@ -799,12 +826,18 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         row.target = updateTarget(row.target)
         row.details = row.details.map((detail) => ({ ...detail, target: updateTarget(detail.target) }))
         row.searchText = `${actual} ${row.searchText}`.toLowerCase()
+        const nextExpanded = new Set(expandedSessions())
+        if (nextExpanded.delete(oldName)) nextExpanded.add(actual)
+        setExpandedSessions(nextExpanded)
         setRenameSession(undefined)
         resetList("jump")
-        setIndex(Math.max(0, sessions().indexOf(row)))
+        setIndex(Math.max(0, treeRows(sessions(), "", nextExpanded).findIndex((treeRow) => treeRow.depth === 0 && treeRow.session === row)))
         return
       }
-      if (mode() === "jump") return closeWith(selectedSession()?.target)
+      if (mode() === "jump") {
+        const selected = selectedTreeRow()
+        return closeWith(selected?.target, selected?.detail?.completionKey)
+      }
       if (mode() === "repo") {
         const repo = selectedRepository()
         if (!repo) return
@@ -825,7 +858,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       return
     }
     if (key.meta && key.name === "d" && mode() === "jump") {
-      const selected = selectedSession()
+      const selected = selectedParent()
       if (!selected) return
       setDeleteSession(selected)
       return
@@ -834,19 +867,26 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   }, {})
 
   onMount(() => {
-    const interval = setInterval(() => setFrame((value) => value + 1), 120)
     const cacheInterval = setInterval(() => {
       const refreshed = readCache()
       if (!refreshed) return
+      const selectedKey = selectedTreeRow()?.key
+      const selectedSessionName = selectedTreeRow()?.session.name
       const byName = new Map(refreshed.map((session) => [session.name, session]))
       const currentNames = new Set(sessions().map((session) => session.name))
-      setSessions([
+      const nextSessions = [
         ...sessions().map((session) => byName.get(session.name) ?? session),
         ...refreshed.filter((session) => !currentNames.has(session.name)),
-      ])
+      ]
+      setSessions(nextSessions)
+      if (mode() === "jump") {
+        const nextRows = treeRows(nextSessions, query())
+        let nextIndex = selectedKey ? nextRows.findIndex((row) => row.key === selectedKey) : -1
+        if (nextIndex < 0 && selectedSessionName) nextIndex = nextRows.findIndex((row) => row.depth === 0 && row.session.name === selectedSessionName)
+        setIndex(nextIndex >= 0 ? nextIndex : clamp(index(), 0, Math.max(0, nextRows.length - 1)))
+      }
     }, 500)
     onCleanup(() => {
-      clearInterval(interval)
       clearInterval(cacheInterval)
     })
   })
@@ -858,10 +898,10 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       <box height={1} flexDirection="row">
         <text fg={theme.accentStrong}>{title()}</text>
         <text flexGrow={1}> </text>
-        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>Alt-k open/create  {mode() === "jump" && selectedSession()?.target.type === "tmux_session" ? "Alt-r rename" : ""}{mode() === "branch" ? `^r refresh · ${fetchStatus() === "fetching" ? "fetching remotes…" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "remotes synced" : ""}` : ""}  Esc back</text>
+        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-k branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-r rename" : ""} · Esc close` : `Alt-k open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
       </box>
       <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
-        {mode() === "jump" ? <For each={visibleSessions()}>{(session) => <SessionRowView session={session} selected={session === selectedSession()} query={query()} frame={frame()} />}</For> : null}
+        {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} expanded={expandedSessions().has(row.session.name)} />}</For> : null}
         {mode() === "repo" ? <For each={visibleRepositories()}>{(repo) => <PickerRowView name={repo.name} meta={repo.path} selected={repo === selectedRepository()} query={query()} />}</For> : null}
         {mode() === "branch" ? <For each={visibleBranches()}>{(branch) => <PickerRowView name={branch.name} meta={branch.kind === "worktree" ? `worktree · ${branch.path}` : branch.kind === "create" ? "create new branch" : branch.kind === "remote" ? `remote${branch.recency ? ` · ${ageFromUnixSeconds(branch.recency)}` : ""}` : branch.kind} selected={branch === selectedBranch()} query={query()} />}</For> : null}
         {mode() === "new" ? (
@@ -882,7 +922,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
           <text fg={theme.warning}>Destroy {deleteSession()!.target.type === "tmux_session" ? "session" : "worktree"} '{deleteSession()!.name}'?</text>
           <text fg={theme.header}>Press y to confirm or n to cancel.</text>
         </box>
-      ) : mode() === "jump" ? <DetailBox session={selectedSession()} frame={frame()} /> : (
+      ) : mode() === "jump" ? <JumpFooter row={selectedTreeRow()} /> : (
         <box border borderStyle="single" borderColor={theme.border} height={8} flexDirection="column">
           <text fg={theme.header}>{mode() === "rename" ? renameSession()?.path ?? "" : mode() === "repo" ? selectedRepository()?.path ?? "Select a repository" : repository()?.path ?? "Select a repository"}</text>
           <text fg={theme.muted}>{mode() === "branch" ? "Worktrees, local branches, and recently updated remote branches; remotes refresh in the background" : mode() === "new" ? "Worktrunk will create the branch, worktree, and setup hooks" : mode() === "rename" ? "Canonical worktree identity and included agents are unchanged" : "Enter chooses repository"}</text>
@@ -893,7 +933,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         <box flexDirection="row" height={1}>
           <text fg={theme.accent}>{"> "}{query()}_</text>
           <text flexGrow={1}> </text>
-          <text fg={theme.muted}>{activeLength()} items</text>
+          <text fg={theme.muted}>{activeLength()} targets</text>
         </box>
       ) : <box height={1}><text fg={theme.muted}>{mode() === "rename" ? "Enter rename · Esc cancel" : "Enter create · Tab field · Esc branch picker"}</text></box>}
     </box>
@@ -917,9 +957,11 @@ const program = process.argv.includes("--server") ? serverProgram : process.argv
   })
 })
 
-Effect.runPromiseExit(program).then((exit) => {
-  if (Exit.isFailure(exit)) {
-    console.error(exit.cause.toString())
-    process.exitCode = 1
-  }
-})
+if (import.meta.main) {
+  Effect.runPromiseExit(program).then((exit) => {
+    if (Exit.isFailure(exit)) {
+      console.error(exit.cause.toString())
+      process.exitCode = 1
+    }
+  })
+}

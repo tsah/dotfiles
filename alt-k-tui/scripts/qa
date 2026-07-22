@@ -1,0 +1,76 @@
+#!/bin/bash
+
+set -euo pipefail
+
+uid=$(id -u)
+root="/tmp/qa-alt-k-tree-$uid-$$"
+inner_socket="$root/inner.sock"
+outer_socket="$root/outer.sock"
+runtime="$root/runtime"
+session="qa-workflow-tree"
+repo=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+
+cleanup() {
+    if [[ "${ALT_K_TUI_QA_KEEP:-0}" == "1" ]]; then
+        printf 'Retaining QA fixture at %s\n' "$root" >&2
+        return
+    fi
+    tmux -S "$outer_socket" kill-server 2>/dev/null || true
+    tmux -S "$inner_socket" kill-server 2>/dev/null || true
+    if [[ "$root" =~ ^/tmp/qa-alt-k-tree-$uid-[0-9]+$ ]]; then
+        rm -rf "$root"
+    fi
+}
+trap cleanup EXIT INT TERM
+
+wait_for_text() {
+    local pattern=$1
+    local capture=""
+    for _ in {1..100}; do
+        capture=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200 2>/dev/null || true)
+        [[ "$capture" == *"$pattern"* ]] && return 0
+        sleep 0.05
+    done
+    printf 'Timed out waiting for %q\n%s\n' "$pattern" "$capture" >&2
+    return 1
+}
+
+rm -rf "$root"
+mkdir -p "$runtime" "$root/zoxide" "$root/dev"
+
+tmux -S "$inner_socket" new-session -d -s "$session" -n main -x 140 -y 40 -c "$root" "sleep 300"
+tmux -S "$inner_socket" new-window -d -t "=$session" -n pi -c "$root" "sleep 300"
+tmux -S "$inner_socket" set-option -w -t "=$session:pi" @dotfiles_agent pi
+pi_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:pi" '#{pane_id}')
+
+state_dir="$runtime/alt-k-tui-$uid/agent-state"
+mkdir -p "$state_dir"
+now=$(date +%s%3N)
+printf '{"agent":"pi","state":"done","pane":"%s","updatedAt":%s,"hookEvent":"agent_settled"}\n' "$pi_pane" "$now" > "$state_dir/${pi_pane//[^A-Za-z0-9_.%-]/_}.json"
+
+tmux -S "$outer_socket" new-session -d -s harness -n client -x 140 -y 40 \
+    "env -u TMUX tmux -S '$inner_socket' attach-session -t '=$session'"
+outer_pane=$(tmux -S "$outer_socket" list-panes -t harness:client -F '#{pane_id}')
+sleep 0.2
+
+picker_command="env XDG_RUNTIME_DIR='$runtime' _ZO_DATA_DIR='$root/zoxide' ALT_K_TUI_DEV_ROOT='$root/dev' ALT_K_TUI_OPENCODE_STATUS=/bin/true bun run '$repo/src/main.tsx'"
+tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
+wait_for_text "qa-workflow-tree"
+wait_for_text "pi"
+wait_for_text "ready"
+
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Enter
+sleep 0.2
+active=$(tmux -S "$inner_socket" display-message -p -t "=$session:" '#{window_name}')
+[[ "$active" == "pi" ]] || { printf 'Expected pi window, got %s\n' "$active" >&2; exit 1; }
+
+seen_count=$(compgen -G "$runtime/alt-k-tui-$uid/seen-state/*.json" | wc -l)
+[[ "$seen_count" -ge 1 ]] || { printf 'Expected a persisted seen record\n' >&2; exit 1; }
+rm -f "$runtime/alt-k-tui-$uid/state.json"
+
+tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
+wait_for_text "idle"
+
+printf 'Alt-K tree QA passed: child selection focused pi and ready transitioned to idle.\n'

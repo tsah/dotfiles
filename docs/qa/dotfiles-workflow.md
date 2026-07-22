@@ -6,10 +6,11 @@
 
 1. Run `bash -n` on every changed shell script and `zsh -n zshrc`.
 2. Run `bun run check` in `alt-k-tui/`.
-3. Run `nvim --headless '+lua require("pi_tmux").setup()' +qa`.
-4. Run `git grep` for removed entrypoints and tools (`spawn-pi-tworker`, `remote-tworker`, `tmux-session-switcher-live`, `tmux_subagent`, `tmux_tworker`, `tworker`) and classify any documentation-only matches.
-5. With a temporary `HOME`, run `bin/install-pi-packages`; verify `pi list` contains pinned `npm:@tintinweb/pi-subagents@0.14.0`.
-6. Run installers with temporary `HOME`, `DOTFILES_DIR` pointing here, and pre-create an unmanaged regular file at one manifest destination. Confirm installation refuses to replace it. Then use an empty HOME, install twice, remove one temporary manifest row, and confirm only its ledger-owned symlink is removed.
+3. Run `bun test` and `scripts/qa` in `alt-k-tui/`. The latter must use only its private nested tmux sockets and `/tmp/qa-alt-k-tree-$UID-$PID` runtime directory.
+4. Run `nvim --headless '+lua require("pi_tmux").setup()' +qa`.
+5. Run `git grep` for removed entrypoints and tools (`spawn-pi-tworker`, `remote-tworker`, `tmux-session-switcher-live`, `tmux_subagent`, `tmux_tworker`, `tworker`) and classify any documentation-only matches.
+6. With a temporary `HOME`, run `bin/install-pi-packages`; verify `pi list` contains pinned `npm:@tintinweb/pi-subagents@0.14.0`.
+7. Run installers with temporary `HOME`, `DOTFILES_DIR` pointing here, and pre-create an unmanaged regular file at one manifest destination. Confirm installation refuses to replace it. Then use an empty HOME, install twice, remove one temporary manifest row, and confirm only its ledger-owned symlink is removed.
 
 ## Disposable repository fixture
 
@@ -37,11 +38,13 @@
 
 1. From tmux, press Alt-K; from bash/zsh run `s`. Verify all open the same UI.
 2. Verify sessions, Worktrunk/zoxide configured directories, branch, dirty marker, and every agent window are visible. Verify the session containing the Alt-K popup is initially selected and Enter attaches/switches to the selected target.
-3. With Alt-K already open, press Alt-K again and verify the repository picker is always shown, regardless of the highlighted jump row or current pane. Confirm the existing global Alt-N session-cycling binding is unchanged. In the branch screen, verify existing worktrees, local branches without worktrees, and remote-only branches have distinct labels. Select one of each and verify Worktrunk switches or creates the worktree as appropriate before entering its session.
-4. In the same branch screen, verify cached refs appear immediately, a background remote fetch is reported, and newly fetched remote branches appear in newest-commit-first order without reopening the picker. Exercise Ctrl-R and a failed non-interactive fetch. Verify the picker remains usable and reports failure without discarding cached refs.
-5. Paste a branch name without an exact match and verify the full pasted value appears in one create row. Select it, paste or choose an explicit base, and verify Worktrunk creates the branch/worktree before the picker ensures and enters its session. Verify Ctrl-B has no picker action.
-6. Press Alt-R on the selected disposable tmux session, paste a new name, and confirm. Verify the row updates, remains selected, included agents remain visible, path/common-dir tags are unchanged, and subsequent session ensure returns the renamed session without creating a duplicate. Cancel a second rename and verify no change.
-7. In the disposable repository only, exercise Alt-D deletion actions. Clean/pushed and dirty, untracked, or unpushed states require a simple y/n confirmation. Cancel each confirmation once and verify no mutation. Then confirm and compare Worktrunk/tmux state, including legacy sessions without canonical path tags.
+3. Verify sessions are sorted upward from the bottom prompt, only the current session begins expanded, and Left/Right collapse or expand children without changing the selected parent. Select a plain window, Pi, Claude, Codex, and OpenCode child independently and verify Enter focuses the exact target. Search for text present only in a collapsed child and verify its parent and matching child remain visible.
+4. Seed a completion report and verify it renders green `ready`. Focus that exact child, reopen Alt-K, and verify it renders violet `idle`; emit a report with a newer `updatedAt` and verify it returns to `ready`. Verify yellow `waiting`, cyan `working`, green `ready`, violet `idle`, muted `unknown`, aggregate precedence, and legacy `running`/`attention` report compatibility.
+5. With Alt-K already open, press Alt-K again and verify the repository picker is always shown, regardless of the highlighted jump row or current pane. Confirm the existing global Alt-N session-cycling binding is unchanged. In the branch screen, verify existing worktrees, local branches without worktrees, and remote-only branches have distinct labels. Select one of each and verify Worktrunk switches or creates the worktree as appropriate before entering its session.
+6. In the same branch screen, verify cached refs appear immediately, a background remote fetch is reported, and newly fetched remote branches appear in newest-commit-first order without reopening the picker. Exercise Ctrl-R and a failed non-interactive fetch. Verify the picker remains usable and reports failure without discarding cached refs.
+7. Paste a branch name without an exact match and verify the full pasted value appears in one create row. Select it, paste or choose an explicit base, and verify Worktrunk creates the branch/worktree before the picker ensures and enters its session. Verify Ctrl-B has no picker action.
+8. Press Alt-R on the selected disposable tmux session parent, paste a new name, and confirm. Verify the row updates, remains selected, included agents remain visible, path/common-dir tags are unchanged, and subsequent session ensure returns the renamed session without creating a duplicate. Verify Alt-R does nothing on a child. Cancel a second rename and verify no change.
+9. In the disposable repository only, exercise Alt-D deletion actions from parent rows. Clean/pushed and dirty, untracked, or unpushed states require a simple y/n confirmation. Verify Alt-D does nothing on a child. Cancel each confirmation once and verify no mutation. Then confirm and compare Worktrunk/tmux state, including legacy sessions without canonical path tags.
 
 ## Neovim
 

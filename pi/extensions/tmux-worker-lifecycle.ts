@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-type State = "running" | "done" | "attention" | "unknown";
+type State = "blocked" | "working" | "done" | "idle" | "unknown";
 
 function report(state: State, event: string) {
 	try {
@@ -40,8 +40,8 @@ function extractAssistantResult(messages: Array<any>) {
 export default function (pi: ExtensionAPI) {
 	const signalFile = process.env.PI_TMUX_WAIT_SIGNAL_FILE?.trim();
 
-	pi.on("session_start", () => report("done", "session_start"));
-	pi.on("agent_start", () => report("running", "agent_start"));
+	pi.on("session_start", () => report("idle", "session_start"));
+	pi.on("agent_start", () => report("working", "agent_start"));
 
 	let signaled = false;
 
@@ -62,7 +62,7 @@ export default function (pi: ExtensionAPI) {
 		latestResult = extractAssistantResult(event.messages as Array<any>);
 	});
 	pi.on("agent_settled", async () => {
-		report(latestResult.status === 0 ? "done" : "attention", "agent_settled");
+		report(latestResult.status === 0 ? "done" : "blocked", "agent_settled");
 		writeSignal({ timestamp: Date.now(), ...latestResult });
 	});
 

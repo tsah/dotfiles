@@ -11,9 +11,10 @@ case "$agent" in
 esac
 
 case "$state" in
-    running|working) state="running" ;;
-    idle|done) state="done" ;;
-    blocked|attention) state="attention" ;;
+    running|working) state="working" ;;
+    idle) state="idle" ;;
+    done) state="done" ;;
+    blocked|attention) state="blocked" ;;
     release|unknown) state="unknown" ;;
     *) exit 0 ;;
 esac
