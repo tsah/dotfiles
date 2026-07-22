@@ -13,7 +13,7 @@ if [ -f "$HOME/.env" ]; then
     set -u
 fi
 
-if [ -f "$HOME/.ssh-agent-info" ]; then
+if { [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; } && [ -f "$HOME/.ssh-agent-info" ]; then
     set +u
     . "$HOME/.ssh-agent-info" >/dev/null 2>&1 || true
     set -u
