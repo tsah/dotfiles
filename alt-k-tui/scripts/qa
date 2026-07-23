@@ -51,8 +51,9 @@ pi_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:pi" '#{pane_i
 
 state_dir="$runtime/alt-k-tui-$uid/agent-state"
 mkdir -p "$state_dir"
+state_file="$state_dir/${pi_pane//[^A-Za-z0-9_.%-]/_}.json"
 now=$(date +%s%3N)
-printf '{"agent":"pi","state":"done","pane":"%s","updatedAt":%s,"hookEvent":"agent_settled"}\n' "$pi_pane" "$now" > "$state_dir/${pi_pane//[^A-Za-z0-9_.%-]/_}.json"
+printf '{"agent":"pi","state":"working","pane":"%s","updatedAt":%s,"hookEvent":"agent_start"}\n' "$pi_pane" "$now" > "$state_file"
 
 tmux -S "$outer_socket" new-session -d -s harness -n client -x 140 -y 40 \
     "env -u TMUX tmux -S '$inner_socket' attach-session -t '=$session'"
@@ -60,6 +61,24 @@ outer_pane=$(tmux -S "$outer_socket" list-panes -t harness:client -F '#{pane_id}
 sleep 0.2
 
 picker_command="env XDG_RUNTIME_DIR='$runtime' _ZO_DATA_DIR='$root/zoxide' ALT_K_TUI_DEV_ROOT='$root/dev' ALT_K_TUI_OPENCODE_STATUS=/bin/true bun run '$repo/src/main.tsx'"
+tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
+animation_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:picker" '#{pane_id}')
+wait_for_text "working"
+sleep 0.1
+working_frame_one=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200)
+sleep 0.25
+working_frame_two=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200)
+case "$working_frame_one" in
+    *"⠋"*|*"⠙"*|*"⠹"*|*"⠸"*|*"⠼"*|*"⠴"*|*"⠦"*|*"⠧"*) ;;
+    *) printf 'Expected a working spinner frame\n' >&2; exit 1 ;;
+esac
+[[ "$working_frame_one" != "$working_frame_two" ]] || { printf 'Expected the working spinner to animate\n' >&2; exit 1; }
+tmux -S "$inner_socket" kill-pane -t "$animation_picker_pane"
+sleep 0.2
+
+now=$(date +%s%3N)
+printf '{"agent":"pi","state":"done","pane":"%s","updatedAt":%s,"hookEvent":"agent_settled"}\n' "$pi_pane" "$now" > "$state_file"
+rm -f "$runtime/alt-k-tui-$uid/state.json"
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
 wait_for_text "qa-workflow-tree"
 wait_for_text "pi"
@@ -137,4 +156,4 @@ if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -
     exit 1
 fi
 
-printf 'Alt-K tree QA passed: focus acknowledgement and confirmed pane/final-worktree destruction behave correctly.\n'
+printf 'Alt-K tree QA passed: working animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
