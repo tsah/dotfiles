@@ -2,7 +2,7 @@
 
 Experimental tmux session and directory switcher built with Bun, TypeScript, Effect, and OpenTUI.
 
-The jump layout is a bottom-sorted selectable tree. Tmux sessions are compact parents; only the current or explicitly expanded session shows its concrete window/agent targets. The bottom prompt filters both levels while retaining the parent of every matching child.
+The jump layout is a bottom-sorted selectable tree. Sessions with up to three concrete window/agent targets begin expanded; larger trees begin collapsed. The bottom prompt filters both levels while retaining the parent of every matching child.
 
 The launcher keeps a background cache server running. The server refreshes tmux, opencode, zoxide, process, and git state, then the TUI client reads the latest JSON cache on startup.
 
@@ -36,7 +36,7 @@ Controls:
 - Type or paste: fuzzy filter rows and fill the branch/base form
 - `Alt-K` while the picker is open: choose a repository, then open an existing worktree/branch or type a new branch name to create it
 - `Ctrl-R`: refresh remotes while in the branch picker
-- `Alt-D`: delete the selected worktree/session
+- `Alt-D`: confirm and destroy the selected pane; destroying a session's final pane also destroys its linked worktree and session
 - `Esc`: clear search, move back one flow step, or close
 - `Ctrl-C`: close
 
