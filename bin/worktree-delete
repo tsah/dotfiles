@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
-path=${1:?Usage: worktree-delete PATH}
+assume_yes=false
+if [[ "${1:-}" == "--yes" ]]; then
+  assume_yes=true
+  shift
+fi
+path=${1:?Usage: worktree-delete [--yes] PATH}
 root=$(git -C "$path" rev-parse --show-toplevel)
 root=$(realpath "$root")
 branch=$(git -C "$root" branch --show-current)
@@ -10,12 +15,14 @@ upstream=$(git -C "$root" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || tr
 unsafe=false
 [[ -n "$status" || -z "$upstream" ]] && unsafe=true
 if [[ -n "$upstream" ]] && ! git -C "$root" merge-base --is-ancestor HEAD "$upstream"; then unsafe=true; fi
-if [[ "$unsafe" == true ]]; then
-  printf "Delete dirty, untracked, or unpushed worktree '%s'? [y/N] " "$branch"; read -r answer
-else
-  printf "Delete clean, pushed worktree '%s'? [y/N] " "$branch"; read -r answer
+if [[ "$assume_yes" == false ]]; then
+  if [[ "$unsafe" == true ]]; then
+    printf "Delete dirty, untracked, or unpushed worktree '%s'? [y/N] " "$branch"; read -r answer
+  else
+    printf "Delete clean, pushed worktree '%s'? [y/N] " "$branch"; read -r answer
+  fi
+  [[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]] || { echo "Aborted."; exit 1; }
 fi
-[[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]] || { echo "Aborted."; exit 1; }
 session_ids=()
 while IFS=$'\t' read -r session_id worktree_path directory_path session_path; do
   [[ -n "$session_id" ]] || continue
