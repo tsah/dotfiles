@@ -569,6 +569,9 @@ function HighlightText(props: { text: string; query: string; fg: string }) {
 function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; expanded: boolean }) {
   const rowFg = () => selectedColor(props.selected)
   const detail = () => props.row.detail
+  const neutralWindow = () => detail()?.kind === "window"
+  const rowStateGlyph = () => neutralWindow() ? "○" : stateGlyph(props.row.state)
+  const rowStateColor = () => neutralWindow() ? theme.muted : stateColor(props.row.state)
   const expandable = () => props.row.session.details.some((row) => !["directory", "repository", "session"].includes(row.kind))
   const childName = () => detail()?.kind === "window" ? detail()!.title : detail()?.kind ?? ""
   const childTitle = () => detail()?.kind === "window" ? "" : detail()?.title || detail()?.detail || ""
@@ -576,13 +579,13 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; ex
     <box flexDirection="row" height={1} backgroundColor={props.selected ? theme.selectedBg : undefined}>
       <text width={2} fg={rowFg()}>{props.selected ? ">" : " "}</text>
       <text width={props.row.depth === 0 ? 2 : 4} fg={theme.muted}>{props.row.depth === 0 ? expandable() ? props.expanded ? "▾" : "▸" : " " : " "}</text>
-      <text width={2} fg={stateColor(props.row.state)}>{stateGlyph(props.row.state)}</text>
+      <text width={2} fg={rowStateColor()}>{rowStateGlyph()}</text>
       {detail() ? (
         <>
           <text width={12} fg={rowFg()}><HighlightText text={childName()} query={props.query} fg={rowFg()} /></text>
           <text fg={theme.muted} flexShrink={1}><HighlightText text={childTitle()} query={props.query} fg={theme.muted} /></text>
           <text flexGrow={1}> </text>
-          <text width={9} flexShrink={0} fg={stateColor(detail()!.state)}>{detailStatusLabel(detail()!)}</text>
+          <text width={9} flexShrink={0} fg={neutralWindow() ? theme.muted : stateColor(detail()!.state)}>{detailStatusLabel(detail()!)}</text>
         </>
       ) : (
         <text fg={rowFg()} flexShrink={1}><HighlightText text={props.row.session.name} query={props.query} fg={rowFg()} /></text>
