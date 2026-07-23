@@ -35,12 +35,18 @@ wait_for_text() {
     return 1
 }
 
+pane_exists() {
+    local pane=$1
+    [[ "$(tmux -S "$inner_socket" display-message -p -t "$pane" '#{pane_id}' 2>/dev/null || true)" == "$pane" ]]
+}
+
 rm -rf "$root"
 mkdir -p "$runtime" "$root/zoxide" "$root/dev"
 
 tmux -S "$inner_socket" new-session -d -s "$session" -n main -x 140 -y 40 -c "$root" "sleep 300"
 tmux -S "$inner_socket" new-window -d -t "=$session" -n pi -c "$root" "sleep 300"
 tmux -S "$inner_socket" set-option -w -t "=$session:pi" @dotfiles_agent pi
+main_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:main" '#{pane_id}')
 pi_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:pi" '#{pane_id}')
 
 state_dir="$runtime/alt-k-tui-$uid/agent-state"
@@ -72,5 +78,63 @@ rm -f "$runtime/alt-k-tui-$uid/state.json"
 
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
 wait_for_text "idle"
+tmux -S "$inner_socket" set-option -gq @alt_k_tui_open 1
 
-printf 'Alt-K tree QA passed: child selection focused pi and ready transitioned to idle.\n'
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
+tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
+wait_for_text "Destroy pane 'main'?"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" n
+pane_exists "$main_pane"
+
+tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
+wait_for_text "Destroy pane 'main'?"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" y
+for _ in {1..100}; do
+    if ! pane_exists "$main_pane"; then
+        break
+    fi
+    sleep 0.05
+done
+if pane_exists "$main_pane"; then
+    printf 'Expected confirmed Alt-D to destroy pane %s\n' "$main_pane" >&2
+    exit 1
+fi
+
+origin="$root/origin"
+worktree="$root/dev/qa-delete-final"
+delete_session="qa-delete-final"
+git init -q -b main "$origin"
+git -C "$origin" config user.name "Alt-K QA"
+git -C "$origin" config user.email "alt-k-qa@example.invalid"
+touch "$origin/fixture"
+git -C "$origin" add fixture
+git -C "$origin" commit -qm "Initial fixture"
+git -C "$origin" worktree add -q -b qa-delete-final "$worktree"
+tmux -S "$inner_socket" new-session -d -s "$delete_session" -n final -x 140 -y 40 -c "$worktree" "sleep 300"
+rm -f "$runtime/alt-k-tui-$uid/state.json"
+
+tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
+wait_for_text "qa-workflow-tree"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "$delete_session"
+wait_for_text "qa-delete-final"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
+wait_for_text "Destroy final pane, session, and worktree"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" n
+tmux -S "$inner_socket" has-session -t "=$delete_session"
+[[ -d "$worktree" ]] || { printf 'Cancel unexpectedly removed %s\n' "$worktree" >&2; exit 1; }
+
+tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
+wait_for_text "Destroy final pane, session, and worktree"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" y
+for _ in {1..100}; do
+    if ! tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null && [[ ! -d "$worktree" ]]; then
+        break
+    fi
+    sleep 0.05
+done
+if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -d "$worktree" ]]; then
+    printf 'Expected final-pane Alt-D to destroy session and worktree\n' >&2
+    exit 1
+fi
+
+printf 'Alt-K tree QA passed: focus acknowledgement and confirmed pane/final-worktree destruction behave correctly.\n'

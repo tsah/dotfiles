@@ -3,7 +3,7 @@ import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js"
 import { Effect, Exit } from "effect"
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
-import { buildTreeRows, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen } from "./model"
+import { buildTreeRows, defaultExpandedSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen } from "./model"
 import type { AgentState, DetailRow, FuzzyResult, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean }
@@ -13,6 +13,7 @@ interface DirectoryRow { path: string; source: "worktree" | "zoxide"; branch: st
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface CachePayload { version: number; generatedAt: number; sessions: SessionRow[] }
 interface BranchRow { name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
+interface DeleteAction { row: TreeRow; kind: "pane" | "session" | "worktree"; pane?: string; finalPane?: boolean }
 type PickerMode = "jump" | "repo" | "new" | "branch" | "rename"
 
 const repoRoot = new URL("../..", import.meta.url).pathname.replace(/\/$/, "")
@@ -25,7 +26,7 @@ const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
 const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
-const cacheVersion = 2
+const cacheVersion = 3
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -33,8 +34,11 @@ const theme = {
   border: "#334155",
   header: "#e2e8f0",
   muted: "#94a3b8",
-  ok: "#86efac",
-  idle: "#c4b5fd",
+  waiting: "#f87171",
+  working: "#fb923c",
+  ready: "#4ade80",
+  idle: "#60a5fa",
+  unknown: "#a78bfa",
   selectedBg: "#1e3a5f",
   selectedFg: "#f8fafc",
   warning: "#fde68a",
@@ -267,7 +271,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
           markSeen(completionKey)
           seen.set(completionKey, Date.now())
         }
-        details.push({ kind: "opencode", status: opencode.status, detail: opencode.detail, title: opencode.title || window.name || opencode.directory, age: opencode.age, state, target: { type: "opencode", session: opencode.session, pane: opencode.stablePane || opencode.pane }, completionKey, updatedAt: opencode.updatedAt })
+        details.push({ kind: "opencode", status: opencode.status, detail: opencode.detail, title: opencode.title || window.name || opencode.directory, age: opencode.age, state, target: { type: "opencode", session: opencode.session, pane: opencode.stablePane || window.pane || opencode.pane }, completionKey, updatedAt: opencode.updatedAt })
       }
       if (windowOpencodes.length > 0) continue
 
@@ -281,7 +285,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
         markSeen(completionKey)
         seen.set(completionKey, Date.now())
       }
-      details.push({ kind, status: kind === "window" ? window.command : "", detail: "", title: kind === "window" ? window.name || window.title : window.title || window.name, age: ageFromUnixSeconds(window.activity), state, target: { type: "tmux_window", session: window.session, windowId: window.id }, completionKey, updatedAt })
+      details.push({ kind, status: kind === "window" ? window.command : "", detail: "", title: kind === "window" ? window.name || window.title : window.title || window.name, age: ageFromUnixSeconds(window.activity), state, target: { type: "tmux_window", session: window.session, windowId: window.id, pane: window.pane }, completionKey, updatedAt })
     }
 
     for (const opencode of opencodesByWindow.get("") ?? []) {
@@ -472,8 +476,8 @@ const filterSessions = (sessions: SessionRow[], query: string) => {
     .map((row) => row.session)
 }
 
-const stateGlyph = (state: AgentState) => state === "unknown" ? "○" : "●"
-const stateColor = (state: AgentState) => state === "blocked" ? theme.warning : state === "working" ? theme.accent : state === "done" ? theme.ok : state === "idle" ? theme.idle : theme.muted
+const stateGlyph = (state: AgentState) => state === "blocked" ? "!" : state === "working" ? "●" : state === "done" ? "✓" : state === "idle" ? "○" : "?"
+const stateColor = (state: AgentState) => state === "blocked" ? theme.waiting : state === "working" ? theme.working : state === "done" ? theme.ready : state === "idle" ? theme.idle : theme.unknown
 const stateLabel = (state: AgentState) => state === "blocked" ? "waiting" : state === "done" ? "ready" : state
 const sessionGitMeta = (session: SessionRow) => [session.branch, session.flags === "dirty" ? "dirty" : ""].filter(Boolean).join(", ")
 const selectedColor = (selected: boolean) => selected ? theme.selectedFg : theme.header
@@ -530,6 +534,31 @@ const openTargetSync = (target: Target | undefined) => {
       return Boolean(name) && Bun.spawnSync(["tmux", process.env.TMUX ? "switch-client" : "attach-session", "-t", `=${name}`], { stdout: "ignore", stderr: "ignore" }).exitCode === 0
     }
   }
+}
+
+const paneForTargetSync = (target: Target) => {
+  if (target.type !== "tmux_window" && target.type !== "opencode") return ""
+  const resolved = Bun.spawnSync(["tmux", "display-message", "-p", "-t", target.pane, "#{pane_id}"], { stdout: "pipe", stderr: "ignore" })
+  return resolved.exitCode === 0 ? resolved.stdout.toString().trim() : ""
+}
+
+const sessionPaneIdsSync = (session: string) => {
+  const result = Bun.spawnSync(["tmux", "list-panes", "-s", "-t", `=${session}`, "-F", "#{pane_id}"], { stdout: "pipe", stderr: "ignore" })
+  return result.exitCode === 0 ? result.stdout.toString().split("\n").filter(Boolean) : []
+}
+
+const isLinkedWorktreeSync = (path: string) => {
+  if (!path || !existsSync(expandHome(path))) return false
+  const result = Bun.spawnSync(["git", "-C", expandHome(path), "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { stdout: "pipe", stderr: "ignore" })
+  if (result.exitCode !== 0) return false
+  const [gitDir, commonDir] = result.stdout.toString().trim().split("\n")
+  return Boolean(gitDir && commonDir && gitDir !== commonDir)
+}
+
+const killSessionSync = (sessionName: string) => {
+  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "ignore" })
+  const sessionId = parseTsv(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
+  if (sessionId) Bun.spawnSync(["tmux", "kill-session", "-t", sessionId], { stdout: "ignore", stderr: "ignore" })
 }
 
 function HighlightText(props: { text: string; query: string; fg: string }) {
@@ -593,7 +622,7 @@ function PickerRowView(props: { name: string; meta: string; selected: boolean; q
 function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; currentSession: string; onOpen: (target: Target | undefined) => void }) {
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
-  const initialExpanded = new Set(props.currentSession ? [props.currentSession] : [])
+  const initialExpanded = defaultExpandedSessions(props.sessions)
   const initialRows = buildTreeRows(props.sessions, "", { expandedSessions: initialExpanded, bottomUp: true })
   const [sessions, setSessions] = createSignal(props.sessions)
   const [expandedSessions, setExpandedSessions] = createSignal<ReadonlySet<string>>(initialExpanded)
@@ -607,7 +636,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [base, setBase] = createSignal("^")
   const [renameName, setRenameName] = createSignal("")
   const [renameSession, setRenameSession] = createSignal<SessionRow>()
-  const [deleteSession, setDeleteSession] = createSignal<SessionRow>()
+  const [deleteAction, setDeleteAction] = createSignal<DeleteAction>()
   const [newField, setNewField] = createSignal<"branch" | "base">("branch")
   const [error, setError] = createSignal("")
   const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
@@ -632,7 +661,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const selectedParent = createMemo(() => selectedTreeRow()?.depth === 0 ? selectedTreeRow()!.session : undefined)
   const selectedRepository = createMemo(() => mode() === "repo" ? filteredRepositories()[index()] : undefined)
   const selectedBranch = createMemo(() => mode() === "branch" ? filteredBranches()[index()] : undefined)
-  const visibleCount = createMemo(() => Math.max(1, dimensions().height - (mode() === "jump" && !deleteSession() ? 5 : 11)))
+  const visibleCount = createMemo(() => Math.max(1, dimensions().height - (mode() === "jump" && !deleteAction() ? 5 : 11)))
   const visibleTreeRows = createMemo(() => visibleSlice(filteredTreeRows(), index(), visibleCount()))
   const visibleRepositories = createMemo(() => visibleSlice(filteredRepositories(), index(), visibleCount()))
   const visibleBranches = createMemo(() => visibleSlice(filteredBranches(), index(), visibleCount()))
@@ -711,6 +740,30 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       }
     })()
   }
+  const deleteActionForRow = (row: TreeRow): DeleteAction | undefined => {
+    if (row.depth === 0) {
+      if (row.target.type === "tmux_session") return { row, kind: "session" }
+      if (row.session.branch && row.session.path) return { row, kind: "worktree" }
+      return undefined
+    }
+
+    const pane = paneForTargetSync(row.target)
+    if (!pane) return undefined
+    const panes = sessionPaneIdsSync(row.session.name)
+    if (panes.length !== 1 || panes[0] !== pane) return { row, kind: "pane", pane }
+    if (isLinkedWorktreeSync(row.session.path)) return { row, kind: "worktree", pane, finalPane: true }
+    return { row, kind: "session", pane, finalPane: true }
+  }
+  const requestDelete = (row: TreeRow) => setDeleteAction(deleteActionForRow(row))
+  const deletePrompt = () => {
+    const action = deleteAction()
+    if (!action) return ""
+    const row = action.row
+    if (action.kind === "pane") return `Destroy pane '${row.detail?.title || row.detail?.kind || action.pane}'?`
+    if (action.finalPane && action.kind === "worktree") return `Destroy final pane, session, and worktree '${row.session.branch || row.session.path}'?`
+    if (action.finalPane) return `Destroy final pane and session '${row.session.name}'?`
+    return `Destroy ${action.kind} '${row.session.name}'?`
+  }
 
   usePaste((event) => {
     appendInput(new TextDecoder().decode(event.bytes))
@@ -718,23 +771,27 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   })
 
   useKeyboard((key) => {
-    if (deleteSession()) {
+    if (deleteAction()) {
       if (key.name === "n" || key.name === "escape") {
-        setDeleteSession(undefined)
+        setDeleteAction(undefined)
         return
       }
       if (key.name !== "y") return
-      const selected = deleteSession()!
-      setDeleteSession(undefined)
-      renderer.destroy()
-      if (selected.target.type === "tmux_session") {
-        const sessionName = selected.target.session
-        const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "ignore" })
-        const sessionId = parseTsv(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
-        if (sessionId) Bun.spawnSync(["tmux", "kill-session", "-t", sessionId], { stdout: "ignore", stderr: "ignore" })
-      } else if (selected.branch && selected.path) {
-        Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, expandHome(selected.path)], { stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+      const action = deleteAction()!
+      const currentAction = deleteActionForRow(action.row)
+      if (!currentAction) {
+        setDeleteAction(undefined)
+        return
       }
+      if (currentAction.kind !== action.kind || currentAction.pane !== action.pane || currentAction.finalPane !== action.finalPane) {
+        setDeleteAction(currentAction)
+        return
+      }
+      setDeleteAction(undefined)
+      renderer.destroy()
+      if (action.kind === "pane" && action.pane) Bun.spawnSync(["tmux", "kill-pane", "-t", action.pane], { stdout: "ignore", stderr: "ignore" })
+      else if (action.kind === "worktree" && action.row.session.path) Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(action.row.session.path)], { stdout: "inherit", stderr: "inherit" })
+      else if (action.kind === "session") killSessionSync(action.row.session.name)
       return
     }
     if (key.meta && key.name === "k") return resetList("repo")
@@ -858,9 +915,9 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       return
     }
     if (key.meta && key.name === "d" && mode() === "jump") {
-      const selected = selectedParent()
+      const selected = selectedTreeRow()
       if (!selected) return
-      setDeleteSession(selected)
+      requestDelete(selected)
       return
     }
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) appendInput(key.sequence)
@@ -917,9 +974,9 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
           </box>
         ) : null}
       </box>
-      {deleteSession() ? (
+      {deleteAction() ? (
         <box border borderStyle="single" borderColor={theme.warning} height={8} flexDirection="column" padding={1}>
-          <text fg={theme.warning}>Destroy {deleteSession()!.target.type === "tmux_session" ? "session" : "worktree"} '{deleteSession()!.name}'?</text>
+          <text fg={theme.warning}>{deletePrompt()}</text>
           <text fg={theme.header}>Press y to confirm or n to cancel.</text>
         </box>
       ) : mode() === "jump" ? <JumpFooter row={selectedTreeRow()} /> : (

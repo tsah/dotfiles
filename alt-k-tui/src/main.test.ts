@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildTreeRows, normalizeReportedState, sessionState, stateWithSeen } from "./model"
+import { buildTreeRows, defaultExpandedSessions, normalizeReportedState, sessionState, stateWithSeen } from "./model"
 
 const target = { type: "tmux_session" as const, session: "qa-tree" }
 const sessions = [
@@ -14,8 +14,8 @@ const sessions = [
     target,
     searchText: "",
     details: [
-      { kind: "pi", status: "", detail: "", title: "implement parser", age: "2s", state: "done", target: { type: "tmux_window" as const, session: "qa-tree", windowId: "@2" }, completionKey: "pane:%2", updatedAt: 200 },
-      { kind: "window", status: "zsh", detail: "", title: "shell", age: "3s", state: "unknown", target: { type: "tmux_window" as const, session: "qa-tree", windowId: "@1" }, completionKey: "window:@1", updatedAt: 100 },
+      { kind: "pi", status: "", detail: "", title: "implement parser", age: "2s", state: "done", target: { type: "tmux_window" as const, session: "qa-tree", windowId: "@2", pane: "%2" }, completionKey: "pane:%2", updatedAt: 200 },
+      { kind: "window", status: "zsh", detail: "", title: "shell", age: "3s", state: "unknown", target: { type: "tmux_window" as const, session: "qa-tree", windowId: "@1", pane: "%1" }, completionKey: "window:@1", updatedAt: 100 },
     ],
   },
 ] as any
@@ -49,7 +49,7 @@ describe("session tree", () => {
   test("makes parent and child targets independently selectable", () => {
     const rows = buildTreeRows(sessions, "")
     expect(rows.map((row) => [row.depth, row.detail?.kind ?? "session"])).toEqual([[0, "session"], [1, "pi"], [1, "window"]])
-    expect(rows[1]?.target).toEqual({ type: "tmux_window", session: "qa-tree", windowId: "@2" })
+    expect(rows[1]?.target).toEqual({ type: "tmux_window", session: "qa-tree", windowId: "@2", pane: "%2" })
   })
 
   test("retains parent context when only a child matches", () => {
@@ -68,5 +68,14 @@ describe("session tree", () => {
 
     const expanded = buildTreeRows(sessions, "", { expandedSessions: new Set(["qa-tree"]), bottomUp: true })
     expect(expanded.map((row) => row.detail?.kind ?? "session")).toEqual(["window", "pi", "session"])
+  })
+
+  test("expands trees with at most three children by default", () => {
+    expect(defaultExpandedSessions(sessions)).toEqual(new Set(["qa-tree"]))
+
+    const crowded = structuredClone(sessions[0])
+    crowded.name = "crowded"
+    crowded.details.push(structuredClone(crowded.details[0]), structuredClone(crowded.details[0]))
+    expect(defaultExpandedSessions([crowded])).toEqual(new Set())
   })
 })

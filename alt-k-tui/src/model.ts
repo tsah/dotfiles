@@ -1,6 +1,6 @@
 export type Target =
   | { type: "tmux_session"; session: string }
-  | { type: "tmux_window"; session: string; windowId: string }
+  | { type: "tmux_window"; session: string; windowId: string; pane: string }
   | { type: "opencode"; session: string; pane: string }
   | { type: "directory"; path: string }
 
@@ -73,6 +73,13 @@ const targetKey = (target: Target) => {
 const sessionSearchText = (session: SessionRow) => [session.name, session.path, session.branch, session.flags, session.markers.join(" ")].join(" ").toLowerCase()
 const detailSearchText = (session: SessionRow, detail: DetailRow) => [session.name, session.path, detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state].join(" ").toLowerCase()
 const selectableDetails = (session: SessionRow) => session.details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
+
+export const defaultExpandedSessions = (sessions: SessionRow[], maxChildren = 3) => new Set(
+  sessions.filter((session) => {
+    const childCount = selectableDetails(session).length
+    return childCount > 0 && childCount <= maxChildren
+  }).map((session) => session.name),
+)
 
 export const buildTreeRows = (sessions: SessionRow[], query: string, options: { expandedSessions?: ReadonlySet<string>; bottomUp?: boolean } = {}): TreeRow[] => {
   const normalized = query.trim().toLowerCase()
