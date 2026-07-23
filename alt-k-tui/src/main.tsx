@@ -477,7 +477,12 @@ const filterSessions = (sessions: SessionRow[], query: string) => {
 }
 
 const workingGlyphs = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"]
-const stateGlyph = (state: AgentState, frame = 0) => state === "blocked" ? "!" : state === "working" ? workingGlyphs[frame % workingGlyphs.length]! : state === "done" ? "✓" : state === "idle" ? "○" : "?"
+const animationFrameCount = 40
+const stateGlyph = (state: AgentState, frame = 0) => {
+  if (state === "blocked") return Math.floor(frame / 5) % 2 === 0 ? "!" : " "
+  if (state === "working") return workingGlyphs[frame % workingGlyphs.length]!
+  return state === "done" ? "✓" : state === "idle" ? "○" : "?"
+}
 const stateColor = (state: AgentState) => state === "blocked" ? theme.waiting : state === "working" ? theme.working : state === "done" ? theme.ready : state === "idle" ? theme.idle : theme.unknown
 const stateLabel = (state: AgentState) => state === "blocked" ? "waiting" : state === "done" ? "ready" : state
 const sessionGitMeta = (session: SessionRow) => [session.branch, session.flags === "dirty" ? "dirty" : ""].filter(Boolean).join(", ")
@@ -567,11 +572,11 @@ function HighlightText(props: { text: string; query: string; fg: string }) {
   return <>{Array.from(props.text).map((char, index) => positions().includes(index) ? <b>{char}</b> : char)}</>
 }
 
-function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; expanded: boolean; workingFrame: number }) {
+function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; expanded: boolean; animationFrame: number }) {
   const rowFg = () => selectedColor(props.selected)
   const detail = () => props.row.detail
   const neutralWindow = () => detail()?.kind === "window"
-  const rowStateGlyph = () => neutralWindow() ? "○" : stateGlyph(props.row.state, props.workingFrame)
+  const rowStateGlyph = () => neutralWindow() ? "○" : stateGlyph(props.row.state, props.animationFrame)
   const rowStateColor = () => neutralWindow() ? theme.muted : stateColor(props.row.state)
   const expandable = () => props.row.session.details.some((row) => !["directory", "repository", "session"].includes(row.kind))
   const childName = () => detail()?.kind === "window" ? detail()!.title : detail()?.kind ?? ""
@@ -644,7 +649,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [newField, setNewField] = createSignal<"branch" | "base">("branch")
   const [error, setError] = createSignal("")
   const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
-  const [workingFrame, setWorkingFrame] = createSignal(0)
+  const [animationFrame, setAnimationFrame] = createSignal(0)
   let fetchRequest = 0
 
   const treeRows = (rows = sessions(), search = query(), expanded = expandedSessions()) => buildTreeRows(rows, search, { expandedSessions: expanded, bottomUp: true })
@@ -930,8 +935,8 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
 
   onMount(() => {
     const animationInterval = setInterval(() => {
-      if (mode() === "jump" && filteredTreeRows().some((row) => row.state === "working")) {
-        setWorkingFrame((frame) => (frame + 1) % workingGlyphs.length)
+      if (mode() === "jump" && filteredTreeRows().some((row) => row.state === "working" || row.state === "blocked")) {
+        setAnimationFrame((frame) => (frame + 1) % animationFrameCount)
       }
     }, 100)
     const cacheInterval = setInterval(() => {
@@ -969,7 +974,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-k branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-r rename" : ""} · Esc close` : `Alt-k open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
       </box>
       <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
-        {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} expanded={expandedSessions().has(row.session.name)} workingFrame={workingFrame()} />}</For> : null}
+        {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} expanded={expandedSessions().has(row.session.name)} animationFrame={animationFrame()} />}</For> : null}
         {mode() === "repo" ? <For each={visibleRepositories()}>{(repo) => <PickerRowView name={repo.name} meta={repo.path} selected={repo === selectedRepository()} query={query()} />}</For> : null}
         {mode() === "branch" ? <For each={visibleBranches()}>{(branch) => <PickerRowView name={branch.name} meta={branch.kind === "worktree" ? `worktree · ${branch.path}` : branch.kind === "create" ? "create new branch" : branch.kind === "remote" ? `remote${branch.recency ? ` · ${ageFromUnixSeconds(branch.recency)}` : ""}` : branch.kind} selected={branch === selectedBranch()} query={query()} />}</For> : null}
         {mode() === "new" ? (

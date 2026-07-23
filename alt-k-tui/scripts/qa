@@ -77,6 +77,24 @@ tmux -S "$inner_socket" kill-pane -t "$animation_picker_pane"
 sleep 0.2
 
 now=$(date +%s%3N)
+printf '{"agent":"pi","state":"blocked","pane":"%s","updatedAt":%s,"hookEvent":"question"}\n' "$pi_pane" "$now" > "$state_file"
+rm -f "$runtime/alt-k-tui-$uid/state.json"
+tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
+attention_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:picker" '#{pane_id}')
+wait_for_text "waiting"
+blink_visible=false
+blink_hidden=false
+for _ in {1..30}; do
+    attention_frame=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200)
+    if [[ "$attention_frame" == *"!"* ]]; then blink_visible=true; else blink_hidden=true; fi
+    [[ "$blink_visible" == true && "$blink_hidden" == true ]] && break
+    sleep 0.05
+done
+[[ "$blink_visible" == true && "$blink_hidden" == true ]] || { printf 'Expected the waiting indicator to blink\n' >&2; exit 1; }
+tmux -S "$inner_socket" kill-pane -t "$attention_picker_pane"
+sleep 0.2
+
+now=$(date +%s%3N)
 printf '{"agent":"pi","state":"done","pane":"%s","updatedAt":%s,"hookEvent":"agent_settled"}\n' "$pi_pane" "$now" > "$state_file"
 rm -f "$runtime/alt-k-tui-$uid/state.json"
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
@@ -156,4 +174,4 @@ if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -
     exit 1
 fi
 
-printf 'Alt-K tree QA passed: working animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
+printf 'Alt-K tree QA passed: working animation, waiting blink, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
