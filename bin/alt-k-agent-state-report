@@ -24,11 +24,14 @@ pane="${TMUX_PANE:-}"
 
 state_dir="${XDG_RUNTIME_DIR:-/tmp}/alt-k-tui-$(id -u)/agent-state"
 mkdir -p "$state_dir"
+activity_dir="${XDG_STATE_HOME:-$HOME/.local/state}/alt-k-tui/activity"
+activity_path=$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || pwd -P)
 
 # Consume hook stdin so callers that provide JSON never block on a full pipe.
 hook_input=$(cat 2>/dev/null || true)
 
-AGENT="$agent" STATE="$state" PANE="$pane" HOOK_INPUT="$hook_input" STATE_DIR="$state_dir" python3 - <<'PY'
+AGENT="$agent" STATE="$state" PANE="$pane" HOOK_INPUT="$hook_input" STATE_DIR="$state_dir" ACTIVITY_DIR="$activity_dir" ACTIVITY_PATH="$activity_path" python3 - <<'PY'
+import hashlib
 import json
 import os
 import pathlib
@@ -40,6 +43,8 @@ state = os.environ.get("STATE", "")
 pane = os.environ.get("PANE", "")
 state_dir = pathlib.Path(os.environ.get("STATE_DIR", ""))
 hook_input = os.environ.get("HOOK_INPUT", "")
+activity_dir = pathlib.Path(os.environ.get("ACTIVITY_DIR", ""))
+activity_path = pathlib.Path(os.environ.get("ACTIVITY_PATH", "")).resolve()
 
 if not agent or not state or not pane or not state_dir:
     raise SystemExit(0)
@@ -63,4 +68,11 @@ record = {
 }
 tmp.write_text(json.dumps(record), encoding="utf-8")
 tmp.replace(target)
+
+if activity_dir and activity_path:
+    activity_dir.mkdir(parents=True, exist_ok=True)
+    activity_target = activity_dir / f"{hashlib.sha256(str(activity_path).encode()).hexdigest()}-agent.json"
+    activity_tmp = activity_dir / f"{activity_target.name}.{os.getpid()}.tmp"
+    activity_tmp.write_text(json.dumps({"path": str(activity_path), "source": "agent", "updatedAt": record["updatedAt"]}), encoding="utf-8")
+    activity_tmp.replace(activity_target)
 PY

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { realpathSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
+import { markDirectoryActivity } from "./activity"
 
 export type Harness = "pi" | "claude" | "opencode"
 export interface WorktreeIdentity { path: string; commonDir: string; repo: string; branch: string }
@@ -49,6 +50,7 @@ export async function sessionName(id: WorktreeIdentity) {
 }
 
 export async function ensureSession(id: WorktreeIdentity) {
+  markDirectoryActivity(id.path, "opened")
   const existing = await sessionForPath(id.path)
   const name = existing?.name ?? await sessionName(id)
   if (!existing && (await command(["tmux", "has-session", "-t", `=${name}`], undefined, true)).code !== 0) {
@@ -83,6 +85,7 @@ function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: s
 export async function spawnAgent(harness: Harness, cwd: string, prompt: string, agent?: string, requestedName?: string, wait = false) {
   const id = await identity(cwd)
   const session = await ensureSession(id)
+  markDirectoryActivity(id.path, "agent")
   const prefix = requestedName || harness
   const existing = (await command(["tmux", "list-windows", "-t", `=${session}`, "-F", "#{window_name}"], undefined, true)).stdout.split("\n")
   let name = prefix; let n = 2
@@ -126,6 +129,7 @@ export async function spawnWorktree(harness: Harness, branch: string, prompt: st
 
 export async function ensureDirectorySession(directory: string) {
   const canonical = realpathSync(directory)
+  markDirectoryActivity(canonical, "opened")
   const existing = await sessionForPath(canonical)
   if (existing) {
     await command(["tmux", "set-option", "-t", existing.id, "@dotfiles_directory_path", canonical])

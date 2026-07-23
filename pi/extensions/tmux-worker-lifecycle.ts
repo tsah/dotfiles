@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -11,7 +12,15 @@ function report(state: State, event: string) {
 		const directory = join(process.env.XDG_RUNTIME_DIR || "/tmp", `alt-k-tui-${process.getuid?.() || 0}`, "agent-state");
 		mkdirSync(directory, { recursive: true });
 		const file = join(directory, `${pane.replace(/[^\w.%-]/g, "_")}.json`);
-		writeFileSync(file, JSON.stringify({ agent: "pi", state, pane, updatedAt: Date.now(), hookEvent: event }));
+		const updatedAt = Date.now();
+		writeFileSync(file, JSON.stringify({ agent: "pi", state, pane, updatedAt, hookEvent: event }));
+		const path = realpathSync(process.cwd());
+		const activityDirectory = join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local", "state"), "alt-k-tui", "activity");
+		mkdirSync(activityDirectory, { recursive: true });
+		const target = join(activityDirectory, `${createHash("sha256").update(path).digest("hex")}-agent.json`);
+		const tmp = `${target}.${process.pid}.tmp`;
+		writeFileSync(tmp, JSON.stringify({ path, source: "agent", updatedAt }));
+		renameSync(tmp, target);
 	} catch {}
 }
 
