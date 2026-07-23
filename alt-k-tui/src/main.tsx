@@ -1,15 +1,17 @@
 import { render, useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js"
 import { Effect, Exit } from "effect"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { canonicalActivityPath, gitStatusPaths, markDirectoryActivity, newestActivity, readDirectoryActivities } from "./activity"
+import type { ActivityRecord, ActivitySource } from "./activity"
 import { buildTreeRows, defaultExpandedSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen } from "./model"
 import type { AgentState, DetailRow, FuzzyResult, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean }
 interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string; updatedAt: number; stablePane: string }
-interface DirectoryRow { path: string; source: "worktree" | "zoxide"; branch: string }
+interface DirectoryRow { path: string; source: "worktree" | "zoxide" | "activity"; branch: string; activityAt?: number; activitySource?: ActivitySource; frecency?: number }
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface CachePayload { version: number; generatedAt: number; sessions: SessionRow[] }
 interface BranchRow { name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
@@ -26,7 +28,7 @@ const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
 const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
-const cacheVersion = 3
+const cacheVersion = 4
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -108,8 +110,12 @@ const collectOpencode = runCommand([Bun.env.ALT_K_TUI_OPENCODE_STATUS || "openco
   }).filter((row): row is OpencodeStatus => Boolean(row?.session))),
 )
 
-const collectZoxideDirectories = runCommand(["zoxide", "query", "-l"], { allowFailure: true }).pipe(
-  Effect.map((output) => output.split("\n").filter(Boolean).map((path): DirectoryRow => ({ path, source: "zoxide", branch: "" })).filter((row) => existsSync(expandHome(row.path)))),
+const collectZoxideDirectories = runCommand(["zoxide", "query", "-ls"], { allowFailure: true }).pipe(
+  Effect.map((output) => output.split("\n").flatMap((line): DirectoryRow[] => {
+    const match = line.match(/^\s*([0-9.]+)\s+(.+)$/)
+    if (!match || !existsSync(expandHome(match[2]!))) return []
+    return [{ path: match[2]!, source: "zoxide", branch: "", frecency: Number(match[1]) || 0 }]
+  })),
 )
 
 const parseWorktrees = (output: string): DirectoryRow[] => output.trim().split("\n\n").flatMap((block) => {
@@ -122,6 +128,39 @@ const parseWorktrees = (output: string): DirectoryRow[] => output.trim().split("
   }
   return path && existsSync(path) ? [{ path, source: "worktree" as const, branch }] : []
 })
+
+const gitRecoveryCache = new Map<string, { checkedAt: number; activity?: ActivityRecord }>()
+const gitRecoveryRefreshMs = 60_000
+const collectGitRecoveryActivity = (path: string) => {
+  const canonical = canonicalActivityPath(path)
+  const cached = gitRecoveryCache.get(canonical)
+  if (cached && Date.now() - cached.checkedAt < gitRecoveryRefreshMs) return Effect.succeed(cached.activity)
+  return Effect.all([
+    runCommand(["git", "-C", canonical, "status", "--porcelain=v1", "-z", "--untracked-files=all"], { allowFailure: true }),
+    runCommand(["git", "-C", canonical, "reflog", "-1", "--format=%ct"], { allowFailure: true }),
+    runCommand(["git", "-C", canonical, "log", "-1", "--format=%ct"], { allowFailure: true }),
+  ], { concurrency: "unbounded" }).pipe(
+    Effect.map(([status, reflog, commit]) => {
+      let editedAt = 0
+      if (status) {
+        for (const file of gitStatusPaths(status)) {
+          try { editedAt = Math.max(editedAt, statSync(resolve(canonical, file)).mtimeMs) }
+          catch {
+            try { editedAt = Math.max(editedAt, statSync(dirname(resolve(canonical, file))).mtimeMs) }
+            catch {}
+          }
+        }
+      }
+      const activity = newestActivity(
+        editedAt ? { path: canonical, source: "edited", updatedAt: editedAt } : undefined,
+        Number(reflog.trim()) > 0 ? { path: canonical, source: "reflog", updatedAt: Number(reflog.trim()) * 1000 } : undefined,
+        Number(commit.trim()) > 0 ? { path: canonical, source: "commit", updatedAt: Number(commit.trim()) * 1000 } : undefined,
+      )
+      gitRecoveryCache.set(canonical, { checkedAt: Date.now(), activity })
+      return activity
+    }),
+  )
+}
 
 const devRoot = Bun.env.ALT_K_TUI_DEV_ROOT ?? `${Bun.env.HOME ?? ""}/dev`
 const collectDevWorktrees = existsSync(devRoot)
@@ -136,13 +175,24 @@ const collectDevWorktrees = existsSync(devRoot)
   : Effect.succeed([] as DirectoryRow[])
 
 const collectDirectories = Effect.all([collectDevWorktrees, collectZoxideDirectories], { concurrency: "unbounded" }).pipe(
-  Effect.map(([worktrees, zoxide]) => {
+  Effect.flatMap(([worktrees, zoxide]) => {
+    const durableActivities = readDirectoryActivities()
     const directories = new Map<string, DirectoryRow>()
-    for (const row of [...worktrees, ...zoxide]) {
-      const path = expandHome(row.path)
-      if (!directories.has(path)) directories.set(path, row)
+    const durableDirectories: DirectoryRow[] = [...durableActivities.values()].flatMap((activity) => existsSync(activity.path) ? [{ path: activity.path, source: "activity", branch: "" }] : [])
+    for (const row of [...worktrees, ...zoxide, ...durableDirectories]) {
+      const path = canonicalActivityPath(row.path)
+      const existing = directories.get(path)
+      if (!existing) directories.set(path, { ...row, path })
+      else if (row.frecency) directories.set(path, { ...existing, frecency: Math.max(existing.frecency ?? 0, row.frecency) })
     }
-    return [...directories.values()]
+    return Effect.forEach(
+      [...directories.values()],
+      (row) => collectGitRecoveryActivity(row.path).pipe(Effect.map((fallback) => {
+        const activity = newestActivity(durableActivities.get(canonicalActivityPath(row.path)), fallback)
+        return { ...row, activityAt: activity?.updatedAt, activitySource: activity?.source }
+      })),
+      { concurrency: 4 },
+    )
   }),
 )
 
@@ -250,6 +300,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
   for (const session of sessions) {
     const sessionWindows = windowsBySession.get(session.name) ?? []
     const sessionOpencodes = opencodesBySession.get(session.name) ?? []
+    if (session.attached && sessionWindows.some((window) => window.active)) markDirectoryActivity(session.path, "active", Date.now(), 60_000)
     const meta = yield* gitMeta(session.path)
     const details: DetailRow[] = []
 
@@ -264,6 +315,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
       const focused = session.attached && window.active
       const windowOpencodes = opencodesByWindow.get(window.id) ?? []
       for (const opencode of windowOpencodes) {
+        if (opencode.updatedAt) markDirectoryActivity(session.path, "agent", opencode.updatedAt)
         const completionKey = paneCompletionKey(opencode.stablePane || window.pane || opencode.pane)
         const sourceState = opencodeState(opencode)
         const state = stateWithSeen(sourceState, opencode.updatedAt, seen.get(completionKey), focused)
@@ -277,6 +329,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
 
       const kind = isPiWindow(window) ? "pi" : isClaudeWindow(window) ? "claude" : codexPanes.has(window.pane) ? "codex" : "window"
       const report = reportsByPane.get(window.pane)
+      if (report?.updatedAt) markDirectoryActivity(session.path, "agent", report.updatedAt)
       const sourceState = report?.agent === kind ? report.state : kind === "codex" ? codexStateFromTitle(window.title || window.name) : kind === "claude" ? claudeStateFromTitle(window.title || window.name) : "unknown"
       const updatedAt = report?.agent === kind ? report.updatedAt : window.activity * 1000
       const completionKey = kind === "window" ? windowCompletionKey(window.id) : paneCompletionKey(window.pane)
@@ -289,6 +342,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     }
 
     for (const opencode of opencodesByWindow.get("") ?? []) {
+      if (opencode.updatedAt) markDirectoryActivity(session.path, "agent", opencode.updatedAt)
       const completionKey = paneCompletionKey(opencode.stablePane || opencode.pane)
       const sourceState = opencodeState(opencode)
       const state = stateWithSeen(sourceState, opencode.updatedAt, seen.get(completionKey))
@@ -314,12 +368,13 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     if (occupiedDirs.has(path)) continue
     occupiedDirs.add(path)
     const details: DetailRow[] = [{ kind: "directory", status: "", detail: directory.source, title: path, age: "", state: "unknown", target: { type: "directory", path }, updatedAt: 0 }]
-    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age: "", recency: 0, target: { type: "directory", path }, details, searchText: "" }
-    row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`].join(" ").toLowerCase()
+    const age = directory.activityAt ? ageFromUnixSeconds(directory.activityAt / 1000) : ""
+    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age, recency: Math.floor((directory.activityAt ?? 0) / 1000), target: { type: "directory", path }, details, searchText: "", activitySource: directory.activitySource, frecency: directory.frecency }
+    row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`, row.activitySource, row.age].join(" ").toLowerCase()
     rows.push(row)
   }
 
-  return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || a.name.localeCompare(b.name))
+  return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name))
 })
 
 const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports, Effect.sync(readSeenState)], { concurrency: "unbounded" }).pipe(
@@ -450,8 +505,11 @@ const dumpState = collectSessions.pipe(
   Effect.flatMap((sessions) => Effect.sync(() => {
     console.log(JSON.stringify(sessions.map((session) => ({
       name: session.name,
+      path: session.path,
       state: sessionState(session),
       recency: session.recency,
+      age: session.age,
+      activitySource: session.activitySource,
       branch: session.branch,
       flags: session.flags,
       markers: session.markers,
@@ -472,7 +530,7 @@ const filterSessions = (sessions: SessionRow[], query: string) => {
   return sessions
     .map((session) => ({ session, match: fuzzyResult(session.searchText, normalized) }))
     .filter((row): row is { session: SessionRow; match: FuzzyResult } => Boolean(row.match))
-    .sort((a, b) => b.match.score - a.match.score || sessionSortRank(a.session) - sessionSortRank(b.session) || b.session.recency - a.session.recency || a.session.name.localeCompare(b.session.name))
+    .sort((a, b) => b.match.score - a.match.score || sessionSortRank(a.session) - sessionSortRank(b.session) || b.session.recency - a.session.recency || (b.session.frecency ?? 0) - (a.session.frecency ?? 0) || a.session.name.localeCompare(b.session.name))
     .map((row) => row.session)
 }
 
@@ -486,6 +544,7 @@ const stateGlyph = (state: AgentState, frame = 0) => {
 const stateColor = (state: AgentState) => state === "blocked" ? theme.waiting : state === "working" ? theme.working : state === "done" ? theme.ready : state === "idle" ? theme.idle : theme.unknown
 const stateLabel = (state: AgentState) => state === "blocked" ? "waiting" : state === "done" ? "ready" : state
 const sessionGitMeta = (session: SessionRow) => [session.branch, session.flags === "dirty" ? "dirty" : ""].filter(Boolean).join(", ")
+const sessionMeta = (session: SessionRow) => session.target.type === "directory" ? [session.activitySource, session.age].filter(Boolean).join(" ") : sessionGitMeta(session)
 const selectedColor = (selected: boolean) => selected ? theme.selectedFg : theme.header
 const targetLabel = (target: Target) => {
   switch (target.type) {
@@ -599,7 +658,7 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; ex
       {props.row.depth === 0 ? (
         <>
           <text flexGrow={1}> </text>
-          <text flexShrink={0} fg={props.row.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted}>{sessionGitMeta(props.row.session) ? `[${sessionGitMeta(props.row.session)}]` : ""}</text>
+          <text flexShrink={0} fg={props.row.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted}>{sessionMeta(props.row.session) ? `[${sessionMeta(props.row.session)}]` : ""}</text>
         </>
       ) : null}
     </box>
@@ -693,10 +752,11 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     const nextIndex = rows.findIndex((row) => row.depth === 0 && row.session.name === session)
     setIndex(Math.max(0, nextIndex))
   }
-  const closeWith = (target?: Target, completionKey?: string) => {
+  const closeWith = (target?: Target, completionKey?: string, activityPath?: string) => {
     props.onOpen(target)
     const opened = target ? openTargetSync(target) : true
     if (opened && completionKey) markSeen(completionKey)
+    if (opened && activityPath) markDirectoryActivity(activityPath, "opened")
     renderer.destroy()
   }
   const finishBranch = (branch: string, create: boolean) => {
@@ -903,7 +963,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       }
       if (mode() === "jump") {
         const selected = selectedTreeRow()
-        return closeWith(selected?.target, selected?.detail?.completionKey)
+        return closeWith(selected?.target, selected?.detail?.completionKey, selected?.session.path)
       }
       if (mode() === "repo") {
         const repo = selectedRepository()

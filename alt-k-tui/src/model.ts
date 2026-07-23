@@ -8,7 +8,7 @@ export type AgentState = "blocked" | "working" | "done" | "idle" | "unknown"
 export type ReportedAgentState = AgentState | "running" | "attention"
 
 export interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target; completionKey?: string; updatedAt: number }
-export interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string }
+export interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string; activitySource?: string; frecency?: number }
 export interface TreeRow { key: string; depth: 0 | 1; session: SessionRow; detail?: DetailRow; target: Target; state: AgentState; searchText: string }
 export interface FuzzyResult { score: number; positions: number[] }
 
@@ -95,7 +95,7 @@ export const buildTreeRows = (sessions: SessionRow[], query: string, options: { 
     const score = Math.max(parentMatch?.score ?? Number.NEGATIVE_INFINITY, ...detailMatches.map(({ match }) => match.score))
     return [{ session, details, score }]
   })
-  if (normalized) groups.sort((a, b) => b.score - a.score || sessionSortRank(a.session) - sessionSortRank(b.session) || b.session.recency - a.session.recency || a.session.name.localeCompare(b.session.name))
+  if (normalized) groups.sort((a, b) => b.score - a.score || sessionSortRank(a.session) - sessionSortRank(b.session) || b.session.recency - a.session.recency || (b.session.frecency ?? 0) - (a.session.frecency ?? 0) || a.session.name.localeCompare(b.session.name))
   return groups.flatMap(({ session, details }) => {
     const parent: TreeRow = { key: targetKey(session.target), depth: 0, session, target: session.target, state: sessionState(session), searchText: sessionSearchText(session) }
     const children = details.map((detail): TreeRow => ({ key: `${targetKey(detail.target)}:${detail.kind}`, depth: 1, session, detail, target: detail.target, state: detail.state, searchText: detailSearchText(session, detail) }))

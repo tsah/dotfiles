@@ -7,6 +7,7 @@ root="/tmp/qa-alt-k-tree-$uid-$$"
 inner_socket="$root/inner.sock"
 outer_socket="$root/outer.sock"
 runtime="$root/runtime"
+state_home="$root/state"
 session="qa-workflow-tree"
 repo=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
@@ -41,7 +42,22 @@ pane_exists() {
 }
 
 rm -rf "$root"
-mkdir -p "$runtime" "$root/zoxide" "$root/dev"
+mkdir -p "$runtime" "$state_home/alt-k-tui/activity" "$root/zoxide" "$root/dev"
+
+for recovery_repo in recovery-old recovery-durable recovery-edited; do
+    recovery_path="$root/dev/$recovery_repo"
+    git init -q -b main "$recovery_path"
+    git -C "$recovery_path" config user.name "Alt-K QA"
+    git -C "$recovery_path" config user.email "alt-k-qa@example.invalid"
+    touch "$recovery_path/fixture"
+    git -C "$recovery_path" add fixture
+    GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" git -C "$recovery_path" commit -qm "Initial fixture"
+done
+printf 'recent edit\n' > "$root/dev/recovery-edited/fixture"
+mkdir -p "$root/recovery-ledger-only"
+recovery_now=$(date +%s%3N)
+printf '{"path":"%s","source":"opened","updatedAt":%s}\n' "$root/dev/recovery-durable" "$recovery_now" > "$state_home/alt-k-tui/activity/recovery-durable.json"
+printf '{"path":"%s","source":"agent","updatedAt":%s}\n' "$root/recovery-ledger-only" "$recovery_now" > "$state_home/alt-k-tui/activity/recovery-ledger-only.json"
 
 tmux -S "$inner_socket" new-session -d -s "$session" -n main -x 140 -y 40 -c "$root" "sleep 300"
 tmux -S "$inner_socket" new-window -d -t "=$session" -n pi -c "$root" "sleep 300"
@@ -49,21 +65,52 @@ tmux -S "$inner_socket" set-option -w -t "=$session:pi" @dotfiles_agent pi
 main_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:main" '#{pane_id}')
 pi_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:pi" '#{pane_id}')
 
+recovery_json=$(env TMUX="$inner_socket,0,0" XDG_RUNTIME_DIR="$runtime" XDG_STATE_HOME="$state_home" _ZO_DATA_DIR="$root/zoxide" ALT_K_TUI_DEV_ROOT="$root/dev" ALT_K_TUI_OPENCODE_STATUS=/bin/true bun run "$repo/src/main.tsx" --dump-state)
+RECOVERY_JSON="$recovery_json" RECOVERY_ROOT="$root/dev" LEDGER_ONLY="$root/recovery-ledger-only" python3 - <<'PY'
+import json
+import os
+
+rows = json.loads(os.environ["RECOVERY_JSON"])
+root = os.environ["RECOVERY_ROOT"]
+paths = [row["path"] for row in rows]
+old = f"{root}/recovery-old"
+durable = f"{root}/recovery-durable"
+edited = f"{root}/recovery-edited"
+ledger_only = os.environ["LEDGER_ONLY"]
+by_path = {row["path"]: row for row in rows}
+assert by_path[durable]["activitySource"] == "opened", by_path[durable]
+assert by_path[edited]["activitySource"] == "edited", by_path[edited]
+assert by_path[ledger_only]["activitySource"] == "agent", by_path[ledger_only]
+assert paths.index(durable) < paths.index(old), paths
+assert paths.index(edited) < paths.index(old), paths
+assert paths.index(ledger_only) < paths.index(old), paths
+PY
+
 state_dir="$runtime/alt-k-tui-$uid/agent-state"
 mkdir -p "$state_dir"
 state_file="$state_dir/${pi_pane//[^A-Za-z0-9_.%-]/_}.json"
-now=$(date +%s%3N)
-printf '{"agent":"pi","state":"working","pane":"%s","updatedAt":%s,"hookEvent":"agent_start"}\n' "$pi_pane" "$now" > "$state_file"
+env TMUX="$inner_socket,0,0" TMUX_PANE="$pi_pane" XDG_RUNTIME_DIR="$runtime" XDG_STATE_HOME="$state_home" "$repo/../bin/alt-k-agent-state-report" pi working </dev/null
+[[ -s "$state_file" ]] || { printf 'Expected agent state report for %s\n' "$pi_pane" >&2; exit 1; }
+ACTIVITY_DIR="$state_home/alt-k-tui/activity" ACTIVITY_PATH="$root" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+records = [json.loads(path.read_text()) for path in Path(os.environ["ACTIVITY_DIR"]).glob("*.json")]
+assert any(record["path"] == os.environ["ACTIVITY_PATH"] and record["source"] == "agent" for record in records), records
+PY
 
 tmux -S "$outer_socket" new-session -d -s harness -n client -x 140 -y 40 \
     "env -u TMUX tmux -S '$inner_socket' attach-session -t '=$session'"
 outer_pane=$(tmux -S "$outer_socket" list-panes -t harness:client -F '#{pane_id}')
 sleep 0.2
 
-picker_command="env XDG_RUNTIME_DIR='$runtime' _ZO_DATA_DIR='$root/zoxide' ALT_K_TUI_DEV_ROOT='$root/dev' ALT_K_TUI_OPENCODE_STATUS=/bin/true bun run '$repo/src/main.tsx'"
+picker_command="env XDG_RUNTIME_DIR='$runtime' XDG_STATE_HOME='$state_home' _ZO_DATA_DIR='$root/zoxide' ALT_K_TUI_DEV_ROOT='$root/dev' ALT_K_TUI_OPENCODE_STATUS=/bin/true bun run '$repo/src/main.tsx'"
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
 animation_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:picker" '#{pane_id}')
 wait_for_text "working"
+wait_for_text "edited"
+wait_for_text "opened"
 sleep 0.1
 working_frame_one=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200)
 sleep 0.25
@@ -174,4 +221,4 @@ if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -
     exit 1
 fi
 
-printf 'Alt-K tree QA passed: working animation, waiting blink, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
+printf 'Alt-K tree QA passed: durable recovery ordering, status animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
