@@ -173,6 +173,14 @@ describe("session tree", () => {
     expect(rows[0]?.searchText).toContain("child-count-2")
   })
 
+  test("keeps aggregate state from descendants hidden by filtering", () => {
+    const root = session("state-root", { workspaceId: "state-root", details: [detail("state-root", "root-idle", "61", "idle")] })
+    const visible = session("visible-child", { workspaceId: "visible", parentWorkspaceId: "state-root", details: [detail("visible-child", "visible-ready", "62", "done")] })
+    const hidden = session("hidden-child", { workspaceId: "hidden", parentWorkspaceId: "state-root", details: [detail("hidden-child", "hidden-blocked", "63", "blocked")] })
+    const rows = buildTreeRows([root, visible, hidden], "visible-child")
+    expect(rows.find((row) => !row.detail && row.session.name === "state-root")?.state).toBe("blocked")
+  })
+
   test("treats orphaned parents as roots", () => {
     const orphan = session("orphan", { workspaceId: "orphan", parentWorkspaceId: "missing" })
     const rows = buildTreeRows([orphan, session("plain")], "", { expandedSessions: new Set(["orphan", "plain"]) })

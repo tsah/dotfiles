@@ -6,7 +6,7 @@
 
 1. Run `bash -n` on every changed shell script and `zsh -n zshrc`.
 2. Run `bun run check` in `alt-k-tui/`.
-3. Run `bun test` and `scripts/qa` in `alt-k-tui/`. The latter must use only its private nested tmux sockets and `/tmp/qa-alt-k-tree-$UID-$PID` runtime directory, and any lineage checks must keep their SQLite store under that same disposable root.
+3. Run `bun test` and `scripts/qa` in `alt-k-tui/`. The latter must use only its private nested tmux sockets and an owned `/tmp/qa-alt-k-*` root, and any lineage checks must keep their SQLite store under that same disposable root. Verify `ALT_K_TUI_QA_ROOT` rejects paths outside that pattern and refuses to replace an existing root without its `.alt-k-qa-owned` marker.
 4. Run `nvim --headless '+lua require("pi_tmux").setup()' +qa`.
 5. Run `git grep` for removed entrypoints and tools (`spawn-pi-tworker`, `remote-tworker`, `tmux-session-switcher-live`, `tmux_subagent`, `tmux_tworker`, `tworker`) and classify any documentation-only matches.
 6. With a temporary `HOME`, run `bin/install-pi-packages`; verify `pi list` contains pinned `npm:@tintinweb/pi-subagents@0.14.0`.

@@ -184,7 +184,7 @@ const visibleNode = (node: SessionNode, normalizedQuery: string, expandedSession
     children,
     expanded: details.length + children.length > 0,
     expandable: selectableDetails(node.session).length + node.children.length > 0,
-    state: aggregateStates([sessionState(node.session), ...children.map((child) => child.state)]),
+    state: subtreeState(node),
     score,
   }
 }

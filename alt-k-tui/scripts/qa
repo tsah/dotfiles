@@ -3,7 +3,12 @@
 set -euo pipefail
 
 uid=$(id -u)
-root=${ALT_K_TUI_QA_ROOT:-"/tmp/qa-alt-k-tree-$uid-$$"}
+root=$(realpath -m -- "${ALT_K_TUI_QA_ROOT:-"/tmp/qa-alt-k-tree-$uid-$$"}")
+if [[ ! "$root" =~ ^/tmp/qa-alt-k-[A-Za-z0-9._-]+$ ]]; then
+    printf 'Refusing unsafe Alt-K QA root: %s\n' "$root" >&2
+    exit 1
+fi
+qa_marker="$root/.alt-k-qa-owned"
 inner_socket="$root/inner.sock"
 outer_socket="$root/outer.sock"
 runtime="$root/runtime"
@@ -19,7 +24,7 @@ cleanup() {
     fi
     tmux -S "$outer_socket" kill-server 2>/dev/null || true
     tmux -S "$inner_socket" kill-server 2>/dev/null || true
-    if [[ "$root" == /tmp/qa-alt-k-* ]]; then
+    if [[ -f "$qa_marker" ]]; then
         rm -rf "$root"
     fi
 }
@@ -42,8 +47,13 @@ pane_exists() {
     [[ "$(tmux -S "$inner_socket" display-message -p -t "$pane" '#{pane_id}' 2>/dev/null || true)" == "$pane" ]]
 }
 
+if [[ -e "$root" && ! -f "$qa_marker" ]]; then
+    printf 'Refusing to replace unowned Alt-K QA root: %s\n' "$root" >&2
+    exit 1
+fi
 rm -rf "$root"
 mkdir -p "$runtime" "$state_home/alt-k-tui/activity" "$root/zoxide" "$root/dev"
+touch "$qa_marker"
 
 for recovery_repo in recovery-old recovery-durable recovery-edited; do
     recovery_path="$root/dev/$recovery_repo"
