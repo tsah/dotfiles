@@ -69,9 +69,10 @@ const manifestPathFor = (path: string) => `${canonicalPath(path)}/${manifestRela
 const openStore = (dbPath = workspaceStatePath) => {
   mkdirSync(dirname(dbPath), { recursive: true })
   const db = new Database(dbPath, { create: true })
-  db.exec("PRAGMA journal_mode = WAL")
-  db.exec("PRAGMA foreign_keys = ON")
   db.exec("PRAGMA busy_timeout = 5000")
+  db.exec("PRAGMA foreign_keys = ON")
+  const journalMode = db.query("PRAGMA journal_mode").get() as { journal_mode?: string } | null
+  if (journalMode?.journal_mode?.toLowerCase() !== "wal") db.exec("PRAGMA journal_mode = WAL")
   migrate(db)
   return db
 }
@@ -326,7 +327,7 @@ export const persistWorkspaceLineage = (identity: LineageIdentity, options: { pa
 export const registerWorkspace = (identity: LineageIdentity, options: { parentWorkspaceId?: string | null; preserveParent?: boolean; dbPath?: string } = {}) => {
   const db = openStore(options.dbPath)
   try {
-    return db.transaction(() => upsertWorkspace(db, identity, { parentWorkspaceId: options.parentWorkspaceId, preserveParent: options.preserveParent }))()
+    return db.transaction(() => upsertWorkspace(db, identity, { parentWorkspaceId: options.parentWorkspaceId, preserveParent: options.preserveParent })).immediate()
   } finally {
     db.close()
   }
@@ -458,7 +459,7 @@ export const bootstrapRepositoryFromManifests = (cwd = process.cwd(), dbPath = w
       for (const { identity, manifest } of manifests) upsertWorkspace(db, identity, { preferredManifest: manifest, parentWorkspaceId: manifest.parentWorkspaceId, preserveParent: false, writeProjection: false, now: manifest.updatedAt })
       const workspaces = workspaceRowsForRepo(db, repo.id, true).map(rowToRecord)
       return { repoId: repo.id, commonDir: repo.common_dir, workspaces, removedPaths: [], rewrittenManifestPaths: [] } satisfies ReconcileResult
-    })()
+    }).immediate()
   } finally {
     db.close()
   }
@@ -482,7 +483,7 @@ export const reconcileRepositoryWorkspaces = (cwd = process.cwd(), dbPath = work
       }
       const workspaces = workspaceRowsForRepo(db, repo.id, true).map(rowToRecord)
       return { repoId: repo.id, commonDir: repo.common_dir, workspaces, removedPaths, rewrittenManifestPaths } satisfies ReconcileResult
-    })()
+    }).immediate()
   } finally {
     db.close()
   }

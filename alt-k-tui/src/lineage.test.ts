@@ -94,6 +94,34 @@ describe("workspace lineage store", () => {
     expect(() => registerWorkspace(workspaces.main, { dbPath })).toThrow(/version 2/)
   })
 
+  test("serializes concurrent workspace registrations", async () => {
+    const { root, dbPath, workspaces } = fixture()
+    const parent = registerWorkspace(workspaces.main, { dbPath })
+    const scriptPath = join(root, "register-lineage.ts")
+    writeFileSync(scriptPath, `
+      import { registerWorkspace } from ${JSON.stringify(resolve(import.meta.dir, "lineage.ts"))}
+      const [identityJson, dbPath, parentWorkspaceId] = process.argv.slice(2)
+      registerWorkspace(JSON.parse(identityJson!), { dbPath, parentWorkspaceId: parentWorkspaceId || undefined })
+    `)
+    const registrations = [workspaces.main, workspaces.child, workspaces.grandchild].map((identity, index) => Bun.spawn([
+      process.execPath,
+      scriptPath,
+      JSON.stringify(identity),
+      dbPath,
+      index === 0 ? "" : parent.workspaceId,
+    ], { stdout: "pipe", stderr: "pipe" }))
+    const results = await Promise.all(registrations.map(async (process) => ({
+      code: await process.exited,
+      error: await new Response(process.stderr).text(),
+    })))
+    expect(results).toEqual([
+      { code: 0, error: "" },
+      { code: 0, error: "" },
+      { code: 0, error: "" },
+    ])
+    expect(projectSnapshot(workspaces.main.path, dbPath).workspaces).toHaveLength(3)
+  })
+
   test("builds nested A → B → C lineage", () => {
     const { dbPath, workspaces } = fixture()
     const main = registerWorkspace(workspaces.main, { dbPath })
