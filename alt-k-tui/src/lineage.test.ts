@@ -84,6 +84,16 @@ describe("workspace lineage store", () => {
     expect(second.revision).toBe(first.revision)
   })
 
+  test("rejects newer schema versions", () => {
+    const { dbPath, workspaces } = fixture()
+    mkdirSync(dirname(dbPath), { recursive: true })
+    const db = new Database(dbPath, { create: true })
+    db.exec("PRAGMA user_version = 2")
+    db.close()
+
+    expect(() => registerWorkspace(workspaces.main, { dbPath })).toThrow(/version 2/)
+  })
+
   test("builds nested A → B → C lineage", () => {
     const { dbPath, workspaces } = fixture()
     const main = registerWorkspace(workspaces.main, { dbPath })
@@ -151,6 +161,12 @@ describe("workspace lineage store", () => {
     expect(() => registerWorkspace(workspaces.child, { dbPath })).toThrow(/symlink/)
     unlinkSync(manifestPath(workspaces.child.path))
 
+    rmSync(join(workspaces.child.path, ".alt-k"), { recursive: true, force: true })
+    symlinkSync(join(workspaces.main.path, ".git"), join(workspaces.child.path, ".alt-k"))
+    expect(() => registerWorkspace(workspaces.child, { dbPath })).toThrow(/directory is a symlink/)
+    unlinkSync(join(workspaces.child.path, ".alt-k"))
+    mkdirSync(join(workspaces.child.path, ".alt-k"), { recursive: true })
+
     writeFileSync(manifestPath(workspaces.child.path), "{\n")
     expect(() => registerWorkspace(workspaces.child, { dbPath })).toThrow(/Malformed/)
 
@@ -196,6 +212,37 @@ describe("workspace lineage store", () => {
     expect(after.workspaces.find((workspace) => workspace.canonicalPath === workspaces.child.path)?.parentWorkspaceId).toBe(main.workspaceId)
   })
 
+  test("bootstrap rejects inconsistent manifests before mutating the store", () => {
+    const { dbPath, workspaces } = fixture()
+    const main = registerWorkspace(workspaces.main, { dbPath })
+    const child = registerWorkspace(workspaces.child, { dbPath, parentWorkspaceId: main.workspaceId })
+    registerWorkspace(workspaces.grandchild, { dbPath, parentWorkspaceId: child.workspaceId })
+    rmSync(dbPath, { force: true })
+
+    const childManifest = {
+      ...manifest(workspaces.child.path),
+      version: 1,
+      workspaceId: child.workspaceId,
+      repoId: `${child.repoId}-other`,
+      canonicalPath: workspaces.child.path,
+      commonDir: workspaces.child.commonDir,
+      branch: workspaces.child.branch,
+      parentWorkspaceId: main.workspaceId,
+      createdAt: child.createdAt,
+      updatedAt: child.updatedAt,
+    }
+    writeFileSync(manifestPath(workspaces.child.path), `${JSON.stringify(childManifest, null, 2)}\n`)
+
+    expect(() => bootstrapRepositoryFromManifests(workspaces.main.path, dbPath)).toThrow(/disagree on repo id/)
+    expect(existsSync(dbPath)).toBe(false)
+
+    childManifest.repoId = child.repoId
+    childManifest.commonDir = `${workspaces.child.commonDir}-other`
+    writeFileSync(manifestPath(workspaces.child.path), `${JSON.stringify(childManifest, null, 2)}\n`)
+    expect(() => bootstrapRepositoryFromManifests(workspaces.main.path, dbPath)).toThrow(/belongs to|conflicts with local identity/)
+    expect(existsSync(dbPath)).toBe(false)
+  })
+
   test("supports best-effort and off modes without disrupting callers", () => {
     const { dbPath, workspaces } = fixture()
     mkdirSync(join(workspaces.main.path, ".alt-k"), { recursive: true })
@@ -206,6 +253,18 @@ describe("workspace lineage store", () => {
     expect(persistWorkspaceLineage(workspaces.main, { dbPath, mode: "off" })).toBeUndefined()
     expect(readLineageSnapshot(dbPath).byPath.size).toBe(0)
     expect(() => persistWorkspaceLineage(workspaces.main, { dbPath, mode: "strict" })).toThrow(/Malformed/)
+  })
+
+  test("readLineageSnapshot fails open by default and throws in strict mode", () => {
+    const root = tempRoot("alt-k-lineage-bad-db")
+    const dbPath = join(root, "state", "workspaces.sqlite3")
+    mkdirSync(dirname(dbPath), { recursive: true })
+    const db = new Database(dbPath, { create: true })
+    db.exec("PRAGMA user_version = 2")
+    db.close()
+
+    expect(readLineageSnapshot(dbPath).byPath.size).toBe(0)
+    expect(() => readLineageSnapshot(dbPath, "strict")).toThrow(/version 2/)
   })
 
   test("exposes child counts through the lineage snapshot", () => {

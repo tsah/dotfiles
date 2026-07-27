@@ -63,6 +63,7 @@ const canonicalPath = (path: string) => {
   catch { return resolve(expanded) }
 }
 
+const altKDirectoryPathFor = (path: string) => `${canonicalPath(path)}/.alt-k`
 const manifestPathFor = (path: string) => `${canonicalPath(path)}/${manifestRelativePath}`
 
 const openStore = (dbPath = workspaceStatePath) => {
@@ -77,7 +78,8 @@ const openStore = (dbPath = workspaceStatePath) => {
 
 const migrate = (db: Database) => {
   const current = Number((db.query("PRAGMA user_version").get() as { user_version?: number } | null)?.user_version ?? 0)
-  if (current >= schemaVersion) return
+  if (current > schemaVersion) throw new Error(`Unsupported workspace lineage store version ${current}`)
+  if (current === schemaVersion) return
   if (current === 0) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS repositories (
@@ -141,6 +143,11 @@ const parseManifest = (filePath: string) => {
 
 const trackedManifest = (path: string) => Bun.spawnSync(["git", "-C", path, "ls-files", "--error-unmatch", "--", manifestRelativePath], { stdout: "ignore", stderr: "ignore" }).exitCode === 0
 const lstatSafe = (path: string) => { try { return lstatSync(path) } catch { return undefined } }
+const assertManifestParentSafe = (path: string) => {
+  const directory = altKDirectoryPathFor(path)
+  const stats = lstatSafe(directory)
+  if (stats?.isSymbolicLink()) throw new Error(`Workspace manifest directory is a symlink: ${directory}`)
+}
 
 const worktreeExcludePath = (path: string) => {
   const result = Bun.spawnSync(["git", "-C", path, "rev-parse", "--git-path", "info/exclude"], { stdout: "pipe", stderr: "pipe" })
@@ -150,6 +157,7 @@ const worktreeExcludePath = (path: string) => {
 }
 
 const ensureManifestIgnored = (path: string) => {
+  assertManifestParentSafe(path)
   const excludePath = worktreeExcludePath(path)
   mkdirSync(dirname(excludePath), { recursive: true })
   const current = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : ""
@@ -163,6 +171,7 @@ const ensureManifestIgnored = (path: string) => {
 
 const readLocalManifest = (identity: LineageIdentity) => {
   const manifestPath = manifestPathFor(identity.path)
+  assertManifestParentSafe(identity.path)
   if (trackedManifest(canonicalPath(identity.path))) throw new Error(`Refusing to overwrite tracked ${manifestRelativePath} in ${canonicalPath(identity.path)}`)
   const stats = lstatSafe(manifestPath)
   if (!stats) return undefined
@@ -176,6 +185,7 @@ const readLocalManifest = (identity: LineageIdentity) => {
 
 const writeManifest = (identity: LineageIdentity, manifest: WorkspaceManifest) => {
   const worktreePath = canonicalPath(identity.path)
+  assertManifestParentSafe(worktreePath)
   if (trackedManifest(worktreePath)) throw new Error(`Refusing to overwrite tracked ${manifestRelativePath} in ${worktreePath}`)
   ensureManifestIgnored(worktreePath)
   const target = manifestPathFor(worktreePath)
@@ -390,26 +400,42 @@ export const workspaceTree = (cwd = process.cwd(), dbPath = workspaceStatePath):
   return (byParent.get("") ?? []).map(buildNode).sort((a, b) => a.branch.localeCompare(b.branch) || a.canonicalPath.localeCompare(b.canonicalPath))
 }
 
-export const readLineageSnapshot = (dbPath = workspaceStatePath): LineageSnapshot => {
-  if (!existsSync(dbPath)) return { byPath: new Map(), byId: new Map() }
-  const db = openStore(dbPath)
+const emptySnapshot = (): LineageSnapshot => ({ byPath: new Map(), byId: new Map() })
+
+export const readLineageSnapshot = (dbPath = workspaceStatePath, mode: LineageMode = lineageMode()): LineageSnapshot => {
+  if (!existsSync(dbPath)) return emptySnapshot()
   try {
-    const rows = db.query(`
-      SELECT w.id, w.repo_id, w.canonical_path, w.branch, w.parent_id, w.revision, w.created_at, w.updated_at, r.common_dir,
-             (SELECT COUNT(*) FROM workspaces child WHERE child.parent_id = w.id) AS child_count
-      FROM workspaces w
-      JOIN repositories r ON r.id = w.repo_id
-    `).all() as Array<WorkspaceRow & { common_dir: string; child_count: number }>
-    const byPath = new Map<string, WorkspaceRecord & { childWorkspaceCount: number }>()
-    const byId = new Map<string, WorkspaceRecord & { childWorkspaceCount: number }>()
-    for (const row of rows) {
-      const record = { ...rowToRecord(row), childWorkspaceCount: Number(row.child_count) || 0 }
-      byPath.set(record.canonicalPath, record)
-      byId.set(record.workspaceId, record)
+    const db = openStore(dbPath)
+    try {
+      const rows = db.query(`
+        SELECT w.id, w.repo_id, w.canonical_path, w.branch, w.parent_id, w.revision, w.created_at, w.updated_at, r.common_dir,
+               (SELECT COUNT(*) FROM workspaces child WHERE child.parent_id = w.id) AS child_count
+        FROM workspaces w
+        JOIN repositories r ON r.id = w.repo_id
+      `).all() as Array<WorkspaceRow & { common_dir: string; child_count: number }>
+      const byPath = new Map<string, WorkspaceRecord & { childWorkspaceCount: number }>()
+      const byId = new Map<string, WorkspaceRecord & { childWorkspaceCount: number }>()
+      for (const row of rows) {
+        const record = { ...rowToRecord(row), childWorkspaceCount: Number(row.child_count) || 0 }
+        byPath.set(record.canonicalPath, record)
+        byId.set(record.workspaceId, record)
+      }
+      return { byPath, byId }
+    } finally {
+      db.close()
     }
-    return { byPath, byId }
-  } finally {
-    db.close()
+  } catch (error) {
+    if (mode === "strict") throw error
+    return emptySnapshot()
+  }
+}
+
+const validateBootstrapManifests = (current: LineageIdentity, manifests: Array<{ identity: LineageIdentity; manifest: WorkspaceManifest }>) => {
+  const repoId = manifests[0]?.manifest.repoId
+  for (const { identity, manifest } of manifests) {
+    if (identity.commonDir !== current.commonDir) throw new Error(`Workspace ${identity.path} belongs to ${identity.commonDir}, not ${current.commonDir}`)
+    if (manifest.commonDir !== current.commonDir) throw new Error(`Workspace manifest at ${manifestPathFor(identity.path)} belongs to ${manifest.commonDir}, not ${current.commonDir}`)
+    if (repoId && manifest.repoId !== repoId) throw new Error(`Workspace manifests for ${current.commonDir} disagree on repo id`)
   }
 }
 
@@ -421,6 +447,7 @@ export const bootstrapRepositoryFromManifests = (cwd = process.cwd(), dbPath = w
     if (!manifest) throw new Error(`Missing workspace manifest at ${manifestPathFor(identity.path)}`)
     return { identity, manifest }
   })
+  validateBootstrapManifests(current, manifests)
   const db = openStore(dbPath)
   try {
     return db.transaction(() => {

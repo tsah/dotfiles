@@ -135,11 +135,10 @@ const currentSessionTarget = async () => {
   return result.code === 0 && result.stdout ? result.stdout : undefined
 }
 
-const explicitParentRecord = (parentWorkspaceId: string, mode: LineageMode) => {
+const explicitParentRecord = (parentWorkspaceId: string) => {
   const record = workspaceForId(parentWorkspaceId)
   if (record) return record
-  if (mode === "strict") throw new Error(`Unknown workspace parent id: ${parentWorkspaceId}`)
-  return undefined
+  throw new Error(`Unknown workspace parent id: ${parentWorkspaceId}`)
 }
 
 const captureAutomaticParent = async (mode: LineageMode) => {
@@ -155,13 +154,13 @@ const captureAutomaticParent = async (mode: LineageMode) => {
   }
 }
 
-async function resolveWorkerParent(options: { parentWorkspaceId?: string; noParent?: boolean }) {
-  const mode = lineageMode()
+export async function resolveWorkerParent(options: { parentWorkspaceId?: string; noParent?: boolean }, mode = lineageMode()) {
+  if (options.parentWorkspaceId && mode === "off") throw new Error("DOTFILES_WORKSPACE_LINEAGE=off does not support --parent")
   if (mode === "off") return { mode, preserveParent: true } as const
   if (options.noParent) return { mode, parentWorkspaceId: null, preserveParent: false } as const
   if (options.parentWorkspaceId) {
-    const parent = explicitParentRecord(options.parentWorkspaceId, mode)
-    return parent ? { mode, parentWorkspaceId: parent.workspaceId, preserveParent: false } as const : { mode, preserveParent: true } as const
+    const parent = explicitParentRecord(options.parentWorkspaceId)
+    return { mode, parentWorkspaceId: parent.workspaceId, preserveParent: false } as const
   }
   const parent = await captureAutomaticParent(mode)
   return parent ? { mode, parentWorkspaceId: parent.workspaceId, preserveParent: false } as const : { mode, preserveParent: true } as const

@@ -31,8 +31,10 @@
 1. In the disposable fixture, run `dotfiles-workflow workspace reconcile` from the main worktree. Verify `.alt-k/workspace.json` exists in each active worktree, `git status --porcelain` stays clean, `.git/info/exclude` contains exactly `/.alt-k/workspace.json`, and the manifest carries durable workspace/repository IDs, canonical path/common dir, branch, parent ID or null, revision, and timestamps.
 2. Remove one manifest, rerun `dotfiles-workflow workspace reconcile`, and verify the database rewrites it without changing durable IDs.
 3. Delete the disposable SQLite file, run `dotfiles-workflow workspace bootstrap`, and verify `dotfiles-workflow workspace tree` reconstructs the same active graph from manifests alone.
-4. Create conflicting manifest cases in a disposable worktree only: tracked file, symlink, malformed JSON, and valid JSON whose canonical path points elsewhere. Verify `best-effort` worker/session flows keep working, `strict` fails loudly, and none of those files are overwritten.
-5. Verify store invariants with explicit commands or tests: self-parenting, A→B→A cycles, cross-repo parenting, and one-active-parent reparenting all behave as documented.
+4. Create conflicting manifest cases in a disposable worktree only: tracked file, symlinked `.alt-k` directory, symlinked manifest file, malformed JSON, and valid JSON whose canonical path points elsewhere. Verify `best-effort` worker/session flows keep working, `strict` fails loudly, and none of those files are overwritten.
+5. Corrupt or replace the disposable lineage SQLite file. Verify the picker still opens without lineage annotations in default/best-effort mode, while `dotfiles-workflow workspace show|tree|project|reconcile|bootstrap` and other strict administrative lineage commands fail loudly.
+6. Seed a disposable lineage database with a newer `PRAGMA user_version` than supported and verify both tests and manual admin commands reject it.
+7. Verify store invariants with explicit commands or tests: self-parenting, A→B→A cycles, cross-repo parenting, and one-active-parent reparenting all behave as documented.
 
 ## Session and worker behavior
 
@@ -40,11 +42,12 @@
 2. Inspect the caller and child tmux sessions with `tmux show-option -qv`. Verify `@dotfiles_workspace_id` is set on both, the child carries the caller's ID in `@dotfiles_workspace_parent_id`, and `dotfiles-workflow workspace show --cwd <child>` reports the same relationship.
 3. From `qa-workflow-one`, run `worker-pi qa-workflow-two 'Reply with done only'`. Verify the nested child links to `qa-workflow-one`, producing `main → qa-workflow-one → qa-workflow-two` in `dotfiles-workflow workspace tree`.
 4. Repeat with `worker-pi --no-parent qa-workflow-root 'Reply with done only'` and `worker-pi --parent <workspace-id> qa-workflow-explicit 'Reply with done only'`. Verify `--no-parent` stores `null` and `--parent` reuses the requested parent.
-5. Launch `agent-pi` twice in that worktree. Verify `pi-2` and `pi-3` appear and no agent replaces `main` or an existing agent window.
-6. Create a synthetic tmux session with the expected human name but another path, then spawn. Verify the new display name gains a stable eight-character suffix. Repeat and verify no duplicate session.
-7. Rename a tagged worktree session with native tmux, then run session ensure and agent discovery for that worktree. Verify the renamed session is returned, its existing agents remain visible, its path/common-dir tags, workspace ID, and parent ID remain intact, and no canonical-name duplicate is created. Repeat with a legacy untagged session whose `session_path` is the worktree and verify first use adopts and tags it.
-8. Run Pi with `--wait`; verify output arrives only after `agent_settled` and the successful window remains available after signaling. Set `DOTFILES_WORKER_WAIT_TIMEOUT=1` for a long prompt; verify timeout is nonzero and the worker remains attachable.
-9. Launch Claude and verify `ANTHROPIC_API_KEY` is absent in its process environment. Launch OpenCode and verify it retains normal unrestricted filesystem access.
+5. Try `worker-pi --parent does-not-exist ...` in both default and strict lineage modes and verify it fails instead of silently rooting. Set `DOTFILES_WORKSPACE_LINEAGE=off` and verify explicit `--parent` is rejected clearly. Also break lineage persistence in the current worktree, run `dotfiles-workflow session --cwd <worktree>` under `strict`, and verify it fails rather than falling back to a plain directory session.
+6. Launch `agent-pi` twice in that worktree. Verify `pi-2` and `pi-3` appear and no agent replaces `main` or an existing agent window.
+7. Create a synthetic tmux session with the expected human name but another path, then spawn. Verify the new display name gains a stable eight-character suffix. Repeat and verify no duplicate session.
+8. Rename a tagged worktree session with native tmux, then run session ensure and agent discovery for that worktree. Verify the renamed session is returned, its existing agents remain visible, its path/common-dir tags, workspace ID, and parent ID remain intact, and no canonical-name duplicate is created. Repeat with a legacy untagged session whose `session_path` is the worktree and verify first use adopts and tags it.
+9. Run Pi with `--wait`; verify output arrives only after `agent_settled` and the successful window remains available after signaling. Set `DOTFILES_WORKER_WAIT_TIMEOUT=1` for a long prompt; verify timeout is nonzero and the worker remains attachable.
+10. Launch Claude and verify `ANTHROPIC_API_KEY` is absent in its process environment. Launch OpenCode and verify it retains normal unrestricted filesystem access.
 
 ## Picker
 
