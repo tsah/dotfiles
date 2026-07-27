@@ -59,6 +59,31 @@ wait_for_absent_text() {
     return 1
 }
 
+wait_for_row_glyph() {
+    local pattern=$1
+    local glyph=$2
+    local capture=""
+    for _ in {1..100}; do
+        capture=$(capture_outer)
+        if ROW_PATTERN="$pattern" ROW_GLYPH="$glyph" CAPTURE="$capture" python3 - <<'PY'
+import os
+
+pattern = os.environ["ROW_PATTERN"]
+glyph = os.environ["ROW_GLYPH"]
+for line in os.environ["CAPTURE"].splitlines():
+    if pattern in line and glyph in line.partition(pattern)[0]:
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+        then
+            return 0
+        fi
+        sleep 0.05
+    done
+    printf 'Timed out waiting for glyph %q on row %q\n%s\n' "$glyph" "$pattern" "$capture" >&2
+    return 1
+}
+
 wait_for_selected_row() {
     local pattern=$1
     local capture=""
@@ -347,7 +372,7 @@ wait_for_text "$lineage_root_session"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "idp-java"
 wait_for_text "$lineage_fix_coverage_session"
 wait_for_text "$lineage_fix_java_session"
-wait_for_absent_text "· ○ main"
+wait_for_absent_text "· main"
 lineage_search_frame=$(capture_outer)
 LINEAGE_CAPTURE="$lineage_search_frame" LINEAGE_ROOT_SESSION="$lineage_root_session" LINEAGE_FIX_COVERAGE_SESSION="$lineage_fix_coverage_session" LINEAGE_FIX_JAVA_SESSION="$lineage_fix_java_session" python3 - <<'PY'
 import os
@@ -364,7 +389,7 @@ for name in (os.environ["LINEAGE_ROOT_SESSION"], os.environ["LINEAGE_FIX_COVERAG
 assert positions[os.environ["LINEAGE_ROOT_SESSION"]] < positions[os.environ["LINEAGE_FIX_COVERAGE_SESSION"]] < positions[os.environ["LINEAGE_FIX_JAVA_SESSION"]], positions
 assert any(("├" in line or "└" in line) and os.environ["LINEAGE_FIX_COVERAGE_SESSION"] in line for line in lines), lines
 assert any(("├" in line or "└" in line) and os.environ["LINEAGE_FIX_JAVA_SESSION"] in line for line in lines), lines
-assert all("· ○ main" not in line for line in lines), lines
+assert all("· main" not in line for line in lines), lines
 PY
 tmux -S "$inner_socket" kill-pane -t "$lineage_picker_pane"
 sleep 0.2
@@ -374,7 +399,7 @@ lineage_visual_pane=$(open_picker_window lineage-visual)
 wait_for_text "$lineage_root_session"
 wait_for_selected_row "$lineage_fix_java_session"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" Right
-wait_for_text "· ○ main"
+wait_for_text "· main"
 wait_for_text "ready"
 lineage_frame=$(capture_outer)
 printf '%s\n' "$lineage_frame" > "$lineage_capture_path"
@@ -393,9 +418,9 @@ for name in (os.environ["LINEAGE_ROOT_SESSION"], os.environ["LINEAGE_FIX_COVERAG
 assert positions[os.environ["LINEAGE_ROOT_SESSION"]] < positions[os.environ["LINEAGE_FIX_COVERAGE_SESSION"]] < positions[os.environ["LINEAGE_FIX_JAVA_SESSION"]], positions
 assert any(("├" in line or "└" in line) and os.environ["LINEAGE_FIX_COVERAGE_SESSION"] in line for line in lines), lines
 assert any(("├" in line or "└" in line) and os.environ["LINEAGE_FIX_JAVA_SESSION"] in line for line in lines), lines
-assert any("✓" in line and "main" in line and "pi" in line and os.environ["LINEAGE_ROOT_SESSION"] in line for line in lines), lines
-assert any("· ○ main" in line and "idle" in line and "├" not in line and "└" not in line for line in lines), lines
-assert any("· ✓ pi" in line and "ready" in line and "├" not in line and "└" not in line for line in lines), lines
+assert any("✓" in line.partition(os.environ["LINEAGE_ROOT_SESSION"])[0] and "main" in line and "pi" in line and os.environ["LINEAGE_ROOT_SESSION"] in line for line in lines), lines
+assert any("○" in line.partition("· main")[0] and "· main" in line and "idle" in line and "├" not in line and "└" not in line for line in lines), lines
+assert any("✓" in line.partition("· pi")[0] and "· pi" in line and "ready" in line and "├" not in line and "└" not in line for line in lines), lines
 PY
 if [[ "${ALT_K_TUI_QA_VISUAL:-0}" == "1" ]]; then
     printf 'Lineage fixture ready. Attach with: tmux -S %s attach -t harness\n' "$outer_socket"
@@ -461,7 +486,7 @@ rm -f "$runtime/alt-k-tui-$uid/state.json"
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
 wait_for_text "qa-workflow-tree"
 wait_for_text "pi"
-wait_for_text "✓ qa-workflow-tree"
+wait_for_row_glyph "qa-workflow-tree" "✓"
 
 tmux -S "$outer_socket" send-keys -t "$outer_pane" Right
 tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
@@ -476,7 +501,7 @@ seen_count=$(compgen -G "$runtime/alt-k-tui-$uid/seen-state/*.json" | wc -l)
 rm -f "$runtime/alt-k-tui-$uid/state.json"
 
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
-wait_for_text "○ qa-workflow-tree"
+wait_for_row_glyph "qa-workflow-tree" "○"
 tmux -S "$inner_socket" set-option -gq @alt_k_tui_open 1
 
 tmux -S "$outer_socket" send-keys -t "$outer_pane" Right

@@ -706,8 +706,8 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
   return (
     <box flexDirection="row" height={1} backgroundColor={props.selected ? theme.selectedBg : undefined}>
       <text width={2} fg={rowFg()}>{props.selected ? ">" : " "}</text>
-      <text fg={theme.muted} flexShrink={0}>{treePrefix(props.row)}</text>
       <text width={2} fg={bulletColor()} flexShrink={0}>{bulletGlyph()}</text>
+      <text fg={theme.muted} flexShrink={0}>{treePrefix(props.row)}</text>
       {detail() ? (
         <>
           <text width={14} fg={rowFg()}><HighlightText text={detailName()} query={props.query} fg={rowFg()} /></text>
