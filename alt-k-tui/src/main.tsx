@@ -9,7 +9,7 @@ import { readLineageSnapshot } from "./lineage"
 import { buildTreeRows, defaultExpandedLineageSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { AgentState, DetailRow, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 import { pickSelection, refreshSessionsAuthoritatively, selectedItem, treeRowAnchor, visibleSlice } from "./picker"
-import { detailStatusLabel, ellipsize, inlineSummary, jumpFooterAction, sessionMeta, summaryGlyph, summaryNeutral, treePrefix } from "./presentation"
+import { detailStatusLabel, ellipsize, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, sessionMeta, treePrefix, visibleInlineSummary } from "./presentation"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean; worktreePath: string; directoryPath: string; workspaceId?: string; parentWorkspaceId?: string | null }
 interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
@@ -681,24 +681,25 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
   const detail = () => props.row.detail
   const detailName = () => detail()?.kind === "window" ? detail()!.title : detail()?.kind ?? ""
   const detailTitle = () => ""
+  const neutralDetail = () => detail()?.kind === "window"
+  const bulletState = () => detail()?.state ?? props.row.state
+  const bulletGlyph = () => neutralDetail() ? "○" : stateGlyph(bulletState(), props.animationFrame)
+  const bulletColor = () => neutralDetail() ? theme.muted : stateColor(bulletState())
   const meta = () => sessionMeta(props.row.session)
   const metaText = () => meta() ? `[${meta()}]` : ""
   const hiddenChildrenLabel = () => !props.row.expanded && props.row.hiddenChildCount > 0 ? `⇣${props.row.hiddenChildCount}` : ""
+  const hiddenChildrenWidth = () => prefixedLabelWidth(hiddenChildrenLabel())
   const summaryMaxWidth = () => {
     const width = dimensions().width
-    const reserved = Array.from(treePrefix(props.row)).length + Array.from(metaText()).length + Array.from(hiddenChildrenLabel()).length + 28
-    return Math.max(0, Math.min(24, width - reserved))
+    const fixedWidth = 2 + Array.from(treePrefix(props.row)).length + 2 + hiddenChildrenWidth() + Array.from(metaText()).length + 18
+    return Math.max(0, Math.min(24, width - fixedWidth))
   }
-  const summary = createMemo(() => inlineSummary(props.row.session, summaryMaxWidth()))
-  const summaryWidth = () => {
-    const entryWidth = summary().entries.reduce((total, entry, index) => total + (index > 0 ? 2 : 0) + Array.from(entry.label).length + 2, 0)
-    const hiddenWidth = summary().hiddenCount > 0 ? (summary().entries.length > 0 ? 2 : 0) + Array.from(`+${summary().hiddenCount}`).length : 0
-    return entryWidth + hiddenWidth
-  }
+  const summary = createMemo(() => visibleInlineSummary(props.row.session, summaryMaxWidth(), props.query))
+  const summaryWidth = () => inlineSummaryWidth(summary())
   const nameWidth = () => {
     const width = dimensions().width
-    const reserved = 2 + Array.from(treePrefix(props.row)).length + summaryWidth() + Array.from(hiddenChildrenLabel()).length + Array.from(metaText()).length + 8
-    return Math.max(12, width - reserved)
+    const reserved = 2 + Array.from(treePrefix(props.row)).length + 2 + summaryWidth() + hiddenChildrenWidth() + Array.from(metaText()).length + 2
+    return Math.max(4, width - reserved)
   }
   const sessionName = () => ellipsize(props.row.session.name, nameWidth())
   const metaColor = () => props.row.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted
@@ -706,6 +707,7 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
     <box flexDirection="row" height={1} backgroundColor={props.selected ? theme.selectedBg : undefined}>
       <text width={2} fg={rowFg()}>{props.selected ? ">" : " "}</text>
       <text fg={theme.muted} flexShrink={0}>{treePrefix(props.row)}</text>
+      <text width={2} fg={bulletColor()} flexShrink={0}>{bulletGlyph()}</text>
       {detail() ? (
         <>
           <text width={14} fg={rowFg()}><HighlightText text={detailName()} query={props.query} fg={rowFg()} /></text>
@@ -716,17 +718,17 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
       ) : (
         <>
           <text fg={rowFg()} flexShrink={0}><HighlightText text={sessionName()} query={props.query} fg={rowFg()} /></text>
-          <text flexGrow={1}> </text>
+          {summary().entries.length > 0 ? <text fg={theme.muted} flexShrink={0}>  </text> : null}
           <For each={summary().entries}>{(entry, index) => (
             <>
               {index() > 0 ? <text fg={theme.muted} flexShrink={0}>  </text> : null}
-              <text fg={props.selected ? theme.selectedFg : theme.header} flexShrink={0}>{entry.label}</text>
-              <text fg={summaryNeutral(entry.detail) ? theme.muted : stateColor(entry.detail.state)} flexShrink={0}> {summaryGlyph(entry.detail, (state) => stateGlyph(state, props.animationFrame))}</text>
+              <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{entry.label}</text>
             </>
           )}</For>
-          {summary().hiddenCount > 0 ? <text fg={theme.muted} flexShrink={0}>{summary().entries.length > 0 ? `  +${summary().hiddenCount}` : `+${summary().hiddenCount}`}</text> : null}
-          {hiddenChildrenLabel() ? <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{summaryWidth() || summary().hiddenCount > 0 ? `  ${hiddenChildrenLabel()}` : hiddenChildrenLabel()}</text> : null}
-          {metaText() ? <text flexShrink={0} fg={metaColor()}>{summaryWidth() || summary().hiddenCount > 0 || hiddenChildrenLabel() ? `  ${metaText()}` : metaText()}</text> : null}
+          {summary().hiddenCount > 0 ? <text fg={theme.muted} flexShrink={0}>{summary().entries.length > 0 ? `  +${summary().hiddenCount}` : `  +${summary().hiddenCount}`}</text> : null}
+          {hiddenChildrenLabel() ? <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{`  ${hiddenChildrenLabel()}`}</text> : null}
+          <text flexGrow={1}> </text>
+          {metaText() ? <text flexShrink={0} fg={metaColor()}>{metaText()}</text> : null}
         </>
       )}
     </box>

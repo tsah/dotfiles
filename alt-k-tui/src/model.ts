@@ -371,6 +371,6 @@ export const buildTreeRows = (
         .sort((a, b) => b.score - a.score || sessionTieBreak(a.session, b.session))
     : roots.map((node) => expandedNode(node, options.expandedLineageSessions, options.expandedDetailSessions))
 
-  const rows = visibleRoots.flatMap((node, index) => flattenTreeRows(node, 0, [], index === visibleRoots.length - 1))
-  return options.bottomUp ? [...rows].reverse() : rows
+  const groups = visibleRoots.map((node, index) => flattenTreeRows(node, 0, [], index === visibleRoots.length - 1))
+  return options.bottomUp ? groups.flatMap((rows) => [...rows].reverse()) : groups.flat()
 }

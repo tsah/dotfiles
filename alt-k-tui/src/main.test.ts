@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { DetailRow, SessionRow, Target, TreeRow } from "./model"
-import { inlineSummary, jumpFooterAction, treePrefix } from "./presentation"
+import { inlineSummary, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, treePrefix, visibleInlineSummary } from "./presentation"
 
 const sessionTarget = (session: string): Target => ({ type: "tmux_session", session })
 const windowTarget = (session: string, suffix: string): Target => ({ type: "tmux_window", session, windowId: `@${suffix}`, pane: `%${suffix}` })
@@ -126,8 +126,8 @@ describe("session tree", () => {
     const expanded = new Set(groupedSessions.map((row) => row.name))
     const rows = buildTreeRows(groupedSessions, "", { expandedLineageSessions: expanded, expandedDetailSessions: expanded, bottomUp: true })
     expect(labeledRows(rows)).toEqual([
-      "1:z-root-window",
-      "0:z-root",
+      "1:y-root-window",
+      "0:y-root",
       "3:deep-window",
       "2:d-grandchild",
       "2:c-child-window",
@@ -136,8 +136,8 @@ describe("session tree", () => {
       "1:b-child",
       "1:a-root-window",
       "0:a-root",
-      "1:y-root-window",
-      "0:y-root",
+      "1:z-root-window",
+      "0:z-root",
     ])
   })
 
@@ -308,9 +308,16 @@ describe("presentation helpers", () => {
       hiddenCount: 1,
     })
     expect(inlineSummary(crowded, 12)).toEqual({
-      entries: [{ detail: crowded.details[0]!, label: "main" }],
-      hiddenCount: 3,
+      entries: [
+        { detail: crowded.details[0]!, label: "main" },
+        { detail: crowded.details[1]!, label: "pi" },
+      ],
+      hiddenCount: 2,
     })
+    expect(visibleInlineSummary(crowded, 40, "exact-hit")).toEqual({ entries: [], hiddenCount: 0 })
+    expect(inlineSummaryWidth({ entries: [], hiddenCount: 4 })).toBe(4)
+    expect(inlineSummaryWidth({ entries: [{ detail: crowded.details[0]!, label: "main" }], hiddenCount: 3 })).toBe(10)
+    expect(prefixedLabelWidth("⇣2")).toBe(4)
   })
 
   test("describes separate lineage and detail navigation affordances", () => {

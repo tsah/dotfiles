@@ -1,4 +1,4 @@
-import type { AgentState, DetailRow, SessionRow, TreeRow } from "./model"
+import type { DetailRow, SessionRow, TreeRow } from "./model"
 
 export interface InlineSummaryEntry {
   detail: DetailRow
@@ -8,6 +8,16 @@ export interface InlineSummaryEntry {
 export interface InlineSummary {
   entries: InlineSummaryEntry[]
   hiddenCount: number
+}
+
+export const prefixedLabelWidth = (label: string) => label ? 2 + Array.from(label).length : 0
+
+export const inlineSummaryWidth = (summary: InlineSummary) => {
+  const entriesWidth = summary.entries.length > 0
+    ? 2 + summary.entries.reduce((total, entry, index) => total + (index > 0 ? 2 : 0) + Array.from(entry.label).length, 0)
+    : 0
+  const hiddenWidth = summary.hiddenCount > 0 ? prefixedLabelWidth(`+${summary.hiddenCount}`) : 0
+  return entriesWidth + hiddenWidth
 }
 
 const selectableSummaryDetails = (details: DetailRow[]) => details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
@@ -20,8 +30,6 @@ export const ellipsize = (text: string, maxWidth: number) => {
 }
 
 export const summaryLabel = (detail: DetailRow) => detail.kind === "window" ? detail.title || detail.status || "window" : detail.kind
-export const summaryGlyph = (detail: DetailRow, glyph: (state: AgentState) => string) => detail.kind === "window" ? "○" : glyph(detail.state)
-export const summaryNeutral = (detail: DetailRow) => detail.kind === "window"
 
 export const inlineSummary = (session: SessionRow, maxWidth: number, maxItems = 3): InlineSummary => {
   const details = selectableSummaryDetails(session.details)
@@ -32,12 +40,12 @@ export const inlineSummary = (session: SessionRow, maxWidth: number, maxItems = 
   for (const detail of details) {
     if (entries.length >= maxItems) break
     const separatorWidth = entries.length > 0 ? 2 : 0
-    const remainingWidth = maxWidth - used - separatorWidth - 2
+    const remainingWidth = maxWidth - used - separatorWidth
     if (remainingWidth <= 0) break
     const label = ellipsize(summaryLabel(detail), Math.min(remainingWidth, 18))
     if (!label) break
     entries.push({ detail, label })
-    used += separatorWidth + Array.from(label).length + 2
+    used += separatorWidth + Array.from(label).length
   }
 
   let hiddenCount = Math.max(0, details.length - entries.length)
@@ -47,12 +55,16 @@ export const inlineSummary = (session: SessionRow, maxWidth: number, maxItems = 
     if (used + tailWidth <= maxWidth) break
     const removed = entries.pop()
     if (!removed) break
-    used = Math.max(0, used - Array.from(removed.label).length - 2 - (entries.length > 0 ? 2 : 0))
+    used = Math.max(0, used - Array.from(removed.label).length - (entries.length > 0 ? 2 : 0))
     hiddenCount = Math.max(0, details.length - entries.length)
   }
 
   return { entries, hiddenCount }
 }
+
+export const visibleInlineSummary = (session: SessionRow, maxWidth: number, query: string) => query.trim()
+  ? { entries: [], hiddenCount: 0 }
+  : inlineSummary(session, maxWidth)
 
 export const detailStatusLabel = (detail: DetailRow) => {
   if (detail.kind === "window") return "idle"
