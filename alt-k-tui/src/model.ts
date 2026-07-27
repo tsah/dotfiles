@@ -17,6 +17,7 @@ export interface TreeRow {
   target: Target
   state: AgentState
   searchText: string
+  matchScore?: number
   expanded: boolean
   expandable: boolean
   detailsExpanded: boolean
@@ -31,6 +32,8 @@ export interface TreeRow {
   isLastSibling: boolean
 }
 export interface FuzzyResult { score: number; positions: number[] }
+export interface SearchField { text: string; weight?: number }
+export interface StructuredSearchResult { score: number }
 
 interface SessionNode {
   key: string
@@ -39,12 +42,18 @@ interface SessionNode {
   index: number
 }
 
+interface VisibleDetail {
+  detail: DetailRow
+  matchScore?: number
+}
+
 interface VisibleTreeNode {
   session: SessionRow
   key: string
   parentSessionKey?: string
   searchText: string
-  details: DetailRow[]
+  matchScore?: number
+  details: VisibleDetail[]
   children: VisibleTreeNode[]
   expanded: boolean
   expandable: boolean
@@ -106,6 +115,31 @@ export const fuzzyResult = (text: string, query: string): FuzzyResult | undefine
   return { score, positions }
 }
 
+const normalizeTerms = (query: string) => query.toLowerCase().trim().split(/\s+/).filter(Boolean)
+
+export const structuredSearch = (fields: Array<string | SearchField>, query: string): StructuredSearchResult | undefined => {
+  const terms = normalizeTerms(query)
+  if (terms.length === 0) return { score: 0 }
+  const normalizedFields = fields
+    .map((field) => typeof field === "string" ? { text: field, weight: 0 } : { text: field.text, weight: field.weight ?? 0 })
+    .map((field) => ({ ...field, text: field.text.toLowerCase().trim() }))
+    .filter((field) => field.text.length > 0)
+  if (normalizedFields.length === 0) return undefined
+
+  let score = 0
+  for (const term of terms) {
+    let bestTermScore = Number.NEGATIVE_INFINITY
+    for (const field of normalizedFields) {
+      const match = fuzzyResult(field.text, term)
+      if (!match) continue
+      bestTermScore = Math.max(bestTermScore, match.score + field.weight)
+    }
+    if (!Number.isFinite(bestTermScore)) return undefined
+    score += bestTermScore
+  }
+  return { score }
+}
+
 const targetKey = (target: Target) => {
   switch (target.type) {
     case "tmux_session": return `session:${target.session}`
@@ -115,7 +149,24 @@ const targetKey = (target: Target) => {
   }
 }
 
-const sessionSearchText = (session: SessionRow, context = "") => [session.name, session.path, session.branch, session.flags, session.markers.join(" "), session.lineageLabel, session.lineageSearchText, context].join(" ").toLowerCase()
+const sessionSearchFields = (session: SessionRow): SearchField[] => [
+  { text: session.name, weight: 180 },
+  { text: session.branch, weight: 140 },
+  { text: session.path, weight: 80 },
+  { text: session.flags, weight: 40 },
+  { text: session.markers.join(" "), weight: 50 },
+  { text: session.lineageLabel || "", weight: 30 },
+  { text: session.lineageSearchText || "", weight: 70 },
+]
+const sessionSearchText = (session: SessionRow) => [session.name, session.path, session.branch, session.flags, session.markers.join(" "), session.lineageLabel, session.lineageSearchText].join(" ").toLowerCase()
+const detailSearchFields = (detail: DetailRow): SearchField[] => [
+  { text: detail.title, weight: 160 },
+  { text: detail.kind, weight: 140 },
+  { text: detail.status, weight: 80 },
+  { text: detail.detail, weight: 70 },
+  { text: detail.state, weight: 30 },
+  { text: detail.age, weight: 10 },
+]
 const detailSearchText = (_session: SessionRow, detail: DetailRow) => [detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state].join(" ").toLowerCase()
 const selectableDetails = (session: SessionRow) => session.details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
 const sessionTieBreak = (a: SessionRow, b: SessionRow) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name)
@@ -166,7 +217,6 @@ const sessionForest = (sessions: SessionRow[]) => {
 }
 
 const subtreeState = (node: SessionNode): AgentState => aggregateStates([sessionState(node.session), ...node.children.map(subtreeState)])
-const lineageContextText = (ancestors: SessionNode[]) => ancestors.flatMap((ancestor) => [ancestor.session.name, ancestor.session.branch, ancestor.session.path]).join(" ").toLowerCase()
 
 const visibleNode = (
   node: SessionNode,
@@ -175,13 +225,12 @@ const visibleNode = (
   ancestors: SessionNode[] = [],
   includeLineage = false,
 ): VisibleTreeNode | undefined => {
-  const context = lineageContextText(ancestors)
-  const searchText = sessionSearchText(node.session, context)
-  const sessionMatch = fuzzyResult(searchText, normalizedQuery)
+  const searchText = sessionSearchText(node.session)
+  const sessionMatch = structuredSearch(sessionSearchFields(node.session), normalizedQuery)
   const exposeLineage = includeLineage || Boolean(sessionMatch)
   const details = selectableDetails(node.session)
   const detailMatches = details.flatMap((detail) => {
-    const match = fuzzyResult(detailSearchText(node.session, detail), normalizedQuery)
+    const match = structuredSearch(detailSearchFields(detail), normalizedQuery)
     return match ? [{ detail, match }] : []
   })
   const children = node.children.flatMap((child) => {
@@ -191,13 +240,14 @@ const visibleNode = (
   if (!exposeLineage && detailMatches.length === 0 && children.length === 0) return undefined
 
   const detailsExpanded = Boolean(expandedDetailSessions?.has(node.session.name))
-  const visibleDetails = detailsExpanded ? details : detailMatches.map(({ detail }) => detail)
+  const visibleDetails = detailMatches.map(({ detail, match }) => ({ detail, matchScore: match.score }))
   const score = maxScore(sessionMatch?.score ?? Number.NEGATIVE_INFINITY, ...detailMatches.map(({ match }) => match.score), ...children.map((child) => child.score))
   return {
     session: node.session,
     key: node.key,
     parentSessionKey: ancestors.at(-1)?.key,
     searchText,
+    matchScore: sessionMatch?.score,
     details: visibleDetails,
     children,
     expanded: children.length > 0,
@@ -222,7 +272,7 @@ const expandedNode = (
   const detailsExpanded = Boolean(details.length > 0 && expandedDetailSessions?.has(node.session.name))
   const children = node.children.map((child) => expandedNode(child, expandedLineageSessions, expandedDetailSessions, node.key))
   const visibleChildren = lineageExpanded ? children : []
-  const visibleDetails = detailsExpanded ? details : []
+  const visibleDetails = detailsExpanded ? details.map((detail) => ({ detail })) : []
   return {
     session: node.session,
     key: node.key,
@@ -249,6 +299,7 @@ const flattenTreeRows = (node: VisibleTreeNode, depth: number, guideColumns: boo
     target: node.session.target,
     state: node.state,
     searchText: node.searchText,
+    matchScore: node.matchScore,
     expanded: node.expanded,
     expandable: node.expandable,
     detailsExpanded: node.detailsExpanded,
@@ -263,18 +314,19 @@ const flattenTreeRows = (node: VisibleTreeNode, depth: number, guideColumns: boo
     isLastSibling,
   }
   const childrenGuides = depth === 0 ? [] : [...guideColumns, !isLastSibling]
-  const entries: Array<{ detail: DetailRow } | { child: VisibleTreeNode }> = [...node.details.map((detail) => ({ detail })), ...node.children.map((child) => ({ child }))]
+  const entries: Array<{ detail: VisibleDetail } | { child: VisibleTreeNode }> = [...node.details.map((detail) => ({ detail })), ...node.children.map((child) => ({ child }))]
   const childRows = entries.flatMap((entry, index) => {
     const childIsLast = index === entries.length - 1
     if ("detail" in entry) {
       return [{
-        key: `${targetKey(entry.detail.target)}:${entry.detail.kind}`,
+        key: `${targetKey(entry.detail.detail.target)}:${entry.detail.detail.kind}`,
         depth: depth + 1,
         session: node.session,
-        detail: entry.detail,
-        target: entry.detail.target,
-        state: entry.detail.state,
-        searchText: detailSearchText(node.session, entry.detail),
+        detail: entry.detail.detail,
+        target: entry.detail.detail.target,
+        state: entry.detail.detail.state,
+        searchText: detailSearchText(node.session, entry.detail.detail),
+        matchScore: entry.detail.matchScore,
         expanded: false,
         expandable: false,
         detailsExpanded: false,

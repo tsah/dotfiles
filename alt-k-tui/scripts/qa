@@ -13,6 +13,7 @@ inner_socket="$root/inner.sock"
 outer_socket="$root/outer.sock"
 runtime="$root/runtime"
 state_home="$root/state"
+cache_file="$runtime/alt-k-tui-$uid/state.json"
 lineage_capture_path="$root/lineage-render.txt"
 session="qa-workflow-tree"
 repo=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
@@ -30,16 +31,155 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+capture_outer() {
+    tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" 2>/dev/null || true
+}
+
 wait_for_text() {
     local pattern=$1
     local capture=""
     for _ in {1..100}; do
-        capture=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200 2>/dev/null || true)
+        capture=$(capture_outer)
         [[ "$capture" == *"$pattern"* ]] && return 0
         sleep 0.05
     done
     printf 'Timed out waiting for %q\n%s\n' "$pattern" "$capture" >&2
     return 1
+}
+
+wait_for_absent_text() {
+    local pattern=$1
+    local capture=""
+    for _ in {1..100}; do
+        capture=$(capture_outer)
+        [[ "$capture" != *"$pattern"* ]] && return 0
+        sleep 0.05
+    done
+    printf 'Timed out waiting for %q to disappear\n%s\n' "$pattern" "$capture" >&2
+    return 1
+}
+
+wait_for_selected_row() {
+    local pattern=$1
+    local capture=""
+    for _ in {1..100}; do
+        capture=$(capture_outer)
+        if SELECTED_PATTERN="$pattern" CAPTURE="$capture" python3 - <<'PY'
+import os
+
+pattern = os.environ["SELECTED_PATTERN"]
+for line in os.environ["CAPTURE"].splitlines():
+    if '> ' not in line or 'targets' in line or line.rstrip().endswith('_'):
+        continue
+    prefix, _, remainder = line.partition('> ')
+    if prefix.strip() in {'', '│'} and pattern in remainder:
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+        then
+            return 0
+        fi
+        sleep 0.05
+    done
+    printf 'Timed out waiting for selected row %q\n%s\n' "$pattern" "$capture" >&2
+    return 1
+}
+
+open_picker_window() {
+    local name=$1
+    tmux -S "$inner_socket" new-window -t "=$session" -n "$name" -c "$repo" "$picker_command"
+    tmux -S "$inner_socket" display-message -p -t "=$session:$name" '#{pane_id}'
+}
+
+write_fixture_cache() {
+    local variant=$1
+    mkdir -p "$(dirname "$cache_file")"
+    bun --eval '
+      const { writeFileSync } = await import("node:fs")
+      const [variant, file] = process.argv.slice(1)
+      const detail = (session, title, suffix, state = "idle", kind = "window", status = kind === "window" ? "zsh" : state) => ({
+        kind,
+        status,
+        detail: "",
+        title,
+        age: "1m",
+        state,
+        target: kind === "opencode"
+          ? { type: "opencode", session, pane: `%${suffix}` }
+          : { type: "tmux_window", session, windowId: `@${suffix}`, pane: `%${suffix}` },
+        completionKey: `${kind}:@${suffix}`,
+        updatedAt: Number(suffix) || 0,
+      })
+      const session = (name, recency, overrides = {}) => ({
+        name,
+        path: `/tmp/${name}`,
+        branch: name,
+        flags: "clean",
+        markers: [],
+        age: "1m",
+        recency,
+        target: { type: "tmux_session", session: name },
+        details: [detail(name, `${name}-main`, `${recency}`)],
+        searchText: "",
+        ...overrides,
+      })
+      const scrollRows = Array.from({ length: 40 }, (_, index) => session(`qa-scroll-${String(index).padStart(2, "0")}`, 600 - index))
+      const searchRows = [
+        session("z-root", 520, { workspaceId: "z", lineageSearchText: "z root" }),
+        session("false-positive", 519, { branch: "root", details: [detail("false-positive", "shell", "519")] }),
+        session("search-root", 518, {
+          workspaceId: "search-root",
+          childWorkspaceCount: 1,
+          lineageLabel: "⇣1",
+          lineageSearchText: "search-root child-count-1",
+          details: [detail("search-root", "root-main", "518"), detail("search-root", "root-log", "517")],
+        }),
+        session("search-child", 517, {
+          workspaceId: "search-child",
+          parentWorkspaceId: "search-root",
+          details: [detail("search-child", "exact-hit", "516"), detail("search-child", "unrelated-log", "515")],
+        }),
+      ]
+      const refreshInitial = [
+        session("refresh-third", 430, { workspaceId: "refresh-third" }),
+        session("refresh-keep", 429, { workspaceId: "refresh-keep" }),
+        session("refresh-remove", 428, { workspaceId: "refresh-remove" }),
+      ]
+      const refreshUpdated = [
+        session("refresh-new-top", 500, { workspaceId: "refresh-new-top" }),
+        session("refresh-keep", 499, { workspaceId: "refresh-keep" }),
+      ]
+      const lineageRoot = process.env.LINEAGE_ROOT_SESSION || "lineage-root"
+      const lineageCoverage = process.env.LINEAGE_FIX_COVERAGE_SESSION || "lineage-coverage"
+      const lineageJava = process.env.LINEAGE_FIX_JAVA_SESSION || "lineage-java"
+      const lineageVisual = [
+        session(lineageRoot, 620, {
+          workspaceId: "lineage-root",
+          childWorkspaceCount: 2,
+          lineageLabel: "⇣2",
+          lineageSearchText: "lineage-root child-count-2",
+          details: [detail(lineageRoot, "main", "620", "idle"), detail(lineageRoot, "pi", "621", "done", "pi")],
+        }),
+        session(lineageCoverage, 619, {
+          workspaceId: "lineage-coverage",
+          parentWorkspaceId: "lineage-root",
+          details: [detail(lineageCoverage, "main", "619", "idle"), detail(lineageCoverage, "pi", "618", "done", "pi")],
+        }),
+        session(lineageJava, 618, {
+          workspaceId: "lineage-java",
+          parentWorkspaceId: "lineage-root",
+          details: [detail(lineageJava, "main", "617", "idle"), detail(lineageJava, "pi", "616", "done", "pi")],
+        }),
+      ]
+      const rows = variant === "search"
+        ? [session("qa-workflow-tree", 700), ...scrollRows, ...searchRows]
+        : variant === "refresh-initial"
+          ? refreshInitial
+          : variant === "lineage-visual"
+            ? lineageVisual
+            : refreshUpdated
+      writeFileSync(file, JSON.stringify({ version: 8, generatedAt: Date.now(), sessions: rows }))
+    ' "$variant" "$cache_file"
 }
 
 pane_exists() {
@@ -201,19 +341,42 @@ done
 tmux -S "$inner_socket" kill-pane -t "$attention_picker_pane"
 sleep 0.2
 
-rm -f "$runtime/alt-k-tui-$uid/state.json"
-tmux -S "$inner_socket" new-window -t "=$session" -n lineage-picker -c "$repo" "$picker_command"
-lineage_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:lineage-picker" '#{pane_id}')
+rm -f "$cache_file"
+lineage_picker_pane=$(open_picker_window lineage-picker)
 wait_for_text "$lineage_root_session"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "idp-java"
 wait_for_text "$lineage_fix_coverage_session"
 wait_for_text "$lineage_fix_java_session"
-tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
-tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
+wait_for_absent_text "· main"
+lineage_search_frame=$(capture_outer)
+LINEAGE_CAPTURE="$lineage_search_frame" LINEAGE_ROOT_SESSION="$lineage_root_session" LINEAGE_FIX_COVERAGE_SESSION="$lineage_fix_coverage_session" LINEAGE_FIX_JAVA_SESSION="$lineage_fix_java_session" python3 - <<'PY'
+import os
+
+lines = os.environ["LINEAGE_CAPTURE"].splitlines()
+positions = {}
+for name in (os.environ["LINEAGE_ROOT_SESSION"], os.environ["LINEAGE_FIX_COVERAGE_SESSION"], os.environ["LINEAGE_FIX_JAVA_SESSION"]):
+    for index, line in enumerate(lines):
+        if name in line:
+            positions[name] = index
+            break
+    else:
+        raise AssertionError(f"Missing {name!r} in capture")
+assert positions[os.environ["LINEAGE_ROOT_SESSION"]] < positions[os.environ["LINEAGE_FIX_COVERAGE_SESSION"]] < positions[os.environ["LINEAGE_FIX_JAVA_SESSION"]], positions
+assert any(("├" in line or "└" in line) and os.environ["LINEAGE_FIX_COVERAGE_SESSION"] in line for line in lines), lines
+assert any(("├" in line or "└" in line) and os.environ["LINEAGE_FIX_JAVA_SESSION"] in line for line in lines), lines
+assert all("· main" not in line for line in lines), lines
+PY
+tmux -S "$inner_socket" kill-pane -t "$lineage_picker_pane"
+sleep 0.2
+
+LINEAGE_ROOT_SESSION="$lineage_root_session" LINEAGE_FIX_COVERAGE_SESSION="$lineage_fix_coverage_session" LINEAGE_FIX_JAVA_SESSION="$lineage_fix_java_session" write_fixture_cache lineage-visual
+lineage_visual_pane=$(open_picker_window lineage-visual)
+wait_for_text "$lineage_root_session"
+wait_for_selected_row "$lineage_fix_java_session"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" Right
 wait_for_text "· main"
 wait_for_text "ready"
-lineage_frame=$(tmux -S "$outer_socket" capture-pane -p -J -t harness:client -S -200)
+lineage_frame=$(capture_outer)
 printf '%s\n' "$lineage_frame" > "$lineage_capture_path"
 LINEAGE_CAPTURE="$lineage_frame" LINEAGE_ROOT_SESSION="$lineage_root_session" LINEAGE_FIX_COVERAGE_SESSION="$lineage_fix_coverage_session" LINEAGE_FIX_JAVA_SESSION="$lineage_fix_java_session" python3 - <<'PY'
 import os
@@ -240,8 +403,53 @@ if [[ "${ALT_K_TUI_QA_VISUAL:-0}" == "1" ]]; then
     printf 'Capture with: tmux -S %s capture-pane -p -J -t harness:client -S -200 > %s\n' "$outer_socket" "$lineage_capture_path"
     exit 0
 fi
-tmux -S "$inner_socket" kill-pane -t "$lineage_picker_pane"
+tmux -S "$inner_socket" kill-pane -t "$lineage_visual_pane"
 sleep 0.2
+rm -f "$cache_file"
+
+write_fixture_cache search
+synthetic_picker_pane=$(open_picker_window synthetic-picker)
+wait_for_text "qa-workflow-tree"
+wait_for_selected_row "qa-workflow-tree"
+for _ in {1..20}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" Down; done
+wait_for_selected_row "qa-scroll-19"
+for _ in {1..20}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" Up; done
+wait_for_selected_row "qa-workflow-tree"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l $'\033[200~z-root\033[201~'
+wait_for_selected_row "z-root"
+wait_for_text "2 targets"
+wait_for_absent_text "false-positive"
+for _ in {1..6}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" BSpace; done
+wait_for_text "45 targets"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "exact-hit"
+wait_for_text "search-root"
+wait_for_text "search-child"
+wait_for_text "exact-hit"
+wait_for_absent_text "unrelated-log"
+for _ in {1..9}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" BSpace; done
+wait_for_text "45 targets"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "no-such-target"
+wait_for_text "0 targets"
+no_match_window=$(tmux -S "$inner_socket" display-message -p -t "=$session:" '#{window_name}')
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Enter
+sleep 0.2
+[[ "$(tmux -S "$inner_socket" display-message -p -t "=$session:" '#{window_name}')" == "$no_match_window" ]] || { printf 'Enter unexpectedly closed the no-match picker\n' >&2; exit 1; }
+wait_for_text "0 targets"
+tmux -S "$inner_socket" kill-pane -t "$synthetic_picker_pane"
+sleep 0.2
+
+write_fixture_cache refresh-initial
+refresh_picker_pane=$(open_picker_window refresh-picker)
+wait_for_text "refresh-keep"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Up
+wait_for_selected_row "refresh-keep"
+write_fixture_cache refresh-updated
+wait_for_text "refresh-new-top"
+wait_for_absent_text "refresh-remove"
+wait_for_selected_row "refresh-keep"
+tmux -S "$inner_socket" kill-pane -t "$refresh_picker_pane"
+sleep 0.2
+rm -f "$cache_file"
 
 now=$(date +%s%3N)
 printf '{"agent":"pi","state":"done","pane":"%s","updatedAt":%s,"hookEvent":"agent_settled"}\n' "$pi_pane" "$now" > "$state_file"
@@ -303,10 +511,9 @@ rm -f "$runtime/alt-k-tui-$uid/state.json"
 
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
 wait_for_text "qa-workflow-tree"
-tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "$delete_session"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "final"
 wait_for_text "qa-delete-final"
-tmux -S "$outer_socket" send-keys -t "$outer_pane" Right
-tmux -S "$outer_socket" send-keys -t "$outer_pane" Down
+wait_for_selected_row "final"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
 wait_for_text "Destroy final pane, session, and worktree"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" n
@@ -327,4 +534,4 @@ if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -
     exit 1
 fi
 
-printf 'Alt-K tree QA passed: durable recovery ordering, compact lineage-only connectors, inline summaries, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
+printf 'Alt-K tree QA passed: durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, compact lineage-only connectors, inline summaries, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'

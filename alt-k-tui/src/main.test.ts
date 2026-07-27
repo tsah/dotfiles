@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionState, stateWithSeen } from "./model"
+import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { DetailRow, SessionRow, Target, TreeRow } from "./model"
 import { inlineSummary, jumpFooterAction, treePrefix } from "./presentation"
 
@@ -64,6 +64,20 @@ describe("agent state", () => {
     expect(sessionState(aggregate)).toBe("working")
     aggregate.details.pop()
     expect(sessionState(aggregate)).toBe("done")
+  })
+})
+
+describe("structured search", () => {
+  test("does not span a single term across field boundaries", () => {
+    expect(structuredSearch([
+      { text: "zsh", weight: 20 },
+      { text: "false-positive", weight: 20 },
+      { text: "root", weight: 20 },
+    ], "z-root")).toBeUndefined()
+  })
+
+  test("keeps fuzzy abbreviations useful within a field", () => {
+    expect(structuredSearch([{ text: "z-root", weight: 20 }], "zr")?.score).toBeGreaterThan(0)
   })
 })
 
@@ -197,6 +211,31 @@ describe("session tree", () => {
       "2:d-grandchild",
     ])
     expect(rows[0]?.searchText).toContain("child-count-2")
+  })
+
+  test("keeps hyphenated terms inside a single field while preserving fuzzy abbreviations", () => {
+    const falsePositive = session("false-positive", {
+      branch: "root",
+      details: [detail("false-positive", "shell", "71")],
+    })
+    const rows = buildTreeRows([groupedSessions.at(-1)!, falsePositive], "z-root")
+    expect(sessionRows(rows).map((row) => row.session.name)).toEqual(["z-root"])
+    expect(sessionRows(buildTreeRows([groupedSessions.at(-1)!, falsePositive], "zr")).map((row) => row.session.name)).toEqual(["z-root"])
+  })
+
+  test("non-empty queries keep only directly matching detail rows even after explicit expansion", () => {
+    const rows = buildTreeRows([
+      session("root", { workspaceId: "root", details: [detail("root", "root-main", "81"), detail("root", "root-log", "82")] }),
+      session("child", { workspaceId: "child", parentWorkspaceId: "root", details: [detail("child", "exact-hit", "83"), detail("child", "unrelated-log", "84")] }),
+    ], "exact-hit", {
+      expandedLineageSessions: new Set(["root"]),
+      expandedDetailSessions: new Set(["root", "child"]),
+    })
+    expect(labeledRows(rows)).toEqual([
+      "0:root",
+      "1:child",
+      "2:exact-hit",
+    ])
   })
 
   test("keeps aggregate state from descendants hidden by filtering", () => {

@@ -6,8 +6,9 @@ import { dirname, resolve } from "node:path"
 import { canonicalActivityPath, gitStatusPaths, markDirectoryActivity, newestActivity, readDirectoryActivities } from "./activity"
 import type { ActivityRecord, ActivitySource } from "./activity"
 import { readLineageSnapshot } from "./lineage"
-import { buildTreeRows, defaultExpandedLineageSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen } from "./model"
-import type { AgentState, DetailRow, FuzzyResult, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
+import { buildTreeRows, defaultExpandedLineageSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
+import type { AgentState, DetailRow, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
+import { pickSelection, refreshSessionsAuthoritatively, selectedItem, treeRowAnchor, visibleSlice } from "./picker"
 import { detailStatusLabel, ellipsize, inlineSummary, jumpFooterAction, sessionMeta, summaryGlyph, summaryNeutral, treePrefix } from "./presentation"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean; worktreePath: string; directoryPath: string; workspaceId?: string; parentWorkspaceId?: string | null }
@@ -16,7 +17,7 @@ interface OpencodeStatus { directory: string; status: string; detail: string; ti
 interface DirectoryRow { path: string; source: "worktree" | "zoxide" | "activity"; branch: string; activityAt?: number; activitySource?: ActivitySource; frecency?: number }
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface CachePayload { version: number; generatedAt: number; sessions: SessionRow[] }
-interface BranchRow { name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
+interface BranchRow { key: string; name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
 interface DeleteAction { row: TreeRow; kind: "pane" | "session" | "worktree"; pane?: string; finalPane?: boolean }
 type PickerMode = "jump" | "repo" | "new" | "branch" | "rename"
 
@@ -493,7 +494,7 @@ const collectBranchesSync = (repoPath: string): BranchRow[] => {
     localBranches.add(name)
     const path = worktrees.get(name) ?? ""
     const kind = path ? "worktree" : "local"
-    rows.push({ name, value: name, kind, path, recency: Number(timestamp) || 0, searchText: `${name} ${kind} ${path}`.toLowerCase() })
+    rows.push({ key: `${kind}:${path || name}`, name, value: name, kind, path, recency: Number(timestamp) || 0, searchText: `${name} ${kind} ${path}`.toLowerCase() })
   }
   for (const [ref = "", short = "", timestamp = "0"] of refs) {
     if (!ref.startsWith("refs/remotes/") || ref.endsWith("/HEAD")) continue
@@ -501,7 +502,7 @@ const collectBranchesSync = (repoPath: string): BranchRow[] => {
     const branchName = slash >= 0 ? short.slice(slash + 1) : short
     if (!branchName || localBranches.has(branchName) || remoteBranches.has(branchName)) continue
     remoteBranches.add(branchName)
-    rows.push({ name: short, value: branchName, kind: "remote", path: "", recency: Number(timestamp) || 0, searchText: `${short} ${branchName} remote`.toLowerCase() })
+    rows.push({ key: `remote:${branchName}`, name: short, value: branchName, kind: "remote", path: "", recency: Number(timestamp) || 0, searchText: `${short} ${branchName} remote`.toLowerCase() })
   }
   const rank = { worktree: 0, local: 1, remote: 2, create: 3 }
   return rows.sort((a, b) => rank[a.kind] - rank[b.kind] || (a.kind === "remote" ? b.recency - a.recency : a.name.localeCompare(b.name)))
@@ -551,14 +552,37 @@ const dumpCachedState = Effect.sync(() => {
   console.log(JSON.stringify(readCache() ?? [], null, 2))
 })
 
+const searchFieldsForSession = (session: SessionRow) => [
+  session.name,
+  session.path,
+  session.branch,
+  session.flags,
+  session.markers.join(" "),
+  session.lineageLabel || "",
+  session.lineageSearchText || "",
+  ...session.details.flatMap((detail) => [detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state]),
+]
+
 const filterSessions = (sessions: SessionRow[], query: string) => {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return sessions
   return sessions
-    .map((session) => ({ session, match: fuzzyResult(session.searchText, normalized) }))
-    .filter((row): row is { session: SessionRow; match: FuzzyResult } => Boolean(row.match))
+    .map((session) => ({ session, match: structuredSearch(searchFieldsForSession(session), normalized) }))
+    .filter((row): row is { session: SessionRow; match: { score: number } } => Boolean(row.match))
     .sort((a, b) => b.match.score - a.match.score || sessionSortRank(a.session) - sessionSortRank(b.session) || b.session.recency - a.session.recency || (b.session.frecency ?? 0) - (a.session.frecency ?? 0) || a.session.name.localeCompare(b.session.name))
     .map((row) => row.session)
+}
+
+const filterBranches = (rows: BranchRow[], query: string) => {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return rows
+  const matches = rows
+    .map((branch) => ({ branch, match: structuredSearch([branch.name, branch.value, branch.kind, branch.path], normalized) }))
+    .filter((row): row is { branch: BranchRow; match: { score: number } } => Boolean(row.match))
+    .sort((a, b) => b.match.score - a.match.score || b.branch.recency - a.branch.recency || a.branch.name.localeCompare(b.branch.name))
+    .map((row) => row.branch)
+  const exact = rows.some((branch) => branch.value.toLowerCase() === normalized || branch.name.toLowerCase() === normalized)
+  return exact ? matches : [{ key: `create:${query.trim()}`, name: query.trim(), value: query.trim(), kind: "create" as const, path: "", recency: 0, searchText: `${normalized} create new branch` }, ...matches]
 }
 
 const workingGlyphs = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"]
@@ -760,17 +784,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const treeRows = (rows = sessions(), search = query(), lineage = expandedLineageSessions(), details = expandedDetailSessions()) => buildTreeRows(rows, search, { expandedLineageSessions: lineage, expandedDetailSessions: details, bottomUp: true })
   const filteredTreeRows = createMemo(() => treeRows())
   const filteredRepositories = createMemo(() => filterSessions(props.repositories, query()))
-  const filteredBranches = createMemo(() => {
-    const normalized = query().trim().toLowerCase()
-    if (!normalized) return branches()
-    const matches = branches()
-      .map((branch) => ({ branch, match: fuzzyResult(branch.searchText, normalized) }))
-      .filter((row): row is { branch: BranchRow; match: FuzzyResult } => Boolean(row.match))
-      .sort((a, b) => b.match.score - a.match.score)
-      .map((row) => row.branch)
-    const exact = branches().some((branch) => branch.value.toLowerCase() === normalized || branch.name.toLowerCase() === normalized)
-    return exact ? matches : [{ name: query().trim(), value: query().trim(), kind: "create" as const, path: "", recency: 0, searchText: `${normalized} create new branch` }, ...matches]
-  })
+  const filteredBranches = createMemo(() => filterBranches(branches(), query()))
   const activeLength = createMemo(() => mode() === "jump" ? filteredTreeRows().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : 0)
   const selectedTreeRow = createMemo(() => mode() === "jump" ? filteredTreeRows()[index()] : undefined)
   const selectedParent = createMemo(() => isSessionRow(selectedTreeRow()) ? selectedTreeRow()!.session : undefined)
@@ -780,6 +794,32 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const visibleTreeRows = createMemo(() => visibleSlice(filteredTreeRows(), index(), visibleCount()))
   const visibleRepositories = createMemo(() => visibleSlice(filteredRepositories(), index(), visibleCount()))
   const visibleBranches = createMemo(() => visibleSlice(filteredBranches(), index(), visibleCount()))
+
+  const indexForTreeQuery = (search: string, anchor = treeRowAnchor(selectedTreeRow())) => {
+    const rows = treeRows(sessions(), search, expandedLineageSessions(), expandedDetailSessions())
+    const selected = pickSelection(rows, index(), search, anchor)
+    return selected ? rows.findIndex((row) => row === selected) : 0
+  }
+  const indexForFlatQuery = <T,>(rows: T[], search: string, preserve: (row: T) => boolean) => {
+    const preserved = rows.findIndex(preserve)
+    if (preserved >= 0) return preserved
+    return search.trim() ? 0 : clamp(index(), 0, Math.max(0, rows.length - 1))
+  }
+  const updateSearch = (nextQuery: string) => {
+    const currentTreeAnchor = treeRowAnchor(selectedTreeRow())
+    const currentRepositoryPath = selectedRepository()?.path
+    const currentBranchKey = selectedBranch()?.key
+    setQuery(nextQuery)
+    if (mode() === "jump") {
+      setIndex(indexForTreeQuery(nextQuery, currentTreeAnchor))
+      return
+    }
+    if (mode() === "repo") {
+      setIndex(indexForFlatQuery(filterSessions(props.repositories, nextQuery), nextQuery, (row) => row.path === currentRepositoryPath))
+      return
+    }
+    if (mode() === "branch") setIndex(indexForFlatQuery(filterBranches(branches(), nextQuery), nextQuery, (row) => row.key === currentBranchKey))
+  }
 
   const firstSessionIndex = (rows: TreeRow[]) => rows.findIndex((row) => !row.detail)
   const jumpToTreeRow = (rowKey: string | undefined, rows = filteredTreeRows()) => {
@@ -842,8 +882,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     } else if (mode() === "rename") {
       setRenameName((value) => value + text)
     } else {
-      setQuery((value) => value + text)
-      setIndex(0)
+      updateSearch(`${query()}${text}`)
     }
   }
   const refreshRemoteBranches = (repo: SessionRow) => {
@@ -973,12 +1012,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       } else if (mode() === "rename") {
         setRenameName((value) => value.slice(0, -1))
       } else {
-        setQuery((value) => {
-          const next = value.slice(0, -1)
-          if (!next) setIndex(Math.max(0, firstSessionIndex(treeRows(sessions(), ""))))
-          else setIndex(0)
-          return next
-        })
+        updateSearch(query().slice(0, -1))
       }
       return
     }
@@ -1046,8 +1080,9 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         return
       }
       if (mode() === "jump") {
-        const selected = selectedTreeRow()
-        return closeWith(selected?.target, selected?.detail?.completionKey, selected?.session.path)
+        const selected = selectedItem(filteredTreeRows(), index())
+        if (!selected) return
+        return closeWith(selected.target, selected.detail?.completionKey, selected.session.path)
       }
       if (mode() === "repo") {
         const repo = selectedRepository()
@@ -1086,20 +1121,13 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     const cacheInterval = setInterval(() => {
       const refreshed = readCache()
       if (!refreshed) return
-      const selectedKey = selectedTreeRow()?.key
-      const selectedSessionName = selectedTreeRow()?.session.name
-      const byName = new Map(refreshed.map((session) => [session.name, session]))
-      const currentNames = new Set(sessions().map((session) => session.name))
-      const nextSessions = [
-        ...sessions().map((session) => byName.get(session.name) ?? session),
-        ...refreshed.filter((session) => !currentNames.has(session.name)),
-      ]
+      const currentAnchor = treeRowAnchor(selectedTreeRow())
+      const nextSessions = refreshSessionsAuthoritatively(sessions(), refreshed)
       setSessions(nextSessions)
       if (mode() === "jump") {
-        const nextRows = treeRows(nextSessions, query())
-        let nextIndex = selectedKey ? nextRows.findIndex((row) => row.key === selectedKey) : -1
-        if (nextIndex < 0 && selectedSessionName) nextIndex = nextRows.findIndex((row) => !row.detail && row.session.name === selectedSessionName)
-        setIndex(nextIndex >= 0 ? nextIndex : clamp(index(), 0, Math.max(0, nextRows.length - 1)))
+        const nextRows = treeRows(nextSessions, query(), expandedLineageSessions(), expandedDetailSessions())
+        const nextSelection = pickSelection(nextRows, index(), query(), currentAnchor)
+        setIndex(nextSelection ? nextRows.findIndex((row) => row === nextSelection) : clamp(index(), 0, Math.max(0, nextRows.length - 1)))
       }
     }, 500)
     onCleanup(() => {
@@ -1155,11 +1183,6 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       ) : <box height={1}><text fg={theme.muted}>{mode() === "rename" ? "Enter rename · Esc cancel" : "Enter create · Tab field · Esc branch picker"}</text></box>}
     </box>
   )
-}
-
-const visibleSlice = <T,>(rows: T[], index: number, count: number) => {
-  const start = Math.max(0, Math.min(rows.length - count, index - count + 1))
-  return rows.slice(start, start + count).reverse()
 }
 
 const program = process.argv.includes("--server") ? serverProgram : process.argv.includes("--dump-cache") ? dumpCachedState : process.argv.includes("--dump-state") ? dumpState : Effect.gen(function* () {
