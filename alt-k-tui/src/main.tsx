@@ -662,8 +662,8 @@ const treePrefix = (row: TreeRow) => {
   const guides = row.guideColumns.map((guide) => guide ? "│ " : "  ").join("")
   if (row.depth === 0) return `${guides}${row.expandable ? row.expanded ? "▾ " : "▸ " : "  "}`
   const branch = row.isLastSibling ? "└" : "├"
-  if (isSessionRow(row) && row.expandable) return `${guides}${branch}${row.expanded ? "▾" : "▸"}`
-  return `${guides}${branch}─`
+  if (isSessionRow(row) && row.expandable) return `${guides}${branch}─${row.expanded ? "▾" : "▸"} `
+  return `${guides}${branch}── `
 }
 const jumpFooterAction = (row: TreeRow | undefined) => {
   if (!row) return ""
@@ -699,7 +699,7 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
       ) : (
         <>
           <text fg={rowFg()} flexShrink={1}><HighlightText text={props.row.session.name} query={props.query} fg={rowFg()} /></text>
-          <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{props.row.session.lineageLabel ? ` ${props.row.session.lineageLabel}` : ""}</text>
+          <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{!props.row.expanded && props.row.session.childWorkspaceCount ? ` ⇣${props.row.session.childWorkspaceCount}` : ""}</text>
           <text flexGrow={1}> </text>
           <text flexShrink={0} fg={metaColor()}>{sessionMeta(props.row.session) ? `[${sessionMeta(props.row.session)}]` : ""}</text>
         </>
