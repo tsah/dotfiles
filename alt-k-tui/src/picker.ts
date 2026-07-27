@@ -81,8 +81,9 @@ export const selectedItem = <T,>(rows: T[], index: number) => rows[index]
 export const pickSelection = (rows: TreeRow[], index: number, query: string, anchor?: TreeRowAnchor) => {
   if (rows.length === 0) return undefined
   const preservedIndex = anchor ? rows.findIndex((row) => matchesTreeRowAnchor(row, anchor)) : -1
-  if (preservedIndex >= 0) return rows[preservedIndex]
-  if (query.trim()) {
+  const searching = Boolean(query.trim())
+  if (preservedIndex >= 0 && (!searching || Number.isFinite(rows[preservedIndex]?.matchScore))) return rows[preservedIndex]
+  if (searching) {
     const bestIndex = bestMatchIndex(rows)
     if (bestIndex >= 0) return rows[bestIndex]
   }

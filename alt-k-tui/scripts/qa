@@ -421,10 +421,15 @@ wait_for_text "2 targets"
 wait_for_absent_text "false-positive"
 for _ in {1..6}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" BSpace; done
 wait_for_text "45 targets"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "search-root"
+wait_for_selected_row "search-root"
+for _ in {1..11}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" BSpace; done
+wait_for_text "45 targets"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "exact-hit"
 wait_for_text "search-root"
 wait_for_text "search-child"
 wait_for_text "exact-hit"
+wait_for_selected_row "exact-hit"
 wait_for_absent_text "unrelated-log"
 for _ in {1..9}; do tmux -S "$outer_socket" send-keys -t "$outer_pane" BSpace; done
 wait_for_text "45 targets"

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "bun run src/main.tsx",
     "server": "bun run src/main.tsx --server",
-    "check": "bun x tsc --noEmit",
+    "check": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {

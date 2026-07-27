@@ -54,6 +54,17 @@ describe("picker helpers", () => {
     expect(pickSelection(rows, 0, "child-count-2")).toEqual(rows.find((row) => row.session.name === "a-root" && !row.detail))
   })
 
+  test("moves from an ancestor anchor to a directly matching descendant", () => {
+    const sessions = [
+      session("search-root", { workspaceId: "root" }),
+      session("search-child", { workspaceId: "child", parentWorkspaceId: "root", details: [detail("search-child", "exact-hit", "51")] }),
+    ]
+    const unfiltered = buildTreeRows(sessions, "", { expandedLineageSessions: new Set(["search-root"]), bottomUp: true })
+    const root = unfiltered.find((row) => !row.detail && row.session.name === "search-root")
+    const filtered = buildTreeRows(sessions, "exact-hit", { bottomUp: true })
+    expect(pickSelection(filtered, 0, "exact-hit", treeRowAnchor(root))?.detail?.title).toBe("exact-hit")
+  })
+
   test("enter helpers keep the picker open when nothing is selected", () => {
     expect(selectedItem([], 0)).toBeUndefined()
     expect(pickSelection([], 0, "no matches")).toBeUndefined()
