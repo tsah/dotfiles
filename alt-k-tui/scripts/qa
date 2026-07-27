@@ -3,11 +3,12 @@
 set -euo pipefail
 
 uid=$(id -u)
-root="/tmp/qa-alt-k-tree-$uid-$$"
+root=${ALT_K_TUI_QA_ROOT:-"/tmp/qa-alt-k-tree-$uid-$$"}
 inner_socket="$root/inner.sock"
 outer_socket="$root/outer.sock"
 runtime="$root/runtime"
 state_home="$root/state"
+lineage_capture_path="$root/lineage-render.txt"
 session="qa-workflow-tree"
 repo=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
@@ -18,7 +19,7 @@ cleanup() {
     fi
     tmux -S "$outer_socket" kill-server 2>/dev/null || true
     tmux -S "$inner_socket" kill-server 2>/dev/null || true
-    if [[ "$root" =~ ^/tmp/qa-alt-k-tree-$uid-[0-9]+$ ]]; then
+    if [[ "$root" == /tmp/qa-alt-k-* ]]; then
         rm -rf "$root"
     fi
 }
@@ -58,6 +59,43 @@ mkdir -p "$root/recovery-ledger-only"
 recovery_now=$(date +%s%3N)
 printf '{"path":"%s","source":"opened","updatedAt":%s}\n' "$root/dev/recovery-durable" "$recovery_now" > "$state_home/alt-k-tui/activity/recovery-durable.json"
 printf '{"path":"%s","source":"agent","updatedAt":%s}\n' "$root/recovery-ledger-only" "$recovery_now" > "$state_home/alt-k-tui/activity/recovery-ledger-only.json"
+
+lineage_origin="$root/lineage-origin"
+lineage_root="$root/dev/idp-java"
+lineage_fix_coverage="$root/dev/fix-coverage"
+lineage_fix_java="$root/dev/fix-java"
+git init -q -b main "$lineage_origin"
+git -C "$lineage_origin" config user.name "Alt-K QA"
+git -C "$lineage_origin" config user.email "alt-k-qa@example.invalid"
+touch "$lineage_origin/fixture"
+git -C "$lineage_origin" add fixture
+git -C "$lineage_origin" commit -qm "Initial fixture"
+git -C "$lineage_origin" worktree add -q -b idp-java "$lineage_root"
+git -C "$lineage_origin" worktree add -q -b fix-coverage "$lineage_fix_coverage"
+git -C "$lineage_origin" worktree add -q -b fix-java "$lineage_fix_java"
+lineage_tsv=$(XDG_STATE_HOME="$state_home" bun --eval '
+  const [modulePath, rootPath, coveragePath, javaPath, dbPath] = process.argv.slice(1)
+  const { identifyWorkspaceSync, registerWorkspace } = await import(modulePath)
+  const root = registerWorkspace(identifyWorkspaceSync(rootPath), { dbPath })
+  const coverage = registerWorkspace(identifyWorkspaceSync(coveragePath), { dbPath, parentWorkspaceId: root.workspaceId })
+  const java = registerWorkspace(identifyWorkspaceSync(javaPath), { dbPath, parentWorkspaceId: root.workspaceId })
+  console.log([
+    ["idp-java", rootPath, root.workspaceId, root.parentWorkspaceId ?? ""],
+    ["fix-coverage", coveragePath, coverage.workspaceId, coverage.parentWorkspaceId ?? ""],
+    ["fix-java", javaPath, java.workspaceId, java.parentWorkspaceId ?? ""],
+  ].map((row) => row.join("\t")).join("\n"))
+' "$repo/src/lineage.ts" "$lineage_root" "$lineage_fix_coverage" "$lineage_fix_java" "$state_home/alt-k-tui/workspaces.sqlite3")
+while IFS=$'\t' read -r lineage_session lineage_path lineage_workspace lineage_parent; do
+    [[ -n "$lineage_session" ]] || continue
+    tmux -S "$inner_socket" new-session -d -s "$lineage_session" -n main -x 140 -y 40 -c "$lineage_path" "sleep 300"
+    tmux -S "$inner_socket" set-option -t "$lineage_session" @dotfiles_worktree_path "$lineage_path"
+    tmux -S "$inner_socket" set-option -t "$lineage_session" @dotfiles_workspace_id "$lineage_workspace"
+    tmux -S "$inner_socket" set-option -t "$lineage_session" @dotfiles_workspace_parent_id "$lineage_parent"
+done <<< "$lineage_tsv"
+tmux -S "$inner_socket" rename-window -t 'idp-java:main' root-shell
+tmux -S "$inner_socket" new-window -d -t 'idp-java' -n root-pi -c "$lineage_root" "sleep 300"
+tmux -S "$inner_socket" rename-window -t 'fix-coverage:main' coverage-shell
+tmux -S "$inner_socket" rename-window -t 'fix-java:main' java-shell
 
 tmux -S "$inner_socket" new-session -d -s "$session" -n main -x 140 -y 40 -c "$root" "sleep 300"
 tmux -S "$inner_socket" new-window -d -t "=$session" -n pi -c "$root" "sleep 300"
@@ -141,6 +179,39 @@ done
 tmux -S "$inner_socket" kill-pane -t "$attention_picker_pane"
 sleep 0.2
 
+rm -f "$runtime/alt-k-tui-$uid/state.json"
+tmux -S "$inner_socket" new-window -t "=$session" -n lineage-picker -c "$repo" "$picker_command"
+lineage_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:lineage-picker" '#{pane_id}')
+wait_for_text "idp-java"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "idp"
+wait_for_text "fix-coverage"
+wait_for_text "fix-java"
+lineage_frame=$(tmux -S "$outer_socket" capture-pane -p -J -t harness:client -S -200)
+printf '%s\n' "$lineage_frame" > "$lineage_capture_path"
+LINEAGE_CAPTURE="$lineage_frame" python3 - <<'PY'
+import os
+
+lines = os.environ["LINEAGE_CAPTURE"].splitlines()
+positions = {}
+for name in ("idp-java", "fix-coverage", "fix-java"):
+    for index, line in enumerate(lines):
+        if name in line:
+            positions[name] = index
+            break
+    else:
+        raise AssertionError(f"Missing {name!r} in capture")
+assert positions["idp-java"] < positions["fix-coverage"] < positions["fix-java"], positions
+assert any(("├" in line or "└" in line) and "fix-coverage" in line for line in lines), lines
+assert any(("├" in line or "└" in line) and "fix-java" in line for line in lines), lines
+PY
+if [[ "${ALT_K_TUI_QA_VISUAL:-0}" == "1" ]]; then
+    printf 'Lineage fixture ready. Attach with: tmux -S %s attach -t harness\n' "$outer_socket"
+    printf 'Capture with: tmux -S %s capture-pane -p -J -t harness:client -S -200 > %s\n' "$outer_socket" "$lineage_capture_path"
+    exit 0
+fi
+tmux -S "$inner_socket" kill-pane -t "$lineage_picker_pane"
+sleep 0.2
+
 now=$(date +%s%3N)
 printf '{"agent":"pi","state":"done","pane":"%s","updatedAt":%s,"hookEvent":"agent_settled"}\n' "$pi_pane" "$now" > "$state_file"
 rm -f "$runtime/alt-k-tui-$uid/state.json"
@@ -221,4 +292,4 @@ if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -
     exit 1
 fi
 
-printf 'Alt-K tree QA passed: durable recovery ordering, status animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
+printf 'Alt-K tree QA passed: durable recovery ordering, recursive lineage rendering, status animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'

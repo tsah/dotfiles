@@ -29,7 +29,7 @@ const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
 const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
-const cacheVersion = 6
+const cacheVersion = 7
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -657,19 +657,37 @@ function HighlightText(props: { text: string; query: string; fg: string }) {
   return <>{Array.from(props.text).map((char, index) => positions().includes(index) ? <b>{char}</b> : char)}</>
 }
 
-function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; expanded: boolean; animationFrame: number }) {
+const isSessionRow = (row: TreeRow | undefined): row is TreeRow => Boolean(row && !row.detail)
+const treePrefix = (row: TreeRow) => {
+  const guides = row.guideColumns.map((guide) => guide ? "│ " : "  ").join("")
+  if (row.depth === 0) return `${guides}${row.expandable ? row.expanded ? "▾ " : "▸ " : "  "}`
+  const branch = row.isLastSibling ? "└" : "├"
+  if (isSessionRow(row) && row.expandable) return `${guides}${branch}${row.expanded ? "▾" : "▸"}`
+  return `${guides}${branch}─`
+}
+const jumpFooterAction = (row: TreeRow | undefined) => {
+  if (!row) return ""
+  if (!row.detail) {
+    if (row.expandable && row.expanded) return row.parentSessionKey ? "← collapse/parent  → expand  Enter open" : "← collapse  → expand  Enter open"
+    if (row.parentSessionKey) return row.expandable ? "← parent  → expand  Enter open" : "← parent  Enter open"
+    return row.expandable ? "→ expand  Enter open" : "Enter open"
+  }
+  return "← session  Enter focus"
+}
+
+function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; animationFrame: number }) {
   const rowFg = () => selectedColor(props.selected)
   const detail = () => props.row.detail
   const neutralWindow = () => detail()?.kind === "window"
   const rowStateGlyph = () => neutralWindow() ? "○" : stateGlyph(props.row.state, props.animationFrame)
   const rowStateColor = () => neutralWindow() ? theme.muted : stateColor(props.row.state)
-  const expandable = () => props.row.session.details.some((row) => !["directory", "repository", "session"].includes(row.kind))
   const childName = () => detail()?.kind === "window" ? detail()!.title : detail()?.kind ?? ""
   const childTitle = () => detail()?.kind === "window" ? "" : detail()?.title || detail()?.detail || ""
+  const metaColor = () => props.row.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted
   return (
     <box flexDirection="row" height={1} backgroundColor={props.selected ? theme.selectedBg : undefined}>
       <text width={2} fg={rowFg()}>{props.selected ? ">" : " "}</text>
-      <text width={props.row.depth === 0 ? 2 : 4} fg={theme.muted}>{props.row.depth === 0 ? expandable() ? props.expanded ? "▾" : "▸" : " " : " "}</text>
+      <text fg={theme.muted} flexShrink={0}>{treePrefix(props.row)}</text>
       <text width={2} fg={rowStateColor()}>{rowStateGlyph()}</text>
       {detail() ? (
         <>
@@ -682,14 +700,10 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; ex
         <>
           <text fg={rowFg()} flexShrink={1}><HighlightText text={props.row.session.name} query={props.query} fg={rowFg()} /></text>
           <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{props.row.session.lineageLabel ? ` ${props.row.session.lineageLabel}` : ""}</text>
+          <text flexGrow={1}> </text>
+          <text flexShrink={0} fg={metaColor()}>{sessionMeta(props.row.session) ? `[${sessionMeta(props.row.session)}]` : ""}</text>
         </>
       )}
-      {props.row.depth === 0 ? (
-        <>
-          <text flexGrow={1}> </text>
-          <text flexShrink={0} fg={props.row.session.flags === "dirty" ? theme.warning : props.selected ? theme.selectedFg : theme.muted}>{sessionMeta(props.row.session) ? `[${sessionMeta(props.row.session)}]` : ""}</text>
-        </>
-      ) : null}
     </box>
   )
 }
@@ -699,7 +713,7 @@ function JumpFooter(props: { row: TreeRow | undefined }) {
     <box height={1} flexDirection="row">
       <text fg={theme.muted} flexShrink={1}>{props.row?.session.path ?? "No matches"}</text>
       <text flexGrow={1}> </text>
-      <text fg={theme.muted} flexShrink={0}>{props.row?.depth === 0 ? "← collapse  → expand  Enter open" : "← parent  Enter focus"}</text>
+      <text fg={theme.muted} flexShrink={0}>{jumpFooterAction(props.row)}</text>
     </box>
   )
 }
@@ -725,7 +739,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [expandedSessions, setExpandedSessions] = createSignal<ReadonlySet<string>>(initialExpanded)
   const [mode, setMode] = createSignal<PickerMode>(spawnMode ? "repo" : "jump")
   const [query, setQuery] = createSignal("")
-  const initialIndex = initialRows.findIndex((row) => row.depth === 0 && row.target.type === "tmux_session" && row.target.session === props.currentSession)
+  const initialIndex = initialRows.findIndex((row) => !row.detail && row.target.type === "tmux_session" && row.target.session === props.currentSession)
   const [index, setIndex] = createSignal(Math.max(0, initialIndex))
   const [repository, setRepository] = createSignal<SessionRow>()
   const [branches, setBranches] = createSignal<BranchRow[]>([])
@@ -756,7 +770,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   })
   const activeLength = createMemo(() => mode() === "jump" ? filteredTreeRows().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : 0)
   const selectedTreeRow = createMemo(() => mode() === "jump" ? filteredTreeRows()[index()] : undefined)
-  const selectedParent = createMemo(() => selectedTreeRow()?.depth === 0 ? selectedTreeRow()!.session : undefined)
+  const selectedParent = createMemo(() => isSessionRow(selectedTreeRow()) ? selectedTreeRow()!.session : undefined)
   const selectedRepository = createMemo(() => mode() === "repo" ? filteredRepositories()[index()] : undefined)
   const selectedBranch = createMemo(() => mode() === "branch" ? filteredBranches()[index()] : undefined)
   const visibleCount = createMemo(() => Math.max(1, dimensions().height - (mode() === "jump" && !deleteAction() ? 5 : 11)))
@@ -764,10 +778,18 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const visibleRepositories = createMemo(() => visibleSlice(filteredRepositories(), index(), visibleCount()))
   const visibleBranches = createMemo(() => visibleSlice(filteredBranches(), index(), visibleCount()))
 
+  const firstSessionIndex = (rows: TreeRow[]) => rows.findIndex((row) => !row.detail)
+  const jumpToTreeRow = (rowKey: string | undefined, rows = filteredTreeRows()) => {
+    if (!rowKey) return false
+    const nextIndex = rows.findIndex((row) => row.key === rowKey)
+    if (nextIndex < 0) return false
+    setIndex(nextIndex)
+    return true
+  }
   const resetList = (nextMode: PickerMode) => {
     setMode(nextMode)
     setQuery("")
-    const parentIndex = nextMode === "jump" ? treeRows(sessions(), "").findIndex((row) => row.depth === 0) : 0
+    const parentIndex = nextMode === "jump" ? firstSessionIndex(treeRows(sessions(), "")) : 0
     setIndex(Math.max(0, parentIndex))
     setError("")
   }
@@ -778,7 +800,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     else next.delete(session)
     setExpandedSessions(next)
     const rows = treeRows(sessions(), query(), next)
-    const nextIndex = rows.findIndex((row) => row.depth === 0 && row.session.name === session)
+    const nextIndex = rows.findIndex((row) => !row.detail && row.session.name === session)
     setIndex(Math.max(0, nextIndex))
   }
   const closeWith = (target?: Target, completionKey?: string, activityPath?: string) => {
@@ -840,7 +862,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     })()
   }
   const deleteActionForRow = (row: TreeRow): DeleteAction | undefined => {
-    if (row.depth === 0) {
+    if (!row.detail) {
       if (row.target.type === "tmux_session") return { row, kind: "session" }
       if (row.session.branch && row.session.path) return { row, kind: "worktree" }
       return undefined
@@ -922,7 +944,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       if (mode() === "branch") return resetList("repo")
       if (query()) {
         setQuery("")
-        setIndex(Math.max(0, treeRows(sessions(), "").findIndex((row) => row.depth === 0)))
+        setIndex(Math.max(0, firstSessionIndex(treeRows(sessions(), ""))))
         return
       }
       if (mode() === "repo") return resetList("jump")
@@ -941,7 +963,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       } else {
         setQuery((value) => {
           const next = value.slice(0, -1)
-          if (!next) setIndex(Math.max(0, treeRows(sessions(), "").findIndex((row) => row.depth === 0)))
+          if (!next) setIndex(Math.max(0, firstSessionIndex(treeRows(sessions(), ""))))
           else setIndex(0)
           return next
         })
@@ -950,12 +972,21 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     }
     if (mode() === "jump" && key.name === "right") {
       const selected = selectedTreeRow()
-      if (selected?.depth === 0) setExpanded(selected.session.name, true)
+      if (isSessionRow(selected) && selected.expandable) setExpanded(selected.session.name, true)
       return
     }
     if (mode() === "jump" && key.name === "left") {
       const selected = selectedTreeRow()
-      if (selected) setExpanded(selected.session.name, false)
+      if (!selected) return
+      if (selected.detail) {
+        jumpToTreeRow(selected.ownerSessionKey)
+        return
+      }
+      if (selected.expandable && expandedSessions().has(selected.session.name)) {
+        setExpanded(selected.session.name, false)
+        return
+      }
+      jumpToTreeRow(selected.parentSessionKey)
       return
     }
     if (key.name === "up") return updateIndex(index() + 1)
@@ -987,7 +1018,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         setExpandedSessions(nextExpanded)
         setRenameSession(undefined)
         resetList("jump")
-        setIndex(Math.max(0, treeRows(sessions(), "", nextExpanded).findIndex((treeRow) => treeRow.depth === 0 && treeRow.session === row)))
+        setIndex(Math.max(0, treeRows(sessions(), "", nextExpanded).findIndex((treeRow) => !treeRow.detail && treeRow.session === row)))
         return
       }
       if (mode() === "jump") {
@@ -1043,7 +1074,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       if (mode() === "jump") {
         const nextRows = treeRows(nextSessions, query())
         let nextIndex = selectedKey ? nextRows.findIndex((row) => row.key === selectedKey) : -1
-        if (nextIndex < 0 && selectedSessionName) nextIndex = nextRows.findIndex((row) => row.depth === 0 && row.session.name === selectedSessionName)
+        if (nextIndex < 0 && selectedSessionName) nextIndex = nextRows.findIndex((row) => !row.detail && row.session.name === selectedSessionName)
         setIndex(nextIndex >= 0 ? nextIndex : clamp(index(), 0, Math.max(0, nextRows.length - 1)))
       }
     }, 500)
@@ -1063,7 +1094,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-k branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-r rename" : ""} · Esc close` : `Alt-k open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
       </box>
       <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
-        {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} expanded={expandedSessions().has(row.session.name)} animationFrame={animationFrame()} />}</For> : null}
+        {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} animationFrame={animationFrame()} />}</For> : null}
         {mode() === "repo" ? <For each={visibleRepositories()}>{(repo) => <PickerRowView name={repo.name} meta={repo.path} selected={repo === selectedRepository()} query={query()} />}</For> : null}
         {mode() === "branch" ? <For each={visibleBranches()}>{(branch) => <PickerRowView name={branch.name} meta={branch.kind === "worktree" ? `worktree · ${branch.path}` : branch.kind === "create" ? "create new branch" : branch.kind === "remote" ? `remote${branch.recency ? ` · ${ageFromUnixSeconds(branch.recency)}` : ""}` : branch.kind} selected={branch === selectedBranch()} query={query()} />}</For> : null}
         {mode() === "new" ? (

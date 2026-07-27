@@ -2,13 +2,13 @@
 
 Experimental tmux session and directory switcher built with Bun, TypeScript, Effect, and OpenTUI.
 
-The jump layout is a bottom-sorted selectable tree. Sessions with up to three concrete window/agent targets begin expanded; larger trees begin collapsed. The bottom prompt filters both levels while retaining the parent of every matching child.
+The jump layout is a bottom-sorted selectable tree. Every session row remains selectable, its own windows/agents stay nested immediately beneath it, and lineage children render as real recursive subtrees with tree connectors. Sessions whose direct expanded content totals one to three items (selectable details plus child sessions) begin expanded; larger trees begin collapsed. The bottom prompt filters the full hierarchy while retaining the complete ancestor context of every matching descendant.
 
 The launcher keeps a background cache server running. The server refreshes tmux, opencode, zoxide, process, and git state, then the TUI client reads the latest JSON cache on startup.
 
 Recovery activity is stored by canonical directory path under `$XDG_STATE_HOME/alt-k-tui/activity` (default `~/.local/state/alt-k-tui/activity`), so it survives cache, tmux-server, and machine restarts. Session creation, picker target opening, active tmux work, and agent lifecycle reports update that ledger. Sessionless directories are sorted by the newest durable event, modified/untracked file mtime, worktree HEAD reflog, or commit; zoxide frecency breaks otherwise equal ties. Directory rows show the winning source and age, such as `[edited 12m]` or `[agent 3h]`. Git fallback scans are cached for one minute.
 
-Workspace lineage is stored separately in `$XDG_STATE_HOME/alt-k-tui/workspaces.sqlite3` and projected into each worktree at `.alt-k/workspace.json`. Parent rows show subtle lineage markers: `↖` means the workspace is derived from another active workspace, and `⇣N` means it currently has `N` active child workspaces.
+Workspace lineage is stored separately in `$XDG_STATE_HOME/alt-k-tui/workspaces.sqlite3` and projected into each worktree at `.alt-k/workspace.json`. The picker renders that lineage as a real hierarchy, while subtle markers still help searching: `↖` means the workspace is derived from another active workspace, and `⇣N` means it currently has `N` active child workspaces.
 
 Claude Code state is reported through hooks installed by:
 
@@ -40,8 +40,9 @@ Useful CLI inspection/repair commands:
 - `dotfiles-workflow workspace bootstrap --cwd PATH`
 
 Controls:
-- `Up/Down`: move between session parents and window/agent children
-- `Right/Left`: expand a session or collapse back to its parent
+- `Up/Down`: move between session rows and nested window/agent children
+- `Right`: expand the selected session
+- `Left`: jump from a detail to its session, collapse an expanded session, or jump from a collapsed nested session to its lineage parent
 - `Enter`: switch to the exact selected session/window/agent target or advance the current flow
 - `Alt-R`: rename the selected tmux session without changing its worktree identity
 - Type or paste: fuzzy filter rows and fill the branch/base form
@@ -59,6 +60,14 @@ Run the model tests and isolated real-terminal smoke test with:
 bun test
 scripts/qa
 ```
+
+Capture a deterministic lineage render from a disposable real OpenTUI fixture with:
+
+```bash
+ALT_K_TUI_QA_ROOT=/tmp/qa-alt-k-lineage ALT_K_TUI_QA_KEEP=1 ALT_K_TUI_QA_VISUAL=1 scripts/qa
+```
+
+Then either inspect `/tmp/qa-alt-k-lineage/lineage-render.txt` or attach live with `tmux -S /tmp/qa-alt-k-lineage/outer.sock attach -t harness`.
 
 The branch flow always begins with the repository picker; it never infers a repository from the current pane or selected jump target. Selecting a repository immediately shows cached refs and starts `git fetch --all --prune` in the background; remote rows are ordered by most recent commit and refresh when the fetch settles. In the branch picker, a query without an exact branch match adds a `create new branch` row. Selecting it asks for the base before creating the worktree and session. Alt-B opens the same TUI directly at the repository picker.
 
