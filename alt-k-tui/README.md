@@ -8,6 +8,8 @@ The launcher keeps a background cache server running. The server refreshes tmux,
 
 Recovery activity is stored by canonical directory path under `$XDG_STATE_HOME/alt-k-tui/activity` (default `~/.local/state/alt-k-tui/activity`), so it survives cache, tmux-server, and machine restarts. Session creation, picker target opening, active tmux work, and agent lifecycle reports update that ledger. Sessionless directories are sorted by the newest durable event, modified/untracked file mtime, worktree HEAD reflog, or commit; zoxide frecency breaks otherwise equal ties. Directory rows show the winning source and age, such as `[edited 12m]` or `[agent 3h]`. Git fallback scans are cached for one minute.
 
+Workspace lineage is stored separately in `$XDG_STATE_HOME/alt-k-tui/workspaces.sqlite3` and projected into each worktree at `.alt-k/workspace.json`. Parent rows show subtle lineage markers: `↖` means the workspace is derived from another active workspace, and `⇣N` means it currently has `N` active child workspaces.
+
 Claude Code state is reported through hooks installed by:
 
 ```bash
@@ -29,6 +31,13 @@ bun run ~/dotfiles/alt-k-tui/src/main.tsx --server
 ```
 
 The `alt+k` tmux binding launches this TUI. The previous live fzf switcher is kept on `alt+u` as a fallback.
+
+Useful CLI inspection/repair commands:
+- `dotfiles-workflow workspace show --cwd PATH`
+- `dotfiles-workflow workspace tree --cwd PATH`
+- `dotfiles-workflow workspace project --cwd PATH`
+- `dotfiles-workflow workspace reconcile --cwd PATH`
+- `dotfiles-workflow workspace bootstrap --cwd PATH`
 
 Controls:
 - `Up/Down`: move between session parents and window/agent children

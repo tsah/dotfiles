@@ -5,10 +5,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import { dirname, resolve } from "node:path"
 import { canonicalActivityPath, gitStatusPaths, markDirectoryActivity, newestActivity, readDirectoryActivities } from "./activity"
 import type { ActivityRecord, ActivitySource } from "./activity"
+import { readLineageSnapshot } from "./lineage"
 import { buildTreeRows, defaultExpandedSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen } from "./model"
 import type { AgentState, DetailRow, FuzzyResult, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 
-interface TmuxSession { name: string; recency: number; path: string; attached: boolean }
+interface TmuxSession { name: string; recency: number; path: string; attached: boolean; worktreePath: string; directoryPath: string; workspaceId?: string; parentWorkspaceId?: string | null }
 interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string; updatedAt: number; stablePane: string }
 interface DirectoryRow { path: string; source: "worktree" | "zoxide" | "activity"; branch: string; activityAt?: number; activitySource?: ActivitySource; frecency?: number }
@@ -28,7 +29,7 @@ const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
 const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
-const cacheVersion = 5
+const cacheVersion = 6
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -74,13 +75,24 @@ const ageFromUnixSeconds = (seconds: number) => {
   return `${Math.floor(diff / 86400)}d`
 }
 
-const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_path}\t#{session_attached}"]).pipe(
-  Effect.map((output) => parseTsv(output).map((parts): TmuxSession => ({
-    name: parts[0] ?? "",
-    recency: Math.max(Number(parts[1] ?? 0) || 0, Number(parts[2] ?? 0) || 0, Number(parts[3] ?? 0) || 0),
-    path: parts[4] ?? "",
-    attached: Number(parts[5] ?? 0) > 0,
-  })).filter((session) => session.name.length > 0)),
+const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{@dotfiles_worktree_path}\t#{@dotfiles_directory_path}\t#{session_path}\t#{session_attached}\t#{@dotfiles_workspace_id}\t#{@dotfiles_workspace_parent_id}"]).pipe(
+  Effect.map((output) => parseTsv(output).map((parts): TmuxSession => {
+    const worktreePath = parts[4] ?? ""
+    const directoryPath = parts[5] ?? ""
+    const sessionPath = parts[6] ?? ""
+    const rawPath = worktreePath || directoryPath || sessionPath
+    const path = rawPath ? canonicalActivityPath(rawPath) : ""
+    return {
+      name: parts[0] ?? "",
+      recency: Math.max(Number(parts[1] ?? 0) || 0, Number(parts[2] ?? 0) || 0, Number(parts[3] ?? 0) || 0),
+      path,
+      attached: Number(parts[7] ?? 0) > 0,
+      worktreePath,
+      directoryPath,
+      workspaceId: parts[8] || undefined,
+      parentWorkspaceId: parts[9] || undefined,
+    }
+  }).filter((session) => session.name.length > 0)),
 )
 
 const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{window_activity}\t#{window_active}"]).pipe(
@@ -283,7 +295,13 @@ const claudeStateFromTitle = (title: string): AgentState => {
   return "unknown"
 }
 
-const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], directoryRows: DirectoryRow[], agentReports: AgentReport[], seen: Map<string, number>) => Effect.gen(function* () {
+const buildLineageFields = (workspaceId?: string, parentWorkspaceId?: string | null, childWorkspaceCount = 0) => {
+  const label = [parentWorkspaceId ? "↖" : "", childWorkspaceCount > 0 ? `⇣${childWorkspaceCount}` : ""].filter(Boolean).join(" ")
+  const searchText = [workspaceId, parentWorkspaceId || "", childWorkspaceCount > 0 ? `child-count-${childWorkspaceCount}` : "root"].filter(Boolean).join(" ")
+  return { lineageLabel: label, lineageSearchText: searchText }
+}
+
+const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], opencodes: OpencodeStatus[], directoryRows: DirectoryRow[], agentReports: AgentReport[], seen: Map<string, number>, lineage = readLineageSnapshot()) => Effect.gen(function* () {
   const windowsBySession = Map.groupBy(windows, (window) => window.session)
   const opencodesBySession = Map.groupBy(opencodes, (row) => row.session)
   const reportsByPane = new Map(agentReports.map((report) => [report.pane, report]))
@@ -354,8 +372,10 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     }
 
     const markers = [sessionOpencodes.length > 0 ? "oc" : "", sessionWindows.some(isPiWindow) ? "pi" : "", sessionWindows.some(isClaudeWindow) ? "C" : "", sessionWindows.some((window) => codexPanes.has(window.pane)) ? "codex" : ""].filter(Boolean)
-    const row: SessionRow = { name: session.name, path: session.path, branch: meta.branch, flags: meta.flags, markers, age: ageFromUnixSeconds(session.recency), recency: session.recency, target: { type: "tmux_session", session: session.name }, details, searchText: "" }
-    row.searchText = [row.name, row.path, row.branch, row.flags, row.markers.join(" "), ...row.details.flatMap((detail) => [detail.kind, detail.status, detail.detail, detail.title, detail.age])].join(" ").toLowerCase()
+    const workspace = session.workspaceId ? lineage.byId.get(session.workspaceId) : lineage.byPath.get(session.path)
+    const lineageFields = buildLineageFields(workspace?.workspaceId || session.workspaceId, workspace?.parentWorkspaceId ?? session.parentWorkspaceId, workspace?.childWorkspaceCount ?? 0)
+    const row: SessionRow = { name: session.name, path: session.path, branch: meta.branch, flags: meta.flags, markers, age: ageFromUnixSeconds(session.recency), recency: session.recency, target: { type: "tmux_session", session: session.name }, details, searchText: "", workspaceId: workspace?.workspaceId || session.workspaceId, parentWorkspaceId: workspace?.parentWorkspaceId ?? session.parentWorkspaceId, childWorkspaceCount: workspace?.childWorkspaceCount ?? 0, lineageLabel: lineageFields.lineageLabel, lineageSearchText: lineageFields.lineageSearchText }
+    row.searchText = [row.name, row.path, row.branch, row.flags, row.markers.join(" "), row.lineageLabel, row.lineageSearchText, ...row.details.flatMap((detail) => [detail.kind, detail.status, detail.detail, detail.title, detail.age])].join(" ").toLowerCase()
     rows.push(row)
   }
 
@@ -369,16 +389,18 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     occupiedDirs.add(path)
     const details: DetailRow[] = [{ kind: "directory", status: "", detail: directory.source, title: path, age: "", state: "unknown", target: { type: "directory", path }, updatedAt: 0 }]
     const age = directory.activityAt ? ageFromUnixSeconds(directory.activityAt / 1000) : ""
-    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age, recency: Math.floor((directory.activityAt ?? 0) / 1000), target: { type: "directory", path }, details, searchText: "", activitySource: directory.activitySource, frecency: directory.frecency }
-    row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`, row.activitySource, row.age].join(" ").toLowerCase()
+    const workspace = lineage.byPath.get(path)
+    const lineageFields = buildLineageFields(workspace?.workspaceId, workspace?.parentWorkspaceId, workspace?.childWorkspaceCount ?? 0)
+    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age, recency: Math.floor((directory.activityAt ?? 0) / 1000), target: { type: "directory", path }, details, searchText: "", activitySource: directory.activitySource, frecency: directory.frecency, workspaceId: workspace?.workspaceId, parentWorkspaceId: workspace?.parentWorkspaceId, childWorkspaceCount: workspace?.childWorkspaceCount ?? 0, lineageLabel: lineageFields.lineageLabel, lineageSearchText: lineageFields.lineageSearchText }
+    row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`, row.activitySource, row.age, row.lineageLabel, row.lineageSearchText].join(" ").toLowerCase()
     rows.push(row)
   }
 
   return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name))
 })
 
-const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports, Effect.sync(readSeenState)], { concurrency: "unbounded" }).pipe(
-  Effect.flatMap(([sessions, windows, opencodes, directoryRows, agentReports, seen]) => buildSessionRows(sessions, windows, opencodes, directoryRows, agentReports, seen)),
+const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports, Effect.sync(readSeenState), Effect.sync(readLineageSnapshot)], { concurrency: "unbounded" }).pipe(
+  Effect.flatMap(([sessions, windows, opencodes, directoryRows, agentReports, seen, lineage]) => buildSessionRows(sessions, windows, opencodes, directoryRows, agentReports, seen, lineage)),
 )
 
 const writeCache = (sessions: SessionRow[]) => Effect.sync(() => {
@@ -513,6 +535,10 @@ const dumpState = collectSessions.pipe(
       branch: session.branch,
       flags: session.flags,
       markers: session.markers,
+      workspaceId: session.workspaceId,
+      parentWorkspaceId: session.parentWorkspaceId,
+      childWorkspaceCount: session.childWorkspaceCount,
+      lineageLabel: session.lineageLabel,
       agents: session.details
         .filter((detail) => ["opencode", "pi", "claude", "codex"].includes(detail.kind))
         .map((detail) => ({ kind: detail.kind, state: detail.state, status: detail.status, detail: detail.detail, title: detail.title })),
@@ -653,7 +679,10 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; ex
           <text width={9} flexShrink={0} fg={neutralWindow() ? theme.muted : stateColor(detail()!.state)}>{detailStatusLabel(detail()!)}</text>
         </>
       ) : (
-        <text fg={rowFg()} flexShrink={1}><HighlightText text={props.row.session.name} query={props.query} fg={rowFg()} /></text>
+        <>
+          <text fg={rowFg()} flexShrink={1}><HighlightText text={props.row.session.name} query={props.query} fg={rowFg()} /></text>
+          <text fg={props.selected ? theme.selectedFg : theme.muted} flexShrink={0}>{props.row.session.lineageLabel ? ` ${props.row.session.lineageLabel}` : ""}</text>
+        </>
       )}
       {props.row.depth === 0 ? (
         <>

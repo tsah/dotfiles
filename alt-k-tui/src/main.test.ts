@@ -13,6 +13,11 @@ const sessions = [
     recency: 20,
     target,
     searchText: "",
+    workspaceId: "ws-root",
+    parentWorkspaceId: null,
+    childWorkspaceCount: 2,
+    lineageLabel: "⇣2",
+    lineageSearchText: "ws-root child-count-2",
     details: [
       { kind: "pi", status: "", detail: "", title: "implement parser", age: "2s", state: "done", target: { type: "tmux_window" as const, session: "qa-tree", windowId: "@2", pane: "%2" }, completionKey: "pane:%2", updatedAt: 200 },
       { kind: "window", status: "zsh", detail: "", title: "shell", age: "3s", state: "unknown", target: { type: "tmux_window" as const, session: "qa-tree", windowId: "@1", pane: "%1" }, completionKey: "window:@1", updatedAt: 100 },
@@ -60,6 +65,12 @@ describe("session tree", () => {
   test("retains all children when the parent matches", () => {
     const rows = buildTreeRows(sessions, "qa-tree")
     expect(rows.map((row) => row.detail?.kind ?? "session")).toEqual(["session", "pi", "window"])
+  })
+
+  test("searches lineage annotations without changing ordering", () => {
+    const rows = buildTreeRows(sessions, "child-count-2")
+    expect(rows.map((row) => row.detail?.kind ?? "session")).toEqual(["session", "pi", "window"])
+    expect(rows[0]?.session.lineageLabel).toBe("⇣2")
   })
 
   test("collapses inactive sessions and preserves bottom-up grouping", () => {

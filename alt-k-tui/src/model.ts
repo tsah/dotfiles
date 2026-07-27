@@ -8,7 +8,7 @@ export type AgentState = "blocked" | "working" | "done" | "idle" | "unknown"
 export type ReportedAgentState = AgentState | "running" | "attention"
 
 export interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target; completionKey?: string; updatedAt: number }
-export interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string; activitySource?: string; frecency?: number }
+export interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string; activitySource?: string; frecency?: number; workspaceId?: string; parentWorkspaceId?: string | null; childWorkspaceCount?: number; lineageLabel?: string; lineageSearchText?: string }
 export interface TreeRow { key: string; depth: 0 | 1; session: SessionRow; detail?: DetailRow; target: Target; state: AgentState; searchText: string }
 export interface FuzzyResult { score: number; positions: number[] }
 
@@ -70,7 +70,7 @@ const targetKey = (target: Target) => {
   }
 }
 
-const sessionSearchText = (session: SessionRow) => [session.name, session.path, session.branch, session.flags, session.markers.join(" ")].join(" ").toLowerCase()
+const sessionSearchText = (session: SessionRow) => [session.name, session.path, session.branch, session.flags, session.markers.join(" "), session.lineageLabel, session.lineageSearchText].join(" ").toLowerCase()
 const detailSearchText = (session: SessionRow, detail: DetailRow) => [session.name, session.path, detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state].join(" ").toLowerCase()
 const selectableDetails = (session: SessionRow) => session.details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
 

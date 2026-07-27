@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { realpathSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 import { markDirectoryActivity } from "./activity"
+import { lineageMode, persistWorkspaceLineage, type LineageMode, type WorkspaceRecord, workspaceForId } from "./lineage"
 
 export type Harness = "pi" | "claude" | "opencode"
 export interface WorktreeIdentity { path: string; commonDir: string; repo: string; branch: string }
@@ -49,17 +50,24 @@ export async function sessionName(id: WorktreeIdentity) {
   return `${human}-${createHash("sha256").update(id.path).digest("hex").slice(0, 8)}`
 }
 
-export async function ensureSession(id: WorktreeIdentity) {
+const applyWorkspaceOptions = async (target: string, id: WorktreeIdentity, record?: WorkspaceRecord) => {
+  await command(["tmux", "set-option", "-t", target, "@dotfiles_worktree_path", id.path])
+  await command(["tmux", "set-option", "-t", target, "@dotfiles_git_common_dir", id.commonDir])
+  if (!record) return
+  await command(["tmux", "set-option", "-t", target, "@dotfiles_workspace_id", record.workspaceId])
+  await command(["tmux", "set-option", "-t", target, "@dotfiles_workspace_parent_id", record.parentWorkspaceId ?? ""])
+}
+
+export async function ensureSession(id: WorktreeIdentity, options: { parentWorkspaceId?: string | null; preserveParent?: boolean; mode?: LineageMode } = {}) {
   markDirectoryActivity(id.path, "opened")
+  const record = persistWorkspaceLineage(id, { parentWorkspaceId: options.parentWorkspaceId, preserveParent: options.preserveParent, mode: options.mode })
   const existing = await sessionForPath(id.path)
   const name = existing?.name ?? await sessionName(id)
   if (!existing && (await command(["tmux", "has-session", "-t", `=${name}`], undefined, true)).code !== 0) {
     await command(["tmux", "new-session", "-d", "-s", name, "-n", "main", "-c", id.path])
   }
-  // Session IDs remain unambiguous even when a user-chosen name contains tmux target punctuation.
   const target = existing?.id || name
-  await command(["tmux", "set-option", "-t", target, "@dotfiles_worktree_path", id.path])
-  await command(["tmux", "set-option", "-t", target, "@dotfiles_git_common_dir", id.commonDir])
+  await applyWorkspaceOptions(target, id, record)
   return name
 }
 
@@ -111,19 +119,57 @@ export async function spawnAgent(harness: Harness, cwd: string, prompt: string, 
   return spawned
 }
 
-export async function spawnWorktreeSession(branch: string, base?: string) {
-  // Worktrunk remains authoritative for creation and project setup.
+export async function spawnWorktreeSession(branch: string, base?: string, options: { parentWorkspaceId?: string | null; preserveParent?: boolean; mode?: LineageMode } = {}) {
   const result = await command(["wt", "switch", "--create", branch, "--no-cd", "--format", "json", ...(base ? ["--base", base] : [])])
   let worktree: { path?: string }
   try { worktree = JSON.parse(result.stdout) }
   catch { throw new Error(`Worktrunk returned invalid JSON while creating '${branch}'`) }
   if (!worktree.path) throw new Error(`Worktrunk created '${branch}', but did not return its path`)
   const id = await identity(worktree.path)
-  return { identity: id, session: await ensureSession(id) }
+  return { identity: id, session: await ensureSession(id, options) }
 }
 
-export async function spawnWorktree(harness: Harness, branch: string, prompt: string, options: { agent?: string; base?: string; window?: string; wait?: boolean } = {}) {
-  const created = await spawnWorktreeSession(branch, options.base)
+const currentSessionTarget = async () => {
+  if (!Bun.env.TMUX) return undefined
+  const result = await command(["tmux", "display-message", "-p", "#{session_id}"], undefined, true)
+  return result.code === 0 && result.stdout ? result.stdout : undefined
+}
+
+const explicitParentRecord = (parentWorkspaceId: string, mode: LineageMode) => {
+  const record = workspaceForId(parentWorkspaceId)
+  if (record) return record
+  if (mode === "strict") throw new Error(`Unknown workspace parent id: ${parentWorkspaceId}`)
+  return undefined
+}
+
+const captureAutomaticParent = async (mode: LineageMode) => {
+  try {
+    const parentIdentity = await identity(process.cwd())
+    const record = persistWorkspaceLineage(parentIdentity, { mode })
+    const target = await currentSessionTarget()
+    if (target && record) await applyWorkspaceOptions(target, parentIdentity, record)
+    return record
+  } catch (error) {
+    if (mode === "strict") throw error
+    return undefined
+  }
+}
+
+async function resolveWorkerParent(options: { parentWorkspaceId?: string; noParent?: boolean }) {
+  const mode = lineageMode()
+  if (mode === "off") return { mode, preserveParent: true } as const
+  if (options.noParent) return { mode, parentWorkspaceId: null, preserveParent: false } as const
+  if (options.parentWorkspaceId) {
+    const parent = explicitParentRecord(options.parentWorkspaceId, mode)
+    return parent ? { mode, parentWorkspaceId: parent.workspaceId, preserveParent: false } as const : { mode, preserveParent: true } as const
+  }
+  const parent = await captureAutomaticParent(mode)
+  return parent ? { mode, parentWorkspaceId: parent.workspaceId, preserveParent: false } as const : { mode, preserveParent: true } as const
+}
+
+export async function spawnWorktree(harness: Harness, branch: string, prompt: string, options: { agent?: string; base?: string; window?: string; wait?: boolean; parentWorkspaceId?: string; noParent?: boolean } = {}) {
+  const parent = await resolveWorkerParent(options)
+  const created = await spawnWorktreeSession(branch, options.base, parent)
   return spawnAgent(harness, created.identity.path, prompt, options.agent, options.window, options.wait)
 }
 

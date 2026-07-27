@@ -6,7 +6,7 @@
 
 1. Run `bash -n` on every changed shell script and `zsh -n zshrc`.
 2. Run `bun run check` in `alt-k-tui/`.
-3. Run `bun test` and `scripts/qa` in `alt-k-tui/`. The latter must use only its private nested tmux sockets and `/tmp/qa-alt-k-tree-$UID-$PID` runtime directory.
+3. Run `bun test` and `scripts/qa` in `alt-k-tui/`. The latter must use only its private nested tmux sockets and `/tmp/qa-alt-k-tree-$UID-$PID` runtime directory, and any lineage checks must keep their SQLite store under that same disposable root.
 4. Run `nvim --headless '+lua require("pi_tmux").setup()' +qa`.
 5. Run `git grep` for removed entrypoints and tools (`spawn-pi-tworker`, `remote-tworker`, `tmux-session-switcher-live`, `tmux_subagent`, `tmux_tworker`, `tworker`) and classify any documentation-only matches.
 6. With a temporary `HOME`, run `bin/install-pi-packages`; verify `pi list` contains pinned `npm:@tintinweb/pi-subagents@0.14.0`.
@@ -17,6 +17,7 @@
 1. Create `/tmp/qa-workflow-origin`, initialize git, commit one file, and configure Worktrunk as normally documented by `wt`.
 2. Record `tmux list-sessions` and `git worktree list` before each scenario; use a dedicated tmux socket (`tmux -L qa-workflow`) where command injection permits it.
 3. Run `dotfiles-workflow identity` from the main checkout and a linked checkout. Verify canonical paths differ and `commonDir` is identical.
+4. Set disposable `XDG_STATE_HOME` and `XDG_RUNTIME_DIR`, run `dotfiles-workflow workspace project`, and verify the SQLite file is created only under the disposable state directory while runtime files stay under the disposable runtime directory.
 
 ## In-process Pi subagents
 
@@ -25,20 +26,31 @@
 3. Verify only the package's built-in `general-purpose`, `Explore`, and `Plan` types are present unless a project defines additional agents.
 4. Confirm package worktree isolation is not used by the documented handoff path.
 
+## Lineage store and manifests
+
+1. In the disposable fixture, run `dotfiles-workflow workspace reconcile` from the main worktree. Verify `.alt-k/workspace.json` exists in each active worktree, `git status --porcelain` stays clean, `.git/info/exclude` contains exactly `/.alt-k/workspace.json`, and the manifest carries durable workspace/repository IDs, canonical path/common dir, branch, parent ID or null, revision, and timestamps.
+2. Remove one manifest, rerun `dotfiles-workflow workspace reconcile`, and verify the database rewrites it without changing durable IDs.
+3. Delete the disposable SQLite file, run `dotfiles-workflow workspace bootstrap`, and verify `dotfiles-workflow workspace tree` reconstructs the same active graph from manifests alone.
+4. Create conflicting manifest cases in a disposable worktree only: tracked file, symlink, malformed JSON, and valid JSON whose canonical path points elsewhere. Verify `best-effort` worker/session flows keep working, `strict` fails loudly, and none of those files are overwritten.
+5. Verify store invariants with explicit commands or tests: self-parenting, A→B→A cycles, cross-repo parenting, and one-active-parent reparenting all behave as documented.
+
 ## Session and worker behavior
 
 1. Run `worker-pi qa-workflow-one 'Reply with done only'`. Verify Worktrunk performs its native setup, a lazy `repo@qa-workflow-one` session appears, and both the stable `main` window and tagged `pi` window remain after successful settlement.
-2. Launch `agent-pi` twice in that worktree. Verify `pi-2` and `pi-3` appear and no agent replaces `main` or an existing agent window.
-3. Create a synthetic tmux session with the expected human name but another path, then spawn. Verify the new display name gains a stable eight-character suffix. Repeat and verify no duplicate session.
-4. Rename a tagged worktree session with native tmux, then run session ensure and agent discovery for that worktree. Verify the renamed session is returned, its existing agents remain visible, its path/common-dir tags remain intact, and no canonical-name duplicate is created. Repeat with a legacy untagged session whose `session_path` is the worktree and verify first use adopts and tags it.
-5. Run Pi with `--wait`; verify output arrives only after `agent_settled` and the successful window remains available after signaling. Set `DOTFILES_WORKER_WAIT_TIMEOUT=1` for a long prompt; verify timeout is nonzero and the worker remains attachable.
-6. Launch Claude and verify `ANTHROPIC_API_KEY` is absent in its process environment. Launch OpenCode and verify it retains normal unrestricted filesystem access.
+2. Inspect the caller and child tmux sessions with `tmux show-option -qv`. Verify `@dotfiles_workspace_id` is set on both, the child carries the caller's ID in `@dotfiles_workspace_parent_id`, and `dotfiles-workflow workspace show --cwd <child>` reports the same relationship.
+3. From `qa-workflow-one`, run `worker-pi qa-workflow-two 'Reply with done only'`. Verify the nested child links to `qa-workflow-one`, producing `main → qa-workflow-one → qa-workflow-two` in `dotfiles-workflow workspace tree`.
+4. Repeat with `worker-pi --no-parent qa-workflow-root 'Reply with done only'` and `worker-pi --parent <workspace-id> qa-workflow-explicit 'Reply with done only'`. Verify `--no-parent` stores `null` and `--parent` reuses the requested parent.
+5. Launch `agent-pi` twice in that worktree. Verify `pi-2` and `pi-3` appear and no agent replaces `main` or an existing agent window.
+6. Create a synthetic tmux session with the expected human name but another path, then spawn. Verify the new display name gains a stable eight-character suffix. Repeat and verify no duplicate session.
+7. Rename a tagged worktree session with native tmux, then run session ensure and agent discovery for that worktree. Verify the renamed session is returned, its existing agents remain visible, its path/common-dir tags, workspace ID, and parent ID remain intact, and no canonical-name duplicate is created. Repeat with a legacy untagged session whose `session_path` is the worktree and verify first use adopts and tags it.
+8. Run Pi with `--wait`; verify output arrives only after `agent_settled` and the successful window remains available after signaling. Set `DOTFILES_WORKER_WAIT_TIMEOUT=1` for a long prompt; verify timeout is nonzero and the worker remains attachable.
+9. Launch Claude and verify `ANTHROPIC_API_KEY` is absent in its process environment. Launch OpenCode and verify it retains normal unrestricted filesystem access.
 
 ## Picker
 
 1. From tmux, press Alt-K; from bash/zsh run `s`. Verify all open the same UI.
-2. Verify sessions, Worktrunk/zoxide configured directories, branch, dirty marker, and every agent window are visible. Verify the session containing the Alt-K popup is initially selected and Enter attaches/switches to the selected target.
-3. Verify sessions are sorted upward from the bottom prompt, trees with one to three children begin expanded, trees with four or more children begin collapsed, and Left/Right override the default without changing the selected parent. Select a plain window, Pi, Claude, Codex, and OpenCode child independently and verify Enter focuses the exact target. Search for text present only in a collapsed child and verify its parent and matching child remain visible. In the disposable fixture, record durable activity for one worktree and modify a file in another, restart without their tmux sessions, and verify both sort ahead of an old clean worktree with `[source age]` recovery labels.
+2. Verify sessions, Worktrunk/zoxide configured directories, branch, dirty marker, lineage marker, and every agent window are visible. Verify the session containing the Alt-K popup is initially selected and Enter attaches/switches to the selected target.
+3. Verify sessions are sorted upward from the bottom prompt, trees with one to three children begin expanded, trees with four or more children begin collapsed, and Left/Right override the default without changing the selected parent. Select a plain window, Pi, Claude, Codex, and OpenCode child independently and verify Enter focuses the exact target. Search for text present only in a collapsed child and verify its parent and matching child remain visible. Search by workspace ID, parent workspace ID, or child-count lineage text and verify the same parent rows remain discoverable without ordering regressions. In the disposable fixture, record durable activity for one worktree and modify a file in another, restart without their tmux sessions, and verify both sort ahead of an old clean worktree with `[source age]` recovery labels.
 4. Seed a completion report and verify it renders green `✓ ready`. Focus that exact child, reopen Alt-K, and verify it renders blue `○ idle`; emit a report with a newer `updatedAt` and verify it returns to `ready`. Verify the red waiting `!` blinks, the orange working spinner animates continuously, green `✓ ready`, blue `○ idle`, purple `? unknown`, a neutral gray `○` for plain non-agent windows, aggregate precedence, and legacy `running`/`attention` report compatibility.
 5. With Alt-K already open, press Alt-K again and verify the repository picker is always shown, regardless of the highlighted jump row or current pane. Confirm the existing global Alt-N session-cycling binding is unchanged. In the branch screen, verify existing worktrees, local branches without worktrees, and remote-only branches have distinct labels. Select one of each and verify Worktrunk switches or creates the worktree as appropriate before entering its session.
 6. In the same branch screen, verify cached refs appear immediately, a background remote fetch is reported, and newly fetched remote branches appear in newest-commit-first order without reopening the picker. Exercise Ctrl-R and a failed non-interactive fetch. Verify the picker remains usable and reports failure without discarding cached refs.

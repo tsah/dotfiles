@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { bootstrapRepositoryFromManifests, projectSnapshot, reconcileRepositoryWorkspaces, workspaceDetails, workspaceTree } from "./lineage"
 import { currentWorktreeAgents, ensureDirectorySession, ensureSession, identity, sendToPane, spawnAgent, spawnWorktree, spawnWorktreeSession, type Harness } from "./workflow"
 
 const args = process.argv.slice(2)
@@ -28,10 +29,27 @@ async function main() {
     return console.log(JSON.stringify(await spawnAgent(harness, cwd, prompt, agent, window, wait)))
   }
   if (cmd === "worker") {
-    const harness = (take("--harness") || "pi") as Harness; const agent = take("--agent"); const base = take("--base"); const window = take("--window"); const wait = has("--wait")
+    const harness = (take("--harness") || "pi") as Harness
+    const agent = take("--agent")
+    const base = take("--base")
+    const window = take("--window")
+    const explicitParent = take("--parent")
+    const noParent = has("--no-parent")
+    if (explicitParent && noParent) throw new Error("--parent and --no-parent are mutually exclusive")
+    const wait = has("--wait")
     const branch = args.shift(); const prompt = args.join(" "); if (!branch || !prompt) throw new Error("branch and prompt are required")
-    return console.log(JSON.stringify(await spawnWorktree(harness, branch, prompt, { agent, base, window, wait })))
+    return console.log(JSON.stringify(await spawnWorktree(harness, branch, prompt, { agent, base, window, wait, parentWorkspaceId: explicitParent, noParent })))
   }
-  throw new Error("Usage: dotfiles-workflow identity|agents|send|agent|worker ...")
+  if (cmd === "workspace") {
+    const subcommand = args.shift()
+    const cwd = take("--cwd") || process.cwd()
+    if (subcommand === "show") return console.log(JSON.stringify(workspaceDetails(cwd, { id: take("--id"), path: take("--path") }) ?? null, null, 2))
+    if (subcommand === "tree") return console.log(JSON.stringify(workspaceTree(cwd), null, 2))
+    if (subcommand === "project") return console.log(JSON.stringify(projectSnapshot(cwd), null, 2))
+    if (subcommand === "reconcile") return console.log(JSON.stringify(reconcileRepositoryWorkspaces(cwd), null, 2))
+    if (subcommand === "bootstrap") return console.log(JSON.stringify(bootstrapRepositoryFromManifests(cwd), null, 2))
+    throw new Error("Usage: dotfiles-workflow workspace show|tree|project|reconcile|bootstrap")
+  }
+  throw new Error("Usage: dotfiles-workflow identity|agents|session|spawn-session|send|agent|worker|workspace ...")
 }
 main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exit(1) })
