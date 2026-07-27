@@ -19,6 +19,12 @@ export interface TreeRow {
   searchText: string
   expanded: boolean
   expandable: boolean
+  detailsExpanded: boolean
+  detailsExpandable: boolean
+  visibleDetailCount: number
+  visibleChildCount: number
+  hiddenDetailCount: number
+  hiddenChildCount: number
   ownerSessionKey: string
   parentSessionKey?: string
   guideColumns: boolean[]
@@ -42,6 +48,10 @@ interface VisibleTreeNode {
   children: VisibleTreeNode[]
   expanded: boolean
   expandable: boolean
+  detailsExpanded: boolean
+  detailsExpandable: boolean
+  hiddenDetailCount: number
+  hiddenChildCount: number
   state: AgentState
   score: number
 }
@@ -106,7 +116,7 @@ const targetKey = (target: Target) => {
 }
 
 const sessionSearchText = (session: SessionRow, context = "") => [session.name, session.path, session.branch, session.flags, session.markers.join(" "), session.lineageLabel, session.lineageSearchText, context].join(" ").toLowerCase()
-const detailSearchText = (session: SessionRow, detail: DetailRow, context = "") => [session.name, session.path, session.branch, detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state, context].join(" ").toLowerCase()
+const detailSearchText = (_session: SessionRow, detail: DetailRow) => [detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state].join(" ").toLowerCase()
 const selectableDetails = (session: SessionRow) => session.details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
 const sessionTieBreak = (a: SessionRow, b: SessionRow) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name)
 const maxScore = (...scores: number[]) => {
@@ -158,51 +168,74 @@ const sessionForest = (sessions: SessionRow[]) => {
 const subtreeState = (node: SessionNode): AgentState => aggregateStates([sessionState(node.session), ...node.children.map(subtreeState)])
 const lineageContextText = (ancestors: SessionNode[]) => ancestors.flatMap((ancestor) => [ancestor.session.name, ancestor.session.branch, ancestor.session.path]).join(" ").toLowerCase()
 
-const visibleNode = (node: SessionNode, normalizedQuery: string, expandedSessions: ReadonlySet<string> | undefined, ancestors: SessionNode[] = [], includeAll = false): VisibleTreeNode | undefined => {
+const visibleNode = (
+  node: SessionNode,
+  normalizedQuery: string,
+  expandedDetailSessions: ReadonlySet<string> | undefined,
+  ancestors: SessionNode[] = [],
+  includeLineage = false,
+): VisibleTreeNode | undefined => {
   const context = lineageContextText(ancestors)
   const searchText = sessionSearchText(node.session, context)
-  const parentMatch = fuzzyResult(searchText, normalizedQuery)
-  const forceSubtree = includeAll || Boolean(parentMatch)
-  const detailMatches = selectableDetails(node.session).flatMap((detail) => {
-    const match = fuzzyResult(detailSearchText(node.session, detail, context), normalizedQuery)
+  const sessionMatch = fuzzyResult(searchText, normalizedQuery)
+  const exposeLineage = includeLineage || Boolean(sessionMatch)
+  const details = selectableDetails(node.session)
+  const detailMatches = details.flatMap((detail) => {
+    const match = fuzzyResult(detailSearchText(node.session, detail), normalizedQuery)
     return match ? [{ detail, match }] : []
   })
   const children = node.children.flatMap((child) => {
-    const visible = visibleNode(child, normalizedQuery, expandedSessions, [...ancestors, node], forceSubtree)
+    const visible = visibleNode(child, normalizedQuery, expandedDetailSessions, [...ancestors, node], exposeLineage)
     return visible ? [visible] : []
   })
-  if (!forceSubtree && detailMatches.length === 0 && children.length === 0) return undefined
+  if (!exposeLineage && detailMatches.length === 0 && children.length === 0) return undefined
 
-  const details = forceSubtree ? selectableDetails(node.session) : detailMatches.map(({ detail }) => detail)
-  const score = maxScore(parentMatch?.score ?? Number.NEGATIVE_INFINITY, ...detailMatches.map(({ match }) => match.score), ...children.map((child) => child.score))
+  const detailsExpanded = Boolean(expandedDetailSessions?.has(node.session.name))
+  const visibleDetails = detailsExpanded ? details : detailMatches.map(({ detail }) => detail)
+  const score = maxScore(sessionMatch?.score ?? Number.NEGATIVE_INFINITY, ...detailMatches.map(({ match }) => match.score), ...children.map((child) => child.score))
   return {
     session: node.session,
     key: node.key,
     parentSessionKey: ancestors.at(-1)?.key,
     searchText,
-    details,
+    details: visibleDetails,
     children,
-    expanded: details.length + children.length > 0,
-    expandable: selectableDetails(node.session).length + node.children.length > 0,
+    expanded: children.length > 0,
+    expandable: node.children.length > 0,
+    detailsExpanded,
+    detailsExpandable: details.length > 0,
+    hiddenDetailCount: Math.max(0, details.length - visibleDetails.length),
+    hiddenChildCount: Math.max(0, node.children.length - children.length),
     state: subtreeState(node),
     score,
   }
 }
 
-const expandedNode = (node: SessionNode, expandedSessions: ReadonlySet<string> | undefined, parentSessionKey?: string): VisibleTreeNode => {
-  const expanded = !expandedSessions || expandedSessions.has(node.session.name)
-  const children = node.children.map((child) => expandedNode(child, expandedSessions, node.key))
-  const visibleChildren = expanded ? children : []
-  const details = expanded ? selectableDetails(node.session) : []
+const expandedNode = (
+  node: SessionNode,
+  expandedLineageSessions: ReadonlySet<string> | undefined,
+  expandedDetailSessions: ReadonlySet<string> | undefined,
+  parentSessionKey?: string,
+): VisibleTreeNode => {
+  const details = selectableDetails(node.session)
+  const lineageExpanded = Boolean(node.children.length > 0 && (!expandedLineageSessions || expandedLineageSessions.has(node.session.name)))
+  const detailsExpanded = Boolean(details.length > 0 && expandedDetailSessions?.has(node.session.name))
+  const children = node.children.map((child) => expandedNode(child, expandedLineageSessions, expandedDetailSessions, node.key))
+  const visibleChildren = lineageExpanded ? children : []
+  const visibleDetails = detailsExpanded ? details : []
   return {
     session: node.session,
     key: node.key,
     parentSessionKey,
     searchText: sessionSearchText(node.session),
-    details,
+    details: visibleDetails,
     children: visibleChildren,
-    expanded: expanded && (details.length + visibleChildren.length > 0),
-    expandable: selectableDetails(node.session).length + node.children.length > 0,
+    expanded: lineageExpanded,
+    expandable: node.children.length > 0,
+    detailsExpanded,
+    detailsExpandable: details.length > 0,
+    hiddenDetailCount: Math.max(0, details.length - visibleDetails.length),
+    hiddenChildCount: Math.max(0, node.children.length - visibleChildren.length),
     state: aggregateStates([sessionState(node.session), ...children.map((child) => child.state)]),
     score: 0,
   }
@@ -218,6 +251,12 @@ const flattenTreeRows = (node: VisibleTreeNode, depth: number, guideColumns: boo
     searchText: node.searchText,
     expanded: node.expanded,
     expandable: node.expandable,
+    detailsExpanded: node.detailsExpanded,
+    detailsExpandable: node.detailsExpandable,
+    visibleDetailCount: node.details.length,
+    visibleChildCount: node.children.length,
+    hiddenDetailCount: node.hiddenDetailCount,
+    hiddenChildCount: node.hiddenChildCount,
     ownerSessionKey: node.key,
     parentSessionKey: node.parentSessionKey,
     guideColumns,
@@ -238,6 +277,12 @@ const flattenTreeRows = (node: VisibleTreeNode, depth: number, guideColumns: boo
         searchText: detailSearchText(node.session, entry.detail),
         expanded: false,
         expandable: false,
+        detailsExpanded: false,
+        detailsExpandable: false,
+        visibleDetailCount: 0,
+        visibleChildCount: 0,
+        hiddenDetailCount: 0,
+        hiddenChildCount: 0,
         ownerSessionKey: node.key,
         parentSessionKey: node.key,
         guideColumns: childrenGuides,
@@ -249,29 +294,30 @@ const flattenTreeRows = (node: VisibleTreeNode, depth: number, guideColumns: boo
   return [sessionRow, ...childRows]
 }
 
-export const defaultExpandedSessions = (sessions: SessionRow[], maxChildren = 3) => {
+export const defaultExpandedLineageSessions = (sessions: SessionRow[], maxChildren = 3) => {
   const { nodes } = sessionForest(sessions)
   return new Set(
     nodes
-      .filter((node) => {
-        const childCount = selectableDetails(node.session).length + node.children.length
-        return childCount > 0 && childCount <= maxChildren
-      })
+      .filter((node) => node.children.length > 0 && node.children.length <= maxChildren)
       .map((node) => node.session.name),
   )
 }
 
-export const buildTreeRows = (sessions: SessionRow[], query: string, options: { expandedSessions?: ReadonlySet<string>; bottomUp?: boolean } = {}): TreeRow[] => {
+export const buildTreeRows = (
+  sessions: SessionRow[],
+  query: string,
+  options: { expandedLineageSessions?: ReadonlySet<string>; expandedDetailSessions?: ReadonlySet<string>; bottomUp?: boolean } = {},
+): TreeRow[] => {
   const normalized = query.trim().toLowerCase()
   const { roots } = sessionForest(sessions)
   const visibleRoots = normalized
     ? roots
         .flatMap((node) => {
-          const visible = visibleNode(node, normalized, options.expandedSessions)
+          const visible = visibleNode(node, normalized, options.expandedDetailSessions)
           return visible ? [visible] : []
         })
         .sort((a, b) => b.score - a.score || sessionTieBreak(a.session, b.session))
-    : roots.map((node) => expandedNode(node, options.expandedSessions))
+    : roots.map((node) => expandedNode(node, options.expandedLineageSessions, options.expandedDetailSessions))
 
   const rows = visibleRoots.flatMap((node, index) => flattenTreeRows(node, 0, [], index === visibleRoots.length - 1))
   return options.bottomUp ? [...rows].reverse() : rows

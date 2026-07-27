@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { buildTreeRows, defaultExpandedSessions, normalizeReportedState, sessionState, stateWithSeen } from "./model"
-import type { SessionRow, Target, TreeRow } from "./model"
+import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionState, stateWithSeen } from "./model"
+import type { DetailRow, SessionRow, Target, TreeRow } from "./model"
+import { inlineSummary, jumpFooterAction, treePrefix } from "./presentation"
 
 const sessionTarget = (session: string): Target => ({ type: "tmux_session", session })
 const windowTarget = (session: string, suffix: string): Target => ({ type: "tmux_window", session, windowId: `@${suffix}`, pane: `%${suffix}` })
 
-const detail = (session: string, title: string, suffix: string, state: TreeRow["state"] = "unknown") => ({
-  kind: "window",
-  status: "zsh",
+const detail = (session: string, title: string, suffix: string, state: TreeRow["state"] = "unknown", kind = "window"): DetailRow => ({
+  kind,
+  status: kind === "window" ? "zsh" : state,
   detail: "",
   title,
   age: "1m",
@@ -39,6 +40,7 @@ const session = (name: string, options: Partial<SessionRow> & { details?: Sessio
 
 const labeledRows = (rows: TreeRow[]) => rows.map((row) => `${row.depth}:${row.detail ? row.detail.title : row.session.name}`)
 const sessionRows = (rows: TreeRow[]) => rows.filter((row) => !row.detail)
+const rowFor = (rows: TreeRow[], name: string) => rows.find((row) => !row.detail && row.session.name === name)
 
 describe("agent state", () => {
   test("normalizes legacy report names", () => {
@@ -75,8 +77,11 @@ describe("session tree", () => {
     session("z-root", { workspaceId: "z", lineageSearchText: "z root", recency: 450 }),
   ]
 
-  test("renders recursive hierarchy with selectable nested sessions and details", () => {
-    const rows = buildTreeRows(groupedSessions, "", { expandedSessions: new Set(groupedSessions.map((row) => row.name)) })
+  test("renders recursive hierarchy with separate lineage and detail expansion", () => {
+    const rows = buildTreeRows(groupedSessions, "", {
+      expandedLineageSessions: new Set(groupedSessions.map((row) => row.name)),
+      expandedDetailSessions: new Set(groupedSessions.map((row) => row.name)),
+    })
     expect(labeledRows(rows)).toEqual([
       "0:y-root",
       "1:y-root-window",
@@ -104,7 +109,8 @@ describe("session tree", () => {
   })
 
   test("keeps bottom-up ordering while each lineage subtree stays contiguous", () => {
-    const rows = buildTreeRows(groupedSessions, "", { expandedSessions: new Set(groupedSessions.map((row) => row.name)), bottomUp: true })
+    const expanded = new Set(groupedSessions.map((row) => row.name))
+    const rows = buildTreeRows(groupedSessions, "", { expandedLineageSessions: expanded, expandedDetailSessions: expanded, bottomUp: true })
     expect(labeledRows(rows)).toEqual([
       "1:z-root-window",
       "0:z-root",
@@ -121,21 +127,24 @@ describe("session tree", () => {
     ])
   })
 
-  test("collapsing a parent hides both its details and descendant sessions", () => {
-    const rows = buildTreeRows(groupedSessions, "", { expandedSessions: new Set(["y-root", "z-root", "b-child", "c-child", "d-grandchild"]) })
+  test("collapsing lineage hides descendants while leaving compact session rows", () => {
+    const rows = buildTreeRows(groupedSessions, "", {
+      expandedLineageSessions: new Set(["y-root", "z-root"]),
+      expandedDetailSessions: new Set(),
+    })
     expect(labeledRows(rows)).toEqual([
       "0:y-root",
-      "1:y-root-window",
       "0:a-root",
       "0:z-root",
-      "1:z-root-window",
     ])
-    expect(rows.find((row) => !row.detail && row.session.name === "a-root")?.expandable).toBe(true)
-    expect(rows.find((row) => !row.detail && row.session.name === "a-root")?.expanded).toBe(false)
+    expect(rowFor(rows, "a-root")?.expandable).toBe(true)
+    expect(rowFor(rows, "a-root")?.expanded).toBe(false)
+    expect(rowFor(rows, "a-root")?.detailsExpandable).toBe(true)
+    expect(rowFor(rows, "a-root")?.detailsExpanded).toBe(false)
   })
 
-  test("expands sessions by counting own details plus direct child sessions", () => {
-    expect(defaultExpandedSessions(groupedSessions)).toEqual(new Set(["y-root", "a-root", "b-child", "c-child", "d-grandchild", "z-root"]))
+  test("defaults expand only small lineage subtrees, not leaf details", () => {
+    expect(defaultExpandedLineageSessions(groupedSessions)).toEqual(new Set(["a-root", "c-child"]))
 
     const crowded = [
       session("crowded-root", { workspaceId: "crowded", childWorkspaceCount: 3, details: [detail("crowded-root", "crowded-window", "51")] }),
@@ -143,7 +152,27 @@ describe("session tree", () => {
       session("child-two", { workspaceId: "crowded-2", parentWorkspaceId: "crowded" }),
       session("child-three", { workspaceId: "crowded-3", parentWorkspaceId: "crowded" }),
     ]
-    expect(defaultExpandedSessions(crowded)).toEqual(new Set(["child-one", "child-two", "child-three"]))
+    expect(defaultExpandedLineageSessions(crowded)).toEqual(new Set(["crowded-root"]))
+    expect(defaultExpandedLineageSessions([session("leaf")])).toEqual(new Set())
+  })
+
+  test("explicit detail expansion is independent from lineage expansion", () => {
+    const rows = buildTreeRows(groupedSessions, "", {
+      expandedLineageSessions: new Set(["a-root", "c-child"]),
+      expandedDetailSessions: new Set(["d-grandchild"]),
+    })
+    expect(labeledRows(rows)).toEqual([
+      "0:y-root",
+      "0:a-root",
+      "1:b-child",
+      "1:c-child",
+      "2:d-grandchild",
+      "3:deep-window",
+      "0:z-root",
+    ])
+    expect(rowFor(rows, "b-child")?.expandable).toBe(false)
+    expect(rowFor(rows, "b-child")?.detailsExpandable).toBe(true)
+    expect(rowFor(rows, "d-grandchild")?.detailsExpanded).toBe(true)
   })
 
   test("retains complete ancestor context for descendant detail matches", () => {
@@ -154,21 +183,18 @@ describe("session tree", () => {
       "2:d-grandchild",
       "3:deep-window",
     ])
-    expect(rows.find((row) => !row.detail && row.session.name === "a-root")?.expanded).toBe(true)
-    expect(rows.find((row) => !row.detail && row.session.name === "c-child")?.expanded).toBe(true)
+    expect(rowFor(rows, "a-root")?.expanded).toBe(true)
+    expect(rowFor(rows, "c-child")?.expanded).toBe(true)
+    expect(rowFor(rows, "d-grandchild")?.detailsExpanded).toBe(false)
   })
 
-  test("a matching session exposes its subtree and lineage search context", () => {
+  test("a matching session exposes lineage context without exploding every detail row", () => {
     const rows = buildTreeRows(groupedSessions, "a child-count-2")
     expect(labeledRows(rows)).toEqual([
       "0:a-root",
-      "1:a-root-window",
       "1:b-child",
-      "2:b-child-window",
       "1:c-child",
-      "2:c-child-window",
       "2:d-grandchild",
-      "3:deep-window",
     ])
     expect(rows[0]?.searchText).toContain("child-count-2")
   })
@@ -178,32 +204,83 @@ describe("session tree", () => {
     const visible = session("visible-child", { workspaceId: "visible", parentWorkspaceId: "state-root", details: [detail("visible-child", "visible-ready", "62", "done")] })
     const hidden = session("hidden-child", { workspaceId: "hidden", parentWorkspaceId: "state-root", details: [detail("hidden-child", "hidden-blocked", "63", "blocked")] })
     const rows = buildTreeRows([root, visible, hidden], "visible-child")
-    expect(rows.find((row) => !row.detail && row.session.name === "state-root")?.state).toBe("blocked")
+    expect(rowFor(rows, "state-root")?.state).toBe("blocked")
   })
 
   test("treats orphaned parents as roots", () => {
     const orphan = session("orphan", { workspaceId: "orphan", parentWorkspaceId: "missing" })
-    const rows = buildTreeRows([orphan, session("plain")], "", { expandedSessions: new Set(["orphan", "plain"]) })
+    const rows = buildTreeRows([orphan, session("plain")], "")
     expect(sessionRows(rows).map((row) => row.session.name)).toEqual(["orphan", "plain"])
-    expect(rows.find((row) => !row.detail && row.session.name === "orphan")?.parentSessionKey).toBeUndefined()
+    expect(rowFor(rows, "orphan")?.parentSessionKey).toBeUndefined()
   })
 
   test("breaks stale cycles defensively instead of duplicating rows", () => {
     const a = session("cycle-a", { workspaceId: "cycle-a", parentWorkspaceId: "cycle-b" })
     const b = session("cycle-b", { workspaceId: "cycle-b", parentWorkspaceId: "cycle-a" })
-    const rows = buildTreeRows([a, b], "", { expandedSessions: new Set(["cycle-a", "cycle-b"]) })
+    const rows = buildTreeRows([a, b], "")
     expect(sessionRows(rows).map((row) => row.session.name)).toEqual(["cycle-a", "cycle-b"])
     expect(rows.filter((row) => !row.detail)).toHaveLength(2)
   })
 
-  test("preserves ungrouped sessions exactly as a flat tree", () => {
+  test("preserves ungrouped sessions as compact roots until details are explicitly expanded", () => {
     const flat = [session("flat-one"), session("flat-two")]
-    const rows = buildTreeRows(flat, "", { expandedSessions: new Set(["flat-one", "flat-two"]) })
-    expect(labeledRows(rows)).toEqual([
+    expect(labeledRows(buildTreeRows(flat, ""))).toEqual([
+      "0:flat-one",
+      "0:flat-two",
+    ])
+    expect(labeledRows(buildTreeRows(flat, "", { expandedDetailSessions: new Set(["flat-one", "flat-two"]) }))).toEqual([
       "0:flat-one",
       "1:flat-one-window",
       "0:flat-two",
       "1:flat-two-window",
     ])
+  })
+})
+
+describe("presentation helpers", () => {
+  test("uses session-only connectors and subdued detail bullets", () => {
+    const rows = buildTreeRows([
+      session("root", { workspaceId: "root", details: [detail("root", "main", "01") ] }),
+      session("child", { workspaceId: "child", parentWorkspaceId: "root", details: [detail("child", "main", "02"), detail("child", "pi", "03", "done", "pi")] }),
+    ], "", { expandedLineageSessions: new Set(["root"]), expandedDetailSessions: new Set(["child"]) })
+    expect(treePrefix(rowFor(rows, "root")!)).toBe("▾ ")
+    expect(treePrefix(rowFor(rows, "child")!)).toBe("└─▾ ")
+    const detailRow = rows.find((row) => row.detail?.title === "main" && row.session.name === "child")!
+    expect(treePrefix(detailRow)).toContain("· ")
+    expect(treePrefix(detailRow)).not.toContain("├")
+    expect(treePrefix(detailRow)).not.toContain("└")
+  })
+
+  test("fits inline summaries compactly and reports hidden entries", () => {
+    const crowded = session("crowded", {
+      details: [
+        detail("crowded", "main", "11"),
+        detail("crowded", "pi", "12", "done", "pi"),
+        detail("crowded", "claude", "13", "working", "claude"),
+        detail("crowded", "codex", "14", "blocked", "codex"),
+      ],
+    })
+    expect(inlineSummary(crowded, 40)).toEqual({
+      entries: [
+        { detail: crowded.details[0]!, label: "main" },
+        { detail: crowded.details[1]!, label: "pi" },
+        { detail: crowded.details[2]!, label: "claude" },
+      ],
+      hiddenCount: 1,
+    })
+    expect(inlineSummary(crowded, 12)).toEqual({
+      entries: [{ detail: crowded.details[0]!, label: "main" }],
+      hiddenCount: 3,
+    })
+  })
+
+  test("describes separate lineage and detail navigation affordances", () => {
+    const rows = buildTreeRows([
+      session("root", { workspaceId: "root" }),
+      session("child", { workspaceId: "child", parentWorkspaceId: "root" }),
+    ], "", { expandedLineageSessions: new Set(["root"]), expandedDetailSessions: new Set(["child"]) })
+    expect(jumpFooterAction(rowFor(rows, "root"))).toBe("← lineage  → details  Enter open")
+    expect(jumpFooterAction(rowFor(rows, "child"))).toBe("← details/parent  Enter open")
+    expect(jumpFooterAction(rows.find((row) => row.detail?.title === "child-window"))).toBe("← session  Enter focus")
   })
 })
