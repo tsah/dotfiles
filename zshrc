@@ -13,8 +13,12 @@ export EDITOR="nvim"
 export VISUAL="nvim"
 export PAGER="less"
 export BROWSER="xdg-open"
+export PLANNOTATOR_BROWSER="${PLANNOTATOR_BROWSER:-$HOME/.local/bin/xdg-open}"
 export PLANNOTATOR_REMOTE="${PLANNOTATOR_REMOTE:-1}"
-export PLANNOTATOR_PORT="${PLANNOTATOR_PORT:-19432-19439}"
+# Migrate the old fixed remote port while preserving intentional overrides.
+if [[ -z "${PLANNOTATOR_PORT-}" || "${PLANNOTATOR_PORT}" == "19432" ]]; then
+  export PLANNOTATOR_PORT="19432-19439"
+fi
 
 # Configure word boundaries (exclude / and . from word characters)
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'

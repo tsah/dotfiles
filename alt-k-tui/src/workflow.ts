@@ -72,8 +72,14 @@ export async function ensureSession(id: WorktreeIdentity, options: { parentWorks
 }
 
 function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: string, signalFile?: string) {
-  if (harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", "claude", ...(agent ? ["--agent", agent] : []), prompt]
-  if (harness === "opencode") return ["oc", ...(agent ? ["--agent", agent] : []), "--prompt", prompt]
+  const plannotatorEnv = [
+    `BROWSER=${Bun.env.BROWSER || "xdg-open"}`,
+    `PLANNOTATOR_BROWSER=${Bun.env.PLANNOTATOR_BROWSER || `${Bun.env.HOME}/.local/bin/xdg-open`}`,
+    `PLANNOTATOR_REMOTE=${Bun.env.PLANNOTATOR_REMOTE || "1"}`,
+    `PLANNOTATOR_PORT=${Bun.env.PLANNOTATOR_PORT || "19432-19439"}`,
+  ]
+  if (harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", ...plannotatorEnv, "claude", ...(agent ? ["--agent", agent] : []), prompt]
+  if (harness === "opencode") return ["env", ...plannotatorEnv, "oc", ...(agent ? ["--agent", agent] : []), "--prompt", prompt]
   const presetArgs: string[] = []
   if (agent) {
     const helper = resolve(import.meta.dir, "../../bin/pi-agent-config")
@@ -87,7 +93,7 @@ function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: s
     if (body.trim()) presetArgs.push("--append-system-prompt", body)
   }
   const lifecycleEnv = signalFile ? [`PI_TMUX_WAIT_SIGNAL_FILE=${signalFile}`] : []
-  return ["env", ...lifecycleEnv, "pi", ...presetArgs, prompt]
+  return ["env", ...plannotatorEnv, ...lifecycleEnv, "pi", ...presetArgs, prompt]
 }
 
 export async function spawnAgent(harness: Harness, cwd: string, prompt: string, agent?: string, requestedName?: string, wait = false) {
