@@ -46,6 +46,30 @@ remote job, background job, detached job, or headless mode.
 
 Prefer a visible tmux session/window worker using the native launcher below.
 
+## Standalone Handoffs
+
+Use `--no-parent` when the user says **standalone**, or when the task is clearly
+standalone rather than delegated from the current workspace. A standalone
+handoff still creates a visible worktree + tmux worker, but records it as a root
+workspace instead of linking it to the caller's workspace lineage.
+
+Treat a task as clearly standalone when it has its own self-contained goal and
+the current agent is not expected to orchestrate, monitor, review, or continue
+work based on its result. Make the initial prompt self-contained because the
+worker does not inherit the current conversation.
+
+Do not infer standalone merely because the user says **independent** or asks for
+an isolated worktree: those are properties of every handoff. When the intent is
+ambiguous, use the normal parent-linked handoff.
+
+Standalone launcher forms:
+
+```bash
+env -u ANTHROPIC_API_KEY worker-claude --no-parent [--agent <agent-name>] <branch-name> <initial-prompt>
+worker-opencode --no-parent [--agent <agent-name>] <branch-name> <initial-prompt>
+worker-pi --no-parent [--agent <agent-name>] <branch-name> <initial-prompt>
+```
+
 ## Handoff vs Tmux Interactive Control
 
 Use **handoff** when the user wants a separate worker to own an isolated task:
