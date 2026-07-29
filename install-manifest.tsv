@@ -10,7 +10,7 @@ a opencode.json ~/.config/opencode/opencode.json
 a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands
 a pi/extensions/tmux-worker-lifecycle.ts ~/.pi/agent/extensions/tmux-worker-lifecycle.ts
-a pi/prompts ~/.pi/agent/prompts
+a pi/prompts/ship-pr.md ~/.pi/agent/prompts/ship-pr.md
 a pi/subagents.json ~/.pi/agent/subagents.json
 a starship.toml ~/.config/starship.toml
 a atuin-config.toml ~/.config/atuin/config.toml
