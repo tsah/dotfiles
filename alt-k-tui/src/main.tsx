@@ -9,7 +9,7 @@ import { readLineageSnapshot } from "./lineage"
 import { buildTreeRows, defaultExpandedLineageSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { AgentState, DetailRow, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 import { pickSelection, refreshSessionsAuthoritatively, selectedItem, treeRowAnchor, visibleSlice } from "./picker"
-import { detailStatusLabel, ellipsize, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, sessionMeta, treePrefix, visibleInlineSummary } from "./presentation"
+import { detailStatusLabel, ellipsize, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, sessionMeta, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean; worktreePath: string; directoryPath: string; workspaceId?: string; parentWorkspaceId?: string | null }
 interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
@@ -421,6 +421,12 @@ const readCache = () => {
   }
 }
 
+const invalidateCacheSync = () => {
+  try {
+    unlinkSync(cachePath)
+  } catch {}
+}
+
 const serverProgram = Effect.gen(function* () {
   yield* Effect.sync(() => {
     mkdirSync(runtimeDir, { recursive: true })
@@ -681,10 +687,10 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
   const detail = () => props.row.detail
   const detailName = () => detail()?.kind === "window" ? detail()!.title : detail()?.kind ?? ""
   const detailTitle = () => ""
-  const neutralDetail = () => detail()?.kind === "window"
+  const neutralState = () => usesNeutralStateGlyph(props.row)
   const bulletState = () => detail()?.state ?? props.row.state
-  const bulletGlyph = () => neutralDetail() ? "○" : stateGlyph(bulletState(), props.animationFrame)
-  const bulletColor = () => neutralDetail() ? theme.muted : stateColor(bulletState())
+  const bulletGlyph = () => neutralState() ? "○" : stateGlyph(bulletState(), props.animationFrame)
+  const bulletColor = () => neutralState() ? theme.muted : stateColor(bulletState())
   const meta = () => sessionMeta(props.row.session)
   const metaText = () => meta() ? `[${meta()}]` : ""
   const hiddenChildrenLabel = () => !props.row.expanded && props.row.hiddenChildCount > 0 ? `⇣${props.row.hiddenChildCount}` : ""
@@ -925,6 +931,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   }
   const deleteActionForRow = (row: TreeRow): DeleteAction | undefined => {
     if (!row.detail) {
+      if (row.session.path && isLinkedWorktreeSync(row.session.path)) return { row, kind: "worktree" }
       if (row.target.type === "tmux_session") return { row, kind: "session" }
       if (row.session.branch && row.session.path) return { row, kind: "worktree" }
       return undefined
@@ -945,6 +952,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     if (action.kind === "pane") return `Destroy pane '${row.detail?.title || row.detail?.kind || action.pane}'?`
     if (action.finalPane && action.kind === "worktree") return `Destroy final pane, session, and worktree '${row.session.branch || row.session.path}'?`
     if (action.finalPane) return `Destroy final pane and session '${row.session.name}'?`
+    if (action.kind === "worktree") return `Destroy session and worktree '${row.session.branch || row.session.path}'?`
     return `Destroy ${action.kind} '${row.session.name}'?`
   }
 
@@ -975,6 +983,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       if (action.kind === "pane" && action.pane) Bun.spawnSync(["tmux", "kill-pane", "-t", action.pane], { stdout: "ignore", stderr: "ignore" })
       else if (action.kind === "worktree" && action.row.session.path) Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(action.row.session.path)], { stdout: "inherit", stderr: "inherit" })
       else if (action.kind === "session") killSessionSync(action.row.session.name)
+      invalidateCacheSync()
       return
     }
     if (key.meta && key.name === "k") return resetList("repo")

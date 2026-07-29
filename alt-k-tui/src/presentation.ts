@@ -20,7 +20,13 @@ export const inlineSummaryWidth = (summary: InlineSummary) => {
   return entriesWidth + hiddenWidth
 }
 
+const neutralDetailKinds = new Set(["directory", "repository", "session", "window"])
+
 const selectableSummaryDetails = (details: DetailRow[]) => details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
+
+export const usesNeutralStateGlyph = (row: TreeRow) => row.detail
+  ? neutralDetailKinds.has(row.detail.kind)
+  : row.session.target.type === "directory" || row.session.details.every((detail) => neutralDetailKinds.has(detail.kind))
 
 export const ellipsize = (text: string, maxWidth: number) => {
   if (maxWidth <= 0) return ""

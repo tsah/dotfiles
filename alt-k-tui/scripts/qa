@@ -571,4 +571,36 @@ if tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null || [[ -
     exit 1
 fi
 
-printf 'Alt-K tree QA passed: newest-nearest-prompt bottom-up ordering, durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, connector-aligned colored state glyphs, compact lineage-only connectors, inline summary names, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree destruction behave correctly.\n'
+parent_worktree="$root/dev/qa-delete-parent"
+parent_session="qa-delete-parent"
+git -C "$origin" worktree add -q -b qa-delete-parent "$parent_worktree"
+tmux -S "$inner_socket" new-session -d -s "$parent_session" -n parent -x 140 -y 40 -c "$parent_worktree" "sleep 300"
+rm -f "$cache_file"
+
+tmux -S "$inner_socket" new-window -t "=$session" -n picker-parent-delete -c "$repo" "$picker_command"
+wait_for_text "qa-workflow-tree"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "parent"
+wait_for_text "qa-delete-parent"
+wait_for_selected_row "parent"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Left
+wait_for_selected_row "qa-delete-parent"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
+wait_for_text "Destroy session and worktree 'qa-delete-parent'?"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" y
+for _ in {1..100}; do
+    if ! tmux -S "$inner_socket" has-session -t "=$parent_session" 2>/dev/null && [[ ! -d "$parent_worktree" ]]; then
+        break
+    fi
+    sleep 0.05
+done
+if tmux -S "$inner_socket" has-session -t "=$parent_session" 2>/dev/null || [[ -d "$parent_worktree" ]]; then
+    printf 'Expected parent-row Alt-D to destroy session and worktree\n' >&2
+    exit 1
+fi
+
+tmux -S "$inner_socket" new-window -t "=$session" -n picker-after-delete -c "$repo" "$picker_command"
+wait_for_text "qa-workflow-tree"
+tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "qa-delete-parent"
+wait_for_text "0 targets"
+
+printf 'Alt-K tree QA passed: newest-nearest-prompt bottom-up ordering, durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, connector-aligned colored state glyphs, compact lineage-only connectors, inline summary names, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree/parent-worktree destruction with cache invalidation behave correctly.\n'

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { DetailRow, SessionRow, Target, TreeRow } from "./model"
-import { inlineSummary, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, treePrefix, visibleInlineSummary } from "./presentation"
+import { inlineSummary, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
 
 const sessionTarget = (session: string): Target => ({ type: "tmux_session", session })
 const windowTarget = (session: string, suffix: string): Target => ({ type: "tmux_window", session, windowId: `@${suffix}`, pane: `%${suffix}` })
@@ -277,6 +277,20 @@ describe("session tree", () => {
 })
 
 describe("presentation helpers", () => {
+  test("uses neutral state glyphs when no agent state applies", () => {
+    const plainSession = rowFor(buildTreeRows([session("plain")], ""), "plain")!
+    const directorySession = session("directory", {
+      target: { type: "directory", path: "/tmp/directory" },
+      details: [{ ...detail("directory", "/tmp/directory", "00", "unknown", "directory"), target: { type: "directory", path: "/tmp/directory" } }],
+    })
+    const directoryRow = rowFor(buildTreeRows([directorySession], ""), "directory")!
+    const unknownAgent = rowFor(buildTreeRows([session("agent", { details: [detail("agent", "pi", "01", "unknown", "pi")] })], ""), "agent")!
+
+    expect(usesNeutralStateGlyph(plainSession)).toBe(true)
+    expect(usesNeutralStateGlyph(directoryRow)).toBe(true)
+    expect(usesNeutralStateGlyph(unknownAgent)).toBe(false)
+  })
+
   test("uses session-only connectors and subdued detail bullets", () => {
     const rows = buildTreeRows([
       session("root", { workspaceId: "root", details: [detail("root", "main", "01") ] }),
