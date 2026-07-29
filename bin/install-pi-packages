@@ -7,3 +7,4 @@ if ! command -v pi >/dev/null 2>&1; then
 fi
 
 pi install npm:@tintinweb/pi-subagents@0.14.0
+pi install npm:@plannotator/pi-extension@0.25.0

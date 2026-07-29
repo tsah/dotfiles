@@ -11,6 +11,8 @@ a systemd/user/plannotator-session-cleanup.timer ~/.config/systemd/user/plannota
 a opencode.json ~/.config/opencode/opencode.json
 a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands
+a pi/extensions/plannotator-file.ts ~/.pi/agent/extensions/plannotator-file.ts
+a pi/extensions/plannotator-shortcuts.ts ~/.pi/agent/extensions/plannotator-shortcuts.ts
 a pi/extensions/tmux-worker-lifecycle.ts ~/.pi/agent/extensions/tmux-worker-lifecycle.ts
 a pi/prompts/ship-pr.md ~/.pi/agent/prompts/ship-pr.md
 a pi/subagents.json ~/.pi/agent/subagents.json
@@ -62,6 +64,9 @@ a skills/to-prd ~/.claude/skills/to-prd
 a skills/to-prd ~/.pi/agent/skills/to-prd
 a skills/to-prd ~/.config/opencode/skills/to-prd
 a skills/to-prd ~/.codex/skills/to-prd
+a claude/commands/plf.md ~/.claude/commands/plf.md
+a claude/commands/pll.md ~/.claude/commands/pll.md
+a claude/commands/plr.md ~/.claude/commands/plr.md
 a claude/skills/customize-opencode ~/.claude/skills/customize-opencode
 a claude/skills/plannotator-annotate ~/.claude/skills/plannotator-annotate
 a claude/skills/plannotator-compound ~/.claude/skills/plannotator-compound
