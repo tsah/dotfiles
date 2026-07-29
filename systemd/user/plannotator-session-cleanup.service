@@ -1,0 +1,6 @@
+[Unit]
+Description=Clean up expired Plannotator sessions
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/bin/plannotator-session-cleanup

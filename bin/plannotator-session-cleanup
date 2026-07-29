@@ -1,0 +1,86 @@
+#!/bin/bash
+set -u
+
+max_age_seconds=${PLANNOTATOR_MAX_SESSION_AGE_SECONDS:-86400}
+case "$max_age_seconds" in
+    ''|*[!0-9]*)
+        echo "Error: PLANNOTATOR_MAX_SESSION_AGE_SECONDS must be a non-negative integer" >&2
+        exit 1
+        ;;
+esac
+
+resolve_data_dir() {
+    if [[ -n "${PLANNOTATOR_DATA_DIR:-}" ]]; then
+        if [[ "$PLANNOTATOR_DATA_DIR" == "~" ]]; then
+            printf '%s\n' "$HOME"
+        elif [[ "$PLANNOTATOR_DATA_DIR" == ~/* ]]; then
+            printf '%s/%s\n' "$HOME" "${PLANNOTATOR_DATA_DIR#\~/}"
+        else
+            printf '%s\n' "$PLANNOTATOR_DATA_DIR"
+        fi
+    elif [[ -d "$HOME/.plannotator" ]]; then
+        printf '%s\n' "$HOME/.plannotator"
+    elif [[ "${XDG_DATA_HOME:-}" == /* ]]; then
+        printf '%s\n' "$XDG_DATA_HOME/plannotator"
+    else
+        printf '%s\n' "$HOME/.plannotator"
+    fi
+}
+
+is_plannotator_process() {
+    local pid=$1
+    local executable
+
+    executable=$(readlink -f "/proc/$pid/exe" 2>/dev/null) || return 1
+    executable=${executable% (deleted)}
+    [[ "${executable##*/}" == "plannotator" ]]
+}
+
+data_dir=$(resolve_data_dir)
+sessions_dir="$data_dir/sessions"
+now_epoch=${PLANNOTATOR_NOW_EPOCH:-$(date +%s)}
+terminated_pids=()
+
+if [[ -d "$sessions_dir" ]]; then
+    shopt -s nullglob
+    for session_file in "$sessions_dir"/*.json; do
+        pid=$(jq -r '.pid // empty' "$session_file" 2>/dev/null) || continue
+        started_at=$(jq -r '.startedAt // empty' "$session_file" 2>/dev/null) || continue
+        [[ "$pid" =~ ^[0-9]+$ && -n "$started_at" ]] || continue
+
+        started_epoch=$(date -d "$started_at" +%s 2>/dev/null) || continue
+        age_seconds=$((now_epoch - started_epoch))
+        (( age_seconds >= max_age_seconds )) || continue
+        is_plannotator_process "$pid" || continue
+
+        echo "Stopping Plannotator session $pid after $((age_seconds / 3600)) hours"
+        if kill -TERM "$pid" 2>/dev/null; then
+            terminated_pids+=("$pid")
+        fi
+    done
+fi
+
+if (( ${#terminated_pids[@]} > 0 )); then
+    for _ in {1..10}; do
+        remaining=false
+        for pid in "${terminated_pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                remaining=true
+                break
+            fi
+        done
+        [[ "$remaining" == false ]] && break
+        sleep 0.5
+    done
+
+    for pid in "${terminated_pids[@]}"; do
+        if is_plannotator_process "$pid"; then
+            echo "Force-stopping unresponsive Plannotator session $pid" >&2
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+    done
+fi
+
+if command -v plannotator >/dev/null 2>&1; then
+    plannotator sessions --clean >/dev/null 2>&1 || true
+fi
