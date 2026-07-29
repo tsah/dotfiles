@@ -48,9 +48,36 @@ function extractAssistantResult(messages: Array<any>) {
 
 export default function (pi: ExtensionAPI) {
 	const signalFile = process.env.PI_TMUX_WAIT_SIGNAL_FILE?.trim();
+	const activeSubagents = new Set<string>();
+	let parentState: State = "idle";
 
-	pi.on("session_start", () => report("idle", "session_start"));
-	pi.on("agent_start", () => report("working", "agent_start"));
+	const reportParentState = (state: State, event: string) => {
+		parentState = state;
+		report(activeSubagents.size > 0 ? "working" : state, event);
+	};
+	const subagentStarted = (data: unknown) => {
+		const id = (data as { id?: unknown })?.id;
+		if (typeof id !== "string" || !id) return;
+		activeSubagents.add(id);
+		report("working", "subagent_started");
+	};
+	const subagentFinished = (data: unknown) => {
+		const id = (data as { id?: unknown })?.id;
+		if (typeof id !== "string" || !id) return;
+		activeSubagents.delete(id);
+		report(activeSubagents.size > 0 ? "working" : parentState, "subagent_finished");
+	};
+	const unsubscribeSubagentEvents = [
+		pi.events.on("subagents:created", subagentStarted),
+		pi.events.on("subagents:started", subagentStarted),
+		pi.events.on("subagents:completed", subagentFinished),
+		pi.events.on("subagents:failed", subagentFinished),
+	];
+
+	pi.on("session_start", () => reportParentState("idle", "session_start"));
+	pi.on("agent_start", () => reportParentState("working", "agent_start"));
+	pi.on("turn_start", () => reportParentState("working", "turn_start"));
+	pi.on("tool_execution_start", () => reportParentState("working", "tool_execution_start"));
 
 	let signaled = false;
 
@@ -71,12 +98,14 @@ export default function (pi: ExtensionAPI) {
 		latestResult = extractAssistantResult(event.messages as Array<any>);
 	});
 	pi.on("agent_settled", async () => {
-		report(latestResult.status === 0 ? "done" : "blocked", "agent_settled");
+		reportParentState(latestResult.status === 0 ? "done" : "blocked", "agent_settled");
 		writeSignal({ timestamp: Date.now(), ...latestResult });
 	});
 
 	pi.on("session_shutdown", async () => {
-		report("unknown", "session_shutdown");
+		for (const unsubscribe of unsubscribeSubagentEvents) unsubscribe();
+		activeSubagents.clear();
+		reportParentState("unknown", "session_shutdown");
 		writeSignal({
 			timestamp: Date.now(),
 			status: 130,
