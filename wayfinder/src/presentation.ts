@@ -74,7 +74,8 @@ export const visibleInlineSummary = (session: SessionRow, maxWidth: number, quer
 
 export const detailStatusLabel = (detail: DetailRow) => {
   if (detail.kind === "window") return "idle"
-  if (["opencode", "pi", "claude", "codex"].includes(detail.kind) && detail.state !== "unknown") return detail.state === "blocked" ? "waiting" : detail.state === "done" ? "ready" : detail.state
+  if (detail.kind === "incident") return detail.status
+  if (["opencode", "pi", "claude", "codex"].includes(detail.kind) && detail.state !== "unknown") return detail.state === "failed" ? "failed" : detail.state === "blocked" ? "waiting" : detail.state === "done" ? "ready" : detail.state
   if (detail.status) return detail.status
   return detail.kind
 }

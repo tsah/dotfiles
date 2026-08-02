@@ -80,7 +80,7 @@ fi
 
 if command -v bun &> /dev/null; then
     echo "📦 Installing Waystation dependencies..."
-    (cd "$HOME/dotfiles/alt-k-tui" && bun install)
+    (cd "$HOME/dotfiles/wayfinder" && bun install)
     echo "✅ Waystation dependencies installed"
 else
     echo "⚠️  Bun not found after install; Waystation will fall back to fzf"

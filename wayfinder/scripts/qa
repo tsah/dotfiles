@@ -203,7 +203,7 @@ write_fixture_cache() {
           : variant === "lineage-visual"
             ? lineageVisual
             : refreshUpdated
-      writeFileSync(file, JSON.stringify({ version: 9, generatedAt: Date.now(), sessions: rows }))
+      writeFileSync(file, JSON.stringify({ version: 10, generatedAt: Date.now(), sessions: rows }))
     ' "$variant" "$cache_file"
 }
 
@@ -356,11 +356,11 @@ attention_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session
 wait_for_text "qa-workflow-tree"
 blink_visible=false
 blink_hidden=false
-for _ in {1..30}; do
+for _ in {1..60}; do
     attention_frame=$(tmux -S "$outer_socket" capture-pane -p -J -t "$outer_pane" -S -200)
     if [[ "$attention_frame" == *"!"* ]]; then blink_visible=true; else blink_hidden=true; fi
     [[ "$blink_visible" == true && "$blink_hidden" == true ]] && break
-    sleep 0.05
+    sleep 0.1
 done
 [[ "$blink_visible" == true && "$blink_hidden" == true ]] || { printf 'Expected the waiting indicator to blink\n' >&2; exit 1; }
 tmux -S "$inner_socket" kill-pane -t "$attention_picker_pane"
@@ -397,6 +397,9 @@ sleep 0.2
 LINEAGE_ROOT_SESSION="$lineage_root_session" LINEAGE_FIX_COVERAGE_SESSION="$lineage_fix_coverage_session" LINEAGE_FIX_JAVA_SESSION="$lineage_fix_java_session" write_fixture_cache lineage-visual
 lineage_visual_pane=$(open_picker_window lineage-visual)
 wait_for_text "$lineage_root_session"
+# The picker starts on the root; move across both lineage children to the
+# final child before exercising exact-detail expansion.
+tmux -S "$outer_socket" send-keys -t "$outer_pane" Up Up
 wait_for_selected_row "$lineage_fix_java_session"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" Right
 wait_for_text "· ○ main"

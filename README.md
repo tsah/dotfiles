@@ -7,6 +7,21 @@ This repository is used on two machine profiles:
 
 Use the matching install scripts for each profile.
 
+## Waystation
+
+Bare `waystation` opens the existing tmux/worktree navigator. Its headless API controls discovered agents by stable generated ID:
+
+```bash
+waystation agent list --cwd "$PWD"
+waystation agent status AGENT_ID
+waystation agent capabilities AGENT_ID
+waystation agent wait AGENT_ID --after GENERATION
+printf '%s' 'Review the latest changes' | waystation agent send AGENT_ID --wait
+waystation agent result AGENT_ID
+```
+
+Pi send/result communication is native through the globally installed lifecycle extension's per-process Unix socket. Tmux is only the discovery and metadata layer; unsupported harness transports fail explicitly instead of injecting terminal input. See [`wayfinder/README.md`](wayfinder/README.md) and [`docs/dotfiles-workflow.md`](docs/dotfiles-workflow.md).
+
 ## Main laptop (Omarchy)
 
 ```bash

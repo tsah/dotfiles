@@ -1,27 +1,29 @@
 ---
 name: Tmux Interactive Control
 description: >-
-  Drive interactive CLIs inside tmux panes by sending keys, capturing pane
-  output, and waiting for prompts. Use this for local, collaborative tmux work
-  in the current session, not isolated worktree worker spawning.
+  Drive non-agent interactive CLIs inside tmux panes by sending keys, capturing
+  pane output, and waiting for prompts. Use this for REPLs, debuggers, shells,
+  and test watchers, not agent communication or isolated worker spawning.
 ---
 
 # Tmux Interactive Control
 
-Use tmux as a programmable terminal for interactive tools (python, lldb, gdb,
-psql, mysql, node, bash) and for local, collaborative work in the current tmux
+Use tmux as a programmable terminal for non-agent interactive tools (python,
+lldb, gdb, psql, mysql, node, bash) and for local work in the current tmux
 session.
 
-This skill is for “nearby” interaction: controlling panes/windows in the current
-session or an explicitly named existing session, akin to working with a local
-collaborative sub-agent. It should not create an isolated branch/worktree for an
-independent worker.
+This skill is for “nearby” terminal interaction in the current session or an
+explicitly named existing session. It should not create an isolated
+branch/worktree, and it must not use terminal input or pane capture as an agent
+communication protocol.
 
-Use this skill when you need to:
+Use this skill when you need to control a non-agent REPL, debugger, shell, or
+test watcher with `send-keys`, inspect its pane output, or poll for a prompt.
 
-- control an existing tmux pane with `send-keys`
-- capture pane output to inspect progress
-- poll for prompts/readiness text before sending next commands
+For an existing agent, use `waystation agent list|status|capabilities|wait|send|result`.
+Tmux may discover or focus the pane, but never use `send-keys`, `load-buffer`,
+`paste-buffer`, or `capture-pane` to communicate with an agent. Unsupported
+Waystation capabilities must fail explicitly.
 
 Do NOT use this skill to spawn worktree-backed workers. If the user asks for a
 handoff or an independent isolated implementation/research task, use the
@@ -32,11 +34,9 @@ harness-native worker mechanism instead:
 
 ## Tmux Interactive vs Handoff
 
-Use **tmux interactive control** for local work in the current tmux context:
-
-- drive an existing pane, REPL, debugger, shell, test watcher, or agent
-- send keys, capture pane output, and wait for prompts
-- collaborate with a same-session sub-agent without isolating the worktree
+Use **tmux interactive control** for a non-agent REPL, debugger, shell, or test
+watcher in the current tmux context. Use the native Waystation API or a
+same-session harness mechanism for agents.
 
 Use **handoff** for independent, isolated implementation/research or orchestration:
 
@@ -61,8 +61,9 @@ Rule of thumb: tmux interactive control is “work with what is here”; handoff
 
 ### Existing tmux server (default for your repo workflow)
 
-Use plain `tmux ...` commands when interacting with sessions created by
-`wt`, `worker-opencode`, `worker-claude`, or `worker-pi`.
+Use plain `tmux ...` commands to discover or focus sessions created by `wt`,
+`worker-opencode`, `worker-claude`, or `worker-pi`. Use Waystation for any agent
+message, wait, or result operation.
 
 ```bash
 tmux list-sessions
@@ -90,10 +91,10 @@ tmux -S "$SOCKET" list-sessions
 Examples:
 
 ```bash
-tmux send-keys -t my-session:opencode.0 -l -- 'PYTHON_BASIC_REPL=1 python3 -q'
-tmux send-keys -t my-session:opencode.0 Enter
-tmux capture-pane -p -J -t my-session:opencode.0 -S -200
-tmux send-keys -t my-session:opencode.0 C-c
+tmux send-keys -t my-session:shell.0 -l -- 'PYTHON_BASIC_REPL=1 python3 -q'
+tmux send-keys -t my-session:shell.0 Enter
+tmux capture-pane -p -J -t my-session:shell.0 -S -200
+tmux send-keys -t my-session:shell.0 C-c
 ```
 
 ## Prompt Synchronization
@@ -116,8 +117,8 @@ scripts/wait-for-text.sh -S "$SOCKET" -t claude-debug:shell.0 -p '\(lldb\)'
 To monitor this session yourself:
   tmux attach -t my-session
 
-Or capture output once:
-  tmux capture-pane -p -J -t my-session:opencode.0 -S -200
+Or capture non-agent output once:
+  tmux capture-pane -p -J -t my-session:shell.0 -S -200
 ```
 
 For isolated sockets:
@@ -126,7 +127,7 @@ For isolated sockets:
 To monitor this session yourself:
   tmux -S "$SOCKET" attach -t claude-debug
 
-Or capture output once:
+Or capture non-agent output once:
   tmux -S "$SOCKET" capture-pane -p -J -t claude-debug:shell.0 -S -200
 ```
 

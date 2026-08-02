@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, 
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { bootstrapRepositoryFromManifests, identifyWorkspaceSync, persistWorkspaceLineage, projectSnapshot, readLineageSnapshot, reconcileRepositoryWorkspaces, registerWorkspace, workspaceDetails, workspaceTree } from "./lineage"
+import { attachWorkspaceToParent, attachmentCandidatesForWorkspace, bootstrapRepositoryFromManifests, detachWorkspaceFromParent, identifyWorkspaceSync, persistWorkspaceLineage, projectSnapshot, readLineageSnapshot, reconcileRepositoryWorkspaces, registerWorkspace, workspaceDetails, workspaceTree } from "./lineage"
 
 const roots: string[] = []
 afterEach(() => {
@@ -161,6 +161,35 @@ describe("workspace lineage store", () => {
     expect(reparents.revision).toBe(grandchild.revision + 1)
     expect(workspaceDetails(workspaces.main.path, { dbPath })!.children.map((workspace) => workspace.workspaceId)).toEqual([child.workspaceId])
     expect(workspaceDetails(workspaces.child.path, { dbPath })!.children.map((workspace) => workspace.workspaceId)).toEqual([grandchild.workspaceId])
+  })
+
+  test("detaches a workspace as a new root while preserving its subtree", () => {
+    const { dbPath, workspaces } = fixture()
+    const main = registerWorkspace(workspaces.main, { dbPath })
+    const child = registerWorkspace(workspaces.child, { dbPath, parentWorkspaceId: main.workspaceId })
+    const grandchild = registerWorkspace(workspaces.grandchild, { dbPath, parentWorkspaceId: child.workspaceId })
+
+    const detached = detachWorkspaceFromParent(child.workspaceId, dbPath)
+    expect(detached.parentWorkspaceId).toBeNull()
+    expect(detached.revision).toBe(child.revision + 1)
+    expect(manifest(workspaces.child.path).parentWorkspaceId).toBeNull()
+    expect(workspaceDetails(workspaces.main.path, { dbPath })!.children).toEqual([])
+    expect(workspaceDetails(workspaces.child.path, { dbPath })!.children.map((workspace) => workspace.workspaceId)).toEqual([grandchild.workspaceId])
+    const roots = workspaceTree(workspaces.main.path, dbPath).map((workspace) => workspace.workspaceId)
+    expect(roots).toHaveLength(2)
+    expect(roots).toEqual(expect.arrayContaining([main.workspaceId, child.workspaceId]))
+    expect(detachWorkspaceFromParent(child.workspaceId, dbPath).revision).toBe(detached.revision)
+    expect(attachmentCandidatesForWorkspace(child.workspaceId, dbPath).map((workspace) => workspace.workspaceId)).toEqual([main.workspaceId])
+    expect(() => attachWorkspaceToParent(child.workspaceId, grandchild.workspaceId, dbPath)).toThrow(/cycle/)
+
+    const reattached = attachWorkspaceToParent(child.workspaceId, main.workspaceId, dbPath)
+    expect(reattached.parentWorkspaceId).toBe(main.workspaceId)
+    expect(reattached.revision).toBe(detached.revision + 1)
+    expect(manifest(workspaces.child.path).parentWorkspaceId).toBe(main.workspaceId)
+    expect(attachmentCandidatesForWorkspace(child.workspaceId, dbPath)).toEqual([])
+    expect(attachWorkspaceToParent(child.workspaceId, main.workspaceId, dbPath).revision).toBe(reattached.revision)
+    expect(() => detachWorkspaceFromParent("missing-workspace", dbPath)).toThrow(/does not exist/)
+    expect(() => attachWorkspaceToParent("missing-workspace", main.workspaceId, dbPath)).toThrow(/does not exist/)
   })
 
   test("writes a clean ignored manifest atomically and refuses unsafe conflicts", () => {

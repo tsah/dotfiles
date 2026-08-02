@@ -1,3 +1,9 @@
-#!/bin/bash
-# Waystation workspace and session navigator.
-exec "$(dirname "$0")/workspace-picker" "$@"
+#!/bin/sh
+# Waystation workspace navigator and headless agent API.
+set -eu
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "${1:-}" = "agent" ]; then
+    shift
+    exec "$script_dir/dotfiles-workflow" waystation-agent "$@"
+fi
+exec "$script_dir/workspace-picker" "$@"

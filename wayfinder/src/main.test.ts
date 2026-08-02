@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { DetailRow, SessionRow, Target, TreeRow } from "./model"
-import { inlineSummary, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
+import { visibleSlice } from "./picker"
+import { detailStatusLabel, inlineSummary, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
 
 const sessionTarget = (session: string): Target => ({ type: "tmux_session", session })
 const windowTarget = (session: string, suffix: string): Target => ({ type: "tmux_window", session, windowId: `@${suffix}`, pane: `%${suffix}` })
@@ -75,7 +76,14 @@ describe("agent state", () => {
     const worktree = session("worktree", { target: { type: "directory", path: "/tmp/worktree" }, directorySource: "worktree" })
     const directory = session("directory", { target: { type: "directory", path: "/tmp/directory" }, directorySource: "zoxide" })
 
-    expect([working, ready, idle, neutral, worktree, directory].map(sessionSortRank)).toEqual([0, 1, 2, 3, 4, 5])
+    expect([working, ready, idle, neutral, worktree, directory].map(sessionSortRank)).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  test("sorts red-x incidents ahead of live work", () => {
+    const failed = session("failed", { details: [detail("failed", "terminated", "04", "failed", "incident")] })
+    const working = session("working", { details: [detail("working", "pi", "05", "working", "pi")] })
+    expect([failed, working].map(sessionSortRank)).toEqual([0, 1])
+    expect(sessionRows(buildTreeRows([working, failed], "", { bottomUp: true })).map((row) => row.session.name)).toEqual(["failed", "working"])
   })
 })
 
@@ -109,25 +117,25 @@ describe("session tree", () => {
       expandedDetailSessions: new Set(groupedSessions.map((row) => row.name)),
     })
     expect(labeledRows(rows)).toEqual([
-      "0:y-root",
-      "1:y-root-window",
       "0:a-root",
       "1:a-root-window",
-      "1:b-child",
-      "2:b-child-window",
       "1:c-child",
       "2:c-child-window",
       "2:d-grandchild",
       "3:deep-window",
+      "1:b-child",
+      "2:b-child-window",
+      "0:y-root",
+      "1:y-root-window",
       "0:z-root",
       "1:z-root-window",
     ])
     expect(sessionRows(rows).map((row) => [row.session.name, row.depth, row.detail])).toEqual([
-      ["y-root", 0, undefined],
       ["a-root", 0, undefined],
-      ["b-child", 1, undefined],
       ["c-child", 1, undefined],
       ["d-grandchild", 2, undefined],
+      ["b-child", 1, undefined],
+      ["y-root", 0, undefined],
       ["z-root", 0, undefined],
     ])
     expect(rows.find((row) => !row.detail && row.session.name === "d-grandchild")?.target).toEqual(sessionTarget("d-grandchild"))
@@ -138,19 +146,40 @@ describe("session tree", () => {
     const expanded = new Set(groupedSessions.map((row) => row.name))
     const rows = buildTreeRows(groupedSessions, "", { expandedLineageSessions: expanded, expandedDetailSessions: expanded, bottomUp: true })
     expect(labeledRows(rows)).toEqual([
-      "1:y-root-window",
-      "0:y-root",
+      "2:b-child-window",
+      "1:b-child",
       "3:deep-window",
       "2:d-grandchild",
       "2:c-child-window",
       "1:c-child",
-      "2:b-child-window",
-      "1:b-child",
       "1:a-root-window",
       "0:a-root",
+      "1:y-root-window",
+      "0:y-root",
       "1:z-root-window",
       "0:z-root",
     ])
+  })
+
+  test("puts working subtrees nearest the bottom prompt, followed by ready subtrees", () => {
+    const working = session("working", { recency: 100, details: [detail("working", "pi", "91", "working", "pi")] })
+    const ready = session("ready", { recency: 200, details: [detail("ready", "pi", "92", "done", "pi")] })
+    const idle = session("idle", { recency: 300, details: [detail("idle", "pi", "93", "idle", "pi")] })
+
+    const rows = sessionRows(buildTreeRows([working, ready, idle], "", { bottomUp: true }))
+    expect(rows.map((row) => row.session.name)).toEqual(["working", "ready", "idle"])
+    expect(visibleSlice(rows, 0, rows.length).map((row) => row.session.name)).toEqual(["idle", "ready", "working"])
+  })
+
+  test("uses descendant state when sorting a lineage subtree", () => {
+    const root = session("root", { workspaceId: "root", details: [detail("root", "shell", "94")] })
+    const child = session("child", { workspaceId: "child", parentWorkspaceId: "root", details: [detail("child", "pi", "95", "working", "pi")] })
+    const ready = session("ready", { details: [detail("ready", "pi", "96", "done", "pi")] })
+
+    expect(sessionRows(buildTreeRows([ready, root, child], "", {
+      expandedLineageSessions: new Set(["root"]),
+      bottomUp: true,
+    })).map((row) => row.session.name)).toEqual(["child", "root", "ready"])
   })
 
   test("collapsing lineage hides descendants while leaving compact session rows", () => {
@@ -159,8 +188,8 @@ describe("session tree", () => {
       expandedDetailSessions: new Set(),
     })
     expect(labeledRows(rows)).toEqual([
-      "0:y-root",
       "0:a-root",
+      "0:y-root",
       "0:z-root",
     ])
     expect(rowFor(rows, "a-root")?.expandable).toBe(true)
@@ -179,6 +208,20 @@ describe("session tree", () => {
       session("child-three", { workspaceId: "crowded-3", parentWorkspaceId: "crowded" }),
     ]
     expect(defaultExpandedLineageSessions(crowded)).toEqual(new Set(["crowded-root"]))
+
+    const activeCrowded = [
+      session("active-root", { workspaceId: "active-root" }),
+      session("active-one", { workspaceId: "active-1", parentWorkspaceId: "active-root" }),
+      session("active-two", { workspaceId: "active-2", parentWorkspaceId: "active-root" }),
+      session("active-three", { workspaceId: "active-3", parentWorkspaceId: "active-root" }),
+      session("active-four", { workspaceId: "active-4", parentWorkspaceId: "active-root", details: [detail("active-four", "pi", "52", "working", "pi")] }),
+    ]
+    expect(defaultExpandedLineageSessions(activeCrowded)).toEqual(new Set(["active-root"]))
+
+    const readyCrowded = activeCrowded.map((row) => row.name === "active-four"
+      ? session("active-four", { workspaceId: "active-4", parentWorkspaceId: "active-root", details: [detail("active-four", "pi", "53", "done", "pi")] })
+      : row)
+    expect(defaultExpandedLineageSessions(readyCrowded)).toEqual(new Set(["active-root"]))
     expect(defaultExpandedLineageSessions([session("leaf")])).toEqual(new Set())
   })
 
@@ -188,12 +231,12 @@ describe("session tree", () => {
       expandedDetailSessions: new Set(["d-grandchild"]),
     })
     expect(labeledRows(rows)).toEqual([
-      "0:y-root",
       "0:a-root",
-      "1:b-child",
       "1:c-child",
       "2:d-grandchild",
       "3:deep-window",
+      "1:b-child",
+      "0:y-root",
       "0:z-root",
     ])
     expect(rowFor(rows, "b-child")?.expandable).toBe(false)
@@ -218,9 +261,9 @@ describe("session tree", () => {
     const rows = buildTreeRows(groupedSessions, "a child-count-2")
     expect(labeledRows(rows)).toEqual([
       "0:a-root",
-      "1:b-child",
       "1:c-child",
       "2:d-grandchild",
+      "1:b-child",
     ])
     expect(rows[0]?.searchText).toContain("child-count-2")
   })
@@ -289,6 +332,14 @@ describe("session tree", () => {
 })
 
 describe("presentation helpers", () => {
+  test("labels persisted incidents without treating them as neutral", () => {
+    const failed = session("failed", { details: [detail("failed", "terminated", "00", "failed", "incident")] })
+    const row = rowFor(buildTreeRows([failed], ""), "failed")!
+    expect(row.state).toBe("failed")
+    expect(usesNeutralStateGlyph(row)).toBe(false)
+    expect(detailStatusLabel(failed.details[0]!)).toBe("failed")
+  })
+
   test("uses neutral state glyphs when no agent state applies", () => {
     const plainSession = rowFor(buildTreeRows([session("plain")], ""), "plain")!
     const directorySession = session("directory", {

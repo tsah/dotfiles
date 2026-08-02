@@ -5,11 +5,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import { dirname, resolve } from "node:path"
 import { canonicalActivityPath, gitStatusPaths, markDirectoryActivity, newestActivity, readDirectoryActivities } from "./activity"
 import type { ActivityRecord, ActivitySource } from "./activity"
-import { readLineageSnapshot } from "./lineage"
+import { applyResourceIncidents, readResourceIncidents } from "./incidents"
+import { attachWorkspaceToParent, attachmentCandidatesForWorkspace, detachWorkspaceFromParent, readLineageSnapshot } from "./lineage"
 import { buildTreeRows, defaultExpandedLineageSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { AgentState, DetailRow, DirectorySource, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 import { pickSelection, refreshSessionsAuthoritatively, selectedItem, treeRowAnchor, visibleSlice } from "./picker"
 import { detailStatusLabel, ellipsize, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, sessionMeta, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
+import { planRepositoryIdentities, readRepositoryIdentityCache, writeRepositoryIdentityCache } from "./repository-cache"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean; worktreePath: string; directoryPath: string; workspaceId?: string; parentWorkspaceId?: string | null }
 interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
@@ -19,19 +21,20 @@ interface AgentReport { agent: string; state: AgentState; pane: string; updatedA
 interface CachePayload { version: number; generatedAt: number; sessions: SessionRow[] }
 interface BranchRow { key: string; name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
 interface DeleteAction { row: TreeRow; kind: "pane" | "session" | "worktree"; pane?: string; finalPane?: boolean }
-type PickerMode = "jump" | "repo" | "new" | "branch" | "rename"
+type PickerMode = "jump" | "repo" | "new" | "branch" | "rename" | "attach"
 
 const repoRoot = new URL("../..", import.meta.url).pathname.replace(/\/$/, "")
 const runtimeDir = `${Bun.env.XDG_RUNTIME_DIR ?? "/tmp"}/alt-k-tui-${process.getuid?.() ?? Bun.env.USER ?? "user"}`
 const cachePath = `${runtimeDir}/state.json`
 const pidPath = `${runtimeDir}/server.pid`
 const versionPath = `${runtimeDir}/server.version`
+const repositoryCachePath = `${runtimeDir}/repositories.json`
 const agentStateDir = `${runtimeDir}/agent-state`
 const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
 const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
-const cacheVersion = 9
+const cacheVersion = 10
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -375,8 +378,9 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
 
     const markers = [sessionOpencodes.length > 0 ? "oc" : "", sessionWindows.some(isPiWindow) ? "pi" : "", sessionWindows.some(isClaudeWindow) ? "C" : "", sessionWindows.some((window) => codexPanes.has(window.pane)) ? "codex" : ""].filter(Boolean)
     const workspace = session.workspaceId ? lineage.byId.get(session.workspaceId) : lineage.byPath.get(session.path)
-    const lineageFields = buildLineageFields(workspace?.workspaceId || session.workspaceId, workspace?.parentWorkspaceId ?? session.parentWorkspaceId, workspace?.childWorkspaceCount ?? 0)
-    const row: SessionRow = { name: session.name, path: session.path, branch: meta.branch, flags: meta.flags, markers, age: ageFromUnixSeconds(session.recency), recency: session.recency, target: { type: "tmux_session", session: session.name }, details, searchText: "", workspaceId: workspace?.workspaceId || session.workspaceId, parentWorkspaceId: workspace?.parentWorkspaceId ?? session.parentWorkspaceId, childWorkspaceCount: workspace?.childWorkspaceCount ?? 0, lineageLabel: lineageFields.lineageLabel, lineageSearchText: lineageFields.lineageSearchText }
+    const parentWorkspaceId = workspace ? workspace.parentWorkspaceId : session.parentWorkspaceId
+    const lineageFields = buildLineageFields(workspace?.workspaceId || session.workspaceId, parentWorkspaceId, workspace?.childWorkspaceCount ?? 0)
+    const row: SessionRow = { name: session.name, path: session.path, branch: meta.branch, flags: meta.flags, markers, age: ageFromUnixSeconds(session.recency), recency: session.recency, target: { type: "tmux_session", session: session.name }, details, searchText: "", workspaceId: workspace?.workspaceId || session.workspaceId, parentWorkspaceId, childWorkspaceCount: workspace?.childWorkspaceCount ?? 0, lineageLabel: lineageFields.lineageLabel, lineageSearchText: lineageFields.lineageSearchText }
     row.searchText = [row.name, row.path, row.branch, row.flags, row.markers.join(" "), row.lineageLabel, row.lineageSearchText, ...row.details.flatMap((detail) => [detail.kind, detail.status, detail.detail, detail.title, detail.age])].join(" ").toLowerCase()
     rows.push(row)
   }
@@ -398,7 +402,8 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     rows.push(row)
   }
 
-  return rows.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name))
+  const withIncidents = applyResourceIncidents(rows, readResourceIncidents())
+  return withIncidents.sort((a, b) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name))
 })
 
 const collectSessions = Effect.all([collectTmuxSessions, collectTmuxWindows, collectOpencode, collectDirectories, collectAgentReports, Effect.sync(readSeenState), Effect.sync(readLineageSnapshot)], { concurrency: "unbounded" }).pipe(
@@ -459,12 +464,23 @@ const cachedOrCollectedSessions = Effect.gen(function* () {
   return sessions
 })
 
-const repositoryRows = (rows: SessionRow[]) => Effect.gen(function* () {
+const repositoryIdentityPlan = (rows: SessionRow[]) => {
+  const paths = rows.flatMap((row) => {
+    if (!row.path) return []
+    const path = expandHome(row.path)
+    return existsSync(path) ? [path] : []
+  })
+  const lineage = readLineageSnapshot()
+  const lineageCommonDirs = new Map([...lineage.byPath].map(([path, workspace]) => [path, workspace.commonDir]))
+  return planRepositoryIdentities(paths, lineageCommonDirs, readRepositoryIdentityCache(repositoryCachePath))
+}
+
+const repositoryRowsFromIdentities = (rows: SessionRow[], identities: ReadonlyMap<string, string>) => {
   const repositories = new Map<string, SessionRow>()
   for (const row of rows) {
-    if (!row.path || !existsSync(expandHome(row.path))) continue
+    if (!row.path) continue
     const path = expandHome(row.path)
-    const commonDir = yield* runCommand(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], { allowFailure: true }).pipe(Effect.map((output) => output.trim()))
+    const commonDir = identities.get(path)
     if (!commonDir) continue
     const repoPath = commonDir.endsWith("/.git") ? commonDir.slice(0, -5) : commonDir
     const existing = repositories.get(commonDir)
@@ -474,6 +490,32 @@ const repositoryRows = (rows: SessionRow[]) => Effect.gen(function* () {
     repositories.set(commonDir, { ...row, name, path, target: { type: "directory", path }, details, markers: [], age: "", searchText: `${name} ${repoPath} ${path}`.toLowerCase() })
   }
   return [...repositories.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+const cachedRepositoryRows = (rows: SessionRow[]) => {
+  const plan = repositoryIdentityPlan(rows)
+  return repositoryRowsFromIdentities(rows, plan.identities)
+}
+
+const refreshRepositoryRows = (rows: SessionRow[]) => Effect.gen(function* () {
+  const plan = repositoryIdentityPlan(rows)
+  if (plan.pathsToProbe.length > 0) {
+    const checkedAt = Date.now()
+    const resolved = yield* Effect.forEach(
+      plan.pathsToProbe,
+      (path) => runCommand(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], { allowFailure: true }).pipe(
+        Effect.map((output) => [path, output.trim()] as const),
+      ),
+      { concurrency: 4 },
+    )
+    for (const [path, commonDir] of resolved) {
+      plan.entries[path] = { commonDir, checkedAt }
+      if (commonDir) plan.identities.set(path, commonDir)
+      else plan.identities.delete(path)
+    }
+  }
+  yield* Effect.sync(() => writeRepositoryIdentityCache(repositoryCachePath, plan.entries))
+  return repositoryRowsFromIdentities(rows, plan.identities)
 })
 
 const collectBranchesSync = (repoPath: string): BranchRow[] => {
@@ -594,11 +636,12 @@ const filterBranches = (rows: BranchRow[], query: string) => {
 const workingGlyphs = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"]
 const animationFrameCount = 40
 const stateGlyph = (state: AgentState, frame = 0) => {
+  if (state === "failed") return "×"
   if (state === "blocked") return Math.floor(frame / 5) % 2 === 0 ? "!" : " "
   if (state === "working") return workingGlyphs[frame % workingGlyphs.length]!
   return state === "done" ? "✓" : state === "idle" ? "○" : "?"
 }
-const stateColor = (state: AgentState) => state === "blocked" ? theme.waiting : state === "working" ? theme.working : state === "done" ? theme.ready : state === "idle" ? theme.idle : theme.unknown
+const stateColor = (state: AgentState) => state === "failed" || state === "blocked" ? theme.waiting : state === "working" ? theme.working : state === "done" ? theme.ready : state === "idle" ? theme.idle : theme.unknown
 const selectedColor = (selected: boolean) => selected ? theme.selectedFg : theme.header
 const targetLabel = (target: Target) => {
   switch (target.type) {
@@ -751,10 +794,10 @@ function TreeRowView(props: { row: TreeRow; selected: boolean; query: string; an
   )
 }
 
-function JumpFooter(props: { row: TreeRow | undefined }) {
+function JumpFooter(props: { row: TreeRow | undefined; error?: string }) {
   return (
     <box height={1} flexDirection="row">
-      <text fg={theme.muted} flexShrink={1}>{props.row?.session.path ?? "No matches"}</text>
+      <text fg={props.error ? theme.warning : theme.muted} flexShrink={1}>{props.error || props.row?.session.path || "No matches"}</text>
       <text flexGrow={1}> </text>
       <text fg={theme.muted} flexShrink={0}>{jumpFooterAction(props.row)}</text>
     </box>
@@ -773,13 +816,14 @@ function PickerRowView(props: { name: string; meta: string; selected: boolean; q
   )
 }
 
-function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; currentSession: string; onOpen: (target: Target | undefined) => void }) {
+function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; refreshRepositories: (sessions: SessionRow[]) => Promise<SessionRow[]>; currentSession: string; onOpen: (target: Target | undefined) => void }) {
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
   const initialExpandedLineage = defaultExpandedLineageSessions(props.sessions)
   const initialExpandedDetails = new Set<string>()
   const initialRows = buildTreeRows(props.sessions, "", { expandedLineageSessions: initialExpandedLineage, expandedDetailSessions: initialExpandedDetails, bottomUp: true })
   const [sessions, setSessions] = createSignal(props.sessions)
+  const [repositories, setRepositories] = createSignal(props.repositories)
   const [expandedLineageSessions, setExpandedLineageSessions] = createSignal<ReadonlySet<string>>(initialExpandedLineage)
   const [expandedDetailSessions, setExpandedDetailSessions] = createSignal<ReadonlySet<string>>(initialExpandedDetails)
   const [mode, setMode] = createSignal<PickerMode>(spawnMode ? "repo" : "jump")
@@ -792,6 +836,8 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [base, setBase] = createSignal("^")
   const [renameName, setRenameName] = createSignal("")
   const [renameSession, setRenameSession] = createSignal<SessionRow>()
+  const [attachSession, setAttachSession] = createSignal<SessionRow>()
+  const [attachCandidateIds, setAttachCandidateIds] = createSignal<ReadonlySet<string>>(new Set())
   const [deleteAction, setDeleteAction] = createSignal<DeleteAction>()
   const [deleteError, setDeleteError] = createSignal("")
   const [newField, setNewField] = createSignal<"branch" | "base">("branch")
@@ -799,20 +845,25 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
   const [animationFrame, setAnimationFrame] = createSignal(0)
   let fetchRequest = 0
+  let repositoryRefresh: Promise<void> | undefined
 
   const treeRows = (rows = sessions(), search = query(), lineage = expandedLineageSessions(), details = expandedDetailSessions()) => buildTreeRows(rows, search, { expandedLineageSessions: lineage, expandedDetailSessions: details, bottomUp: true })
   const filteredTreeRows = createMemo(() => treeRows())
-  const filteredRepositories = createMemo(() => filterSessions(props.repositories, query()))
+  const filteredRepositories = createMemo(() => filterSessions(repositories(), query()))
   const filteredBranches = createMemo(() => filterBranches(branches(), query()))
-  const activeLength = createMemo(() => mode() === "jump" ? filteredTreeRows().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : 0)
+  const attachCandidates = createMemo(() => sessions().filter((session) => session.workspaceId && attachCandidateIds().has(session.workspaceId)))
+  const filteredAttachCandidates = createMemo(() => filterSessions(attachCandidates(), query()))
+  const activeLength = createMemo(() => mode() === "jump" ? filteredTreeRows().length : mode() === "repo" ? filteredRepositories().length : mode() === "branch" ? filteredBranches().length : mode() === "attach" ? filteredAttachCandidates().length : 0)
   const selectedTreeRow = createMemo(() => mode() === "jump" ? filteredTreeRows()[index()] : undefined)
   const selectedParent = createMemo(() => isSessionRow(selectedTreeRow()) ? selectedTreeRow()!.session : undefined)
   const selectedRepository = createMemo(() => mode() === "repo" ? filteredRepositories()[index()] : undefined)
   const selectedBranch = createMemo(() => mode() === "branch" ? filteredBranches()[index()] : undefined)
+  const selectedAttachCandidate = createMemo(() => mode() === "attach" ? filteredAttachCandidates()[index()] : undefined)
   const visibleCount = createMemo(() => Math.max(1, dimensions().height - (mode() === "jump" && !deleteAction() ? 5 : 11)))
   const visibleTreeRows = createMemo(() => visibleSlice(filteredTreeRows(), index(), visibleCount()))
   const visibleRepositories = createMemo(() => visibleSlice(filteredRepositories(), index(), visibleCount()))
   const visibleBranches = createMemo(() => visibleSlice(filteredBranches(), index(), visibleCount()))
+  const visibleAttachCandidates = createMemo(() => visibleSlice(filteredAttachCandidates(), index(), visibleCount()))
 
   const indexForTreeQuery = (search: string, anchor = treeRowAnchor(selectedTreeRow())) => {
     const rows = treeRows(sessions(), search, expandedLineageSessions(), expandedDetailSessions())
@@ -834,7 +885,12 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       return
     }
     if (mode() === "repo") {
-      setIndex(indexForFlatQuery(filterSessions(props.repositories, nextQuery), nextQuery, (row) => row.path === currentRepositoryPath))
+      setIndex(indexForFlatQuery(filterSessions(repositories(), nextQuery), nextQuery, (row) => row.path === currentRepositoryPath))
+      return
+    }
+    if (mode() === "attach") {
+      const currentWorkspaceId = selectedAttachCandidate()?.workspaceId
+      setIndex(indexForFlatQuery(filterSessions(attachCandidates(), nextQuery), nextQuery, (row) => row.workspaceId === currentWorkspaceId))
       return
     }
     if (mode() === "branch") setIndex(indexForFlatQuery(filterBranches(branches(), nextQuery), nextQuery, (row) => row.key === currentBranchKey))
@@ -848,7 +904,16 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     setIndex(nextIndex)
     return true
   }
+  const refreshRepositories = () => {
+    if (repositoryRefresh) return repositoryRefresh
+    repositoryRefresh = props.refreshRepositories(sessions()).then((next) => {
+      setRepositories(next)
+      if (mode() === "repo") setIndex((current) => clamp(current, 0, Math.max(0, filterSessions(next, query()).length - 1)))
+    }).catch(() => {}).finally(() => { repositoryRefresh = undefined })
+    return repositoryRefresh
+  }
   const resetList = (nextMode: PickerMode) => {
+    if (nextMode === "repo") void refreshRepositories()
     setMode(nextMode)
     setQuery("")
     const parentIndex = nextMode === "jump" ? firstSessionIndex(treeRows(sessions(), "")) : 0
@@ -960,6 +1025,30 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     if (action.kind === "worktree") return `Destroy session and worktree '${row.session.branch || row.session.path}'?`
     return `Destroy ${action.kind} '${row.session.name}'?`
   }
+  const setTmuxWorkspaceParent = (sessionName: string, parentWorkspaceId: string | null) => {
+    const found = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
+    const sessionId = parseTsv(found.stdout.toString()).find(([, name]) => name === sessionName)?.[0] ?? ""
+    if (found.exitCode !== 0 || !sessionId) return found.stderr.toString().trim() || "Selected session no longer exists"
+    const args = parentWorkspaceId === null
+      ? ["tmux", "set-option", "-u", "-t", sessionId, "@dotfiles_workspace_parent_id"]
+      : ["tmux", "set-option", "-t", sessionId, "@dotfiles_workspace_parent_id", parentWorkspaceId]
+    const updated = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" })
+    return updated.exitCode === 0 ? "" : updated.stderr.toString().trim() || "Unable to update tmux workspace parent metadata"
+  }
+  const refreshLineageRows = (selectedWorkspaceId: string, search: string) => {
+    const lineage = readLineageSnapshot()
+    const refreshedSessions = sessions().map((session) => {
+      const workspace = session.workspaceId ? lineage.byId.get(session.workspaceId) : lineage.byPath.get(session.path)
+      if (!workspace) return session
+      const fields = buildLineageFields(workspace.workspaceId, workspace.parentWorkspaceId, workspace.childWorkspaceCount)
+      return { ...session, parentWorkspaceId: workspace.parentWorkspaceId, childWorkspaceCount: workspace.childWorkspaceCount, lineageLabel: fields.lineageLabel, lineageSearchText: fields.lineageSearchText }
+    })
+    setSessions(refreshedSessions)
+    const refreshedRows = treeRows(refreshedSessions, search)
+    const refreshedIndex = refreshedRows.findIndex((row) => !row.detail && row.session.workspaceId === selectedWorkspaceId)
+    setIndex(Math.max(0, refreshedIndex))
+    invalidateCacheSync()
+  }
 
   usePaste((event) => {
     appendInput(new TextDecoder().decode(event.bytes))
@@ -1016,14 +1105,55 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       setMode("rename")
       return
     }
+    if (key.meta && key.name === "a" && mode() === "jump") {
+      const selected = selectedTreeRow()
+      const workspaceId = selected && !selected.detail ? selected.session.workspaceId : undefined
+      if (!selected || !workspaceId) return
+      setError("")
+      try {
+        const candidates = attachmentCandidatesForWorkspace(workspaceId)
+        setAttachCandidateIds(new Set(candidates.map((candidate) => candidate.workspaceId)))
+      } catch (candidateError) {
+        setError(candidateError instanceof Error ? candidateError.message : String(candidateError))
+        return
+      }
+      setAttachSession(selected.session)
+      setQuery("")
+      setIndex(0)
+      setMode("attach")
+      return
+    }
+    if (key.meta && key.name === "l" && mode() === "jump") {
+      const selected = selectedTreeRow()
+      const workspaceId = selected && !selected.detail ? selected.session.workspaceId : undefined
+      if (!workspaceId || !selected?.session.parentWorkspaceId) return
+      setError("")
+      try {
+        detachWorkspaceFromParent(workspaceId)
+      } catch (detachError) {
+        setError(detachError instanceof Error ? detachError.message : String(detachError))
+        return
+      }
+      if (selected.target.type === "tmux_session") {
+        const tmuxError = setTmuxWorkspaceParent(selected.target.session, null)
+        if (tmuxError) setError(`Workspace detached, but ${tmuxError}`)
+      }
+      refreshLineageRows(workspaceId, query())
+      return
+    }
     if (key.ctrl && key.name === "r" && mode() === "branch" && repository()) {
       refreshRemoteBranches(repository()!)
       return
     }
     if (key.name === "escape") {
-      if (mode() === "rename") {
+      if (mode() === "rename" || mode() === "attach") {
+        const sourceWorkspaceId = attachSession()?.workspaceId
         setMode("jump")
+        setQuery("")
         setError("")
+        setAttachSession(undefined)
+        setAttachCandidateIds(new Set<string>())
+        if (sourceWorkspaceId) refreshLineageRows(sourceWorkspaceId, "")
         return
       }
       if (mode() === "new") {
@@ -1087,6 +1217,27 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     if (key.name === "up") return updateIndex(index() + 1)
     if (key.name === "down") return updateIndex(index() - 1)
     if (key.name === "return") {
+      if (mode() === "attach") {
+        const source = attachSession()
+        const parent = selectedAttachCandidate()
+        if (!source?.workspaceId || !parent?.workspaceId) return
+        setError("")
+        try {
+          attachWorkspaceToParent(source.workspaceId, parent.workspaceId)
+        } catch (attachError) {
+          setError(attachError instanceof Error ? attachError.message : String(attachError))
+          return
+        }
+        let tmuxError = ""
+        if (source.target.type === "tmux_session") tmuxError = setTmuxWorkspaceParent(source.target.session, parent.workspaceId)
+        setMode("jump")
+        setQuery("")
+        setAttachSession(undefined)
+        setAttachCandidateIds(new Set<string>())
+        if (tmuxError) setError(`Workspace attached, but ${tmuxError}`)
+        refreshLineageRows(source.workspaceId, "")
+        return
+      }
       if (mode() === "rename" && renameSession()?.target.type === "tmux_session" && renameName().trim()) {
         const row = renameSession()!
         const oldName = row.target.type === "tmux_session" ? row.target.session : ""
@@ -1153,6 +1304,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   }, {})
 
   onMount(() => {
+    const initialRepositoryRefresh = setTimeout(() => { void refreshRepositories() }, 0)
     const animationInterval = setInterval(() => {
       if (mode() === "jump" && filteredTreeRows().some((row) => row.state === "working" || row.state === "blocked")) {
         setAnimationFrame((frame) => (frame + 1) % animationFrameCount)
@@ -1171,24 +1323,26 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       }
     }, 500)
     onCleanup(() => {
+      clearTimeout(initialRepositoryRefresh)
       clearInterval(animationInterval)
       clearInterval(cacheInterval)
     })
   })
 
-  const title = () => mode() === "jump" ? "Waystation · Jump" : mode() === "repo" ? "Waystation · Open or create branch" : mode() === "branch" ? `Waystation · ${repository()?.name ?? ""}` : mode() === "rename" ? "Waystation · Rename tmux session" : `Waystation · New branch · ${repository()?.name ?? ""}`
+  const title = () => mode() === "jump" ? "Waystation · Jump" : mode() === "repo" ? "Waystation · Open or create branch" : mode() === "branch" ? `Waystation · ${repository()?.name ?? ""}` : mode() === "rename" ? "Waystation · Rename tmux session" : mode() === "attach" ? `Waystation · Attach ${attachSession()?.name ?? "workspace"}` : `Waystation · New branch · ${repository()?.name ?? ""}`
 
   return (
     <box flexDirection="column" width="100%" height="100%">
       <box height={1} flexDirection="row">
         <text fg={theme.accentStrong}>{title()}</text>
         <text flexGrow={1}> </text>
-        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-K branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-R rename" : ""} · Esc close` : `Alt-K open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
+        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-K branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-R rename" : ""} · Alt-A attach · Alt-L detach · Esc close` : mode() === "attach" ? "Type to search parents · Enter attach · Esc cancel" : `Alt-K open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
       </box>
       <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
         {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} animationFrame={animationFrame()} />}</For> : null}
         {mode() === "repo" ? <For each={visibleRepositories()}>{(repo) => <PickerRowView name={repo.name} meta={repo.path} selected={repo === selectedRepository()} query={query()} />}</For> : null}
         {mode() === "branch" ? <For each={visibleBranches()}>{(branch) => <PickerRowView name={branch.name} meta={branch.kind === "worktree" ? `worktree · ${branch.path}` : branch.kind === "create" ? "create new branch" : branch.kind === "remote" ? `remote${branch.recency ? ` · ${ageFromUnixSeconds(branch.recency)}` : ""}` : branch.kind} selected={branch === selectedBranch()} query={query()} />}</For> : null}
+        {mode() === "attach" ? <For each={visibleAttachCandidates()}>{(candidate) => <PickerRowView name={candidate.name} meta={`${candidate.branch} · ${candidate.path}`} selected={candidate === selectedAttachCandidate()} query={query()} />}</For> : null}
         {mode() === "new" ? (
           <box flexDirection="column" padding={2}>
             <text fg={newField() === "branch" ? theme.accentStrong : theme.header}>Branch: {branchName()}{newField() === "branch" ? "_" : ""}</text>
@@ -1208,10 +1362,10 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
           <text fg={theme.header}>Press y to confirm or n to cancel.</text>
           {deleteError() ? <text fg={theme.warning}>{deleteError()}</text> : null}
         </box>
-      ) : mode() === "jump" ? <JumpFooter row={selectedTreeRow()} /> : (
+      ) : mode() === "jump" ? <JumpFooter row={selectedTreeRow()} error={error()} /> : (
         <box border borderStyle="single" borderColor={theme.border} height={8} flexDirection="column">
-          <text fg={theme.header}>{mode() === "rename" ? renameSession()?.path ?? "" : mode() === "repo" ? selectedRepository()?.path ?? "Select a repository" : repository()?.path ?? "Select a repository"}</text>
-          <text fg={theme.muted}>{mode() === "branch" ? "Worktrees, local branches, and recently updated remote branches; remotes refresh in the background" : mode() === "new" ? "Worktrunk will create the branch, worktree, and setup hooks" : mode() === "rename" ? "Canonical worktree identity and included agents are unchanged" : "Enter chooses repository"}</text>
+          <text fg={theme.header}>{mode() === "rename" ? renameSession()?.path ?? "" : mode() === "attach" ? attachSession()?.path ?? "Select a workspace to attach" : mode() === "repo" ? selectedRepository()?.path ?? "Select a repository" : repository()?.path ?? "Select a repository"}</text>
+          <text fg={theme.muted}>{mode() === "branch" ? "Worktrees, local branches, and recently updated remote branches; remotes refresh in the background" : mode() === "new" ? "Worktrunk will create the branch, worktree, and setup hooks" : mode() === "rename" ? "Canonical worktree identity and included agents are unchanged" : mode() === "attach" ? selectedAttachCandidate() ? `New parent: ${selectedAttachCandidate()!.name}` : "No valid parent workspaces match" : "Enter chooses repository"}</text>
           {error() ? <text fg={theme.warning}>{error()}</text> : null}
         </box>
       )}
@@ -1228,12 +1382,12 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
 
 const program = process.argv.includes("--server") ? serverProgram : process.argv.includes("--dump-cache") ? dumpCachedState : process.argv.includes("--dump-state") ? dumpState : Effect.gen(function* () {
   const sessions = yield* cachedOrCollectedSessions
-  const repositories = yield* repositoryRows(sessions)
+  const repositories = cachedRepositoryRows(sessions)
   let currentSession = ""
   if (Bun.env.TMUX) currentSession = yield* runCommand(["tmux", "display-message", "-p", "#{session_name}"], { allowFailure: true }).pipe(Effect.map((output) => output.trim()))
   let target: Target | undefined
   yield* Effect.tryPromise({
-    try: () => render(() => <App sessions={sessions} repositories={repositories} currentSession={currentSession} onOpen={(next) => { target = next }} />, { exitOnCtrlC: true }),
+    try: () => render(() => <App sessions={sessions} repositories={repositories} refreshRepositories={(rows) => Effect.runPromise(refreshRepositoryRows(rows))} currentSession={currentSession} onOpen={(next) => { target = next }} />, { exitOnCtrlC: true }),
     catch: (error) => error instanceof Error ? error : new Error(String(error)),
   })
 })

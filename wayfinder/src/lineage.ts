@@ -365,6 +365,45 @@ export const workspaceForId = (id: string, dbPath = workspaceStatePath) => {
   }
 }
 
+export const attachWorkspaceToParent = (workspaceId: string, parentWorkspaceId: string, dbPath = workspaceStatePath) => {
+  const workspace = workspaceForId(workspaceId, dbPath)
+  if (!workspace) throw new Error(`Workspace ${workspaceId} does not exist`)
+  if (workspace.parentWorkspaceId === parentWorkspaceId) return workspace
+  return registerWorkspace({ path: workspace.canonicalPath, commonDir: workspace.commonDir, branch: workspace.branch }, {
+    parentWorkspaceId,
+    preserveParent: false,
+    dbPath,
+  })
+}
+
+export const detachWorkspaceFromParent = (workspaceId: string, dbPath = workspaceStatePath) => {
+  const workspace = workspaceForId(workspaceId, dbPath)
+  if (!workspace) throw new Error(`Workspace ${workspaceId} does not exist`)
+  if (workspace.parentWorkspaceId === null) return workspace
+  return registerWorkspace({ path: workspace.canonicalPath, commonDir: workspace.commonDir, branch: workspace.branch }, {
+    parentWorkspaceId: null,
+    preserveParent: false,
+    dbPath,
+  })
+}
+
+export const attachmentCandidatesForWorkspace = (workspaceId: string, dbPath = workspaceStatePath) => {
+  const workspace = workspaceForId(workspaceId, dbPath)
+  if (!workspace) throw new Error(`Workspace ${workspaceId} does not exist`)
+  const project = projectSnapshot(workspace.canonicalPath, dbPath)
+  const childrenByParent = Map.groupBy(project.workspaces, (candidate) => candidate.parentWorkspaceId || "")
+  const blocked = new Set([workspaceId])
+  const visitChildren = (parentId: string) => {
+    for (const child of childrenByParent.get(parentId) ?? []) {
+      if (blocked.has(child.workspaceId)) continue
+      blocked.add(child.workspaceId)
+      visitChildren(child.workspaceId)
+    }
+  }
+  visitChildren(workspaceId)
+  return project.workspaces.filter((candidate) => !blocked.has(candidate.workspaceId) && candidate.workspaceId !== workspace.parentWorkspaceId)
+}
+
 export const projectSnapshot = (cwd = process.cwd(), dbPath = workspaceStatePath): ProjectSnapshot => {
   const identity = identifyWorkspaceSync(cwd)
   const db = openStore(dbPath)

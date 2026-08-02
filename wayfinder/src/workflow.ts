@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { realpathSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 import { markDirectoryActivity } from "./activity"
+import { agentForPane, generatedAgentId, listAgents, resultForAgent, sendAgent, waitForAgent, type AgentDelivery } from "./agent-api"
 import { lineageMode, persistWorkspaceLineage, type LineageMode, type WorkspaceRecord, workspaceForId } from "./lineage"
 
 export type Harness = "pi" | "claude" | "opencode"
@@ -71,15 +72,16 @@ export async function ensureSession(id: WorktreeIdentity, options: { parentWorks
   return name
 }
 
-function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: string, signalFile?: string) {
+function harnessCommand(harness: Harness, cwd: string, prompt: string, agentId: string, agent?: string) {
   const plannotatorEnv = [
     `BROWSER=${Bun.env.BROWSER || "xdg-open"}`,
     `PLANNOTATOR_BROWSER=${Bun.env.PLANNOTATOR_BROWSER || `${Bun.env.HOME}/.local/bin/xdg-open`}`,
     `PLANNOTATOR_REMOTE=${Bun.env.PLANNOTATOR_REMOTE || "1"}`,
     `PLANNOTATOR_PORT=${Bun.env.PLANNOTATOR_PORT || "19432-19439"}`,
   ]
-  if (harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", ...plannotatorEnv, "claude", ...(agent ? ["--agent", agent] : []), prompt]
-  if (harness === "opencode") return ["env", ...plannotatorEnv, "oc", ...(agent ? ["--agent", agent] : []), "--prompt", prompt]
+  const waystationEnv = `WAYSTATION_AGENT_ID=${agentId}`
+  if (harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", ...plannotatorEnv, waystationEnv, "claude", ...(agent ? ["--agent", agent] : []), prompt]
+  if (harness === "opencode") return ["env", ...plannotatorEnv, waystationEnv, "oc", ...(agent ? ["--agent", agent] : []), "--prompt", prompt]
   const presetArgs: string[] = []
   if (agent) {
     const helper = resolve(import.meta.dir, "../../bin/pi-agent-config")
@@ -92,11 +94,11 @@ function harnessCommand(harness: Harness, cwd: string, prompt: string, agent?: s
     const body = Bun.spawnSync([helper, "--cwd", cwd, "--body", agent], { stdout: "pipe" }).stdout.toString()
     if (body.trim()) presetArgs.push("--append-system-prompt", body)
   }
-  const lifecycleEnv = signalFile ? [`PI_TMUX_WAIT_SIGNAL_FILE=${signalFile}`] : []
-  return ["env", ...plannotatorEnv, ...lifecycleEnv, "pi", ...presetArgs, prompt]
+  return ["env", ...plannotatorEnv, waystationEnv, "pi", ...presetArgs, prompt]
 }
 
 export async function spawnAgent(harness: Harness, cwd: string, prompt: string, agent?: string, requestedName?: string, wait = false) {
+  if (wait && harness === "opencode") throw new Error("OpenCode does not expose a verified lifecycle report transport for waiting")
   const id = await identity(cwd)
   const session = await ensureSession(id)
   markDirectoryActivity(id.path, "agent")
@@ -104,23 +106,23 @@ export async function spawnAgent(harness: Harness, cwd: string, prompt: string, 
   const existing = (await command(["tmux", "list-windows", "-t", `=${session}`, "-F", "#{window_name}"], undefined, true)).stdout.split("\n")
   let name = prefix; let n = 2
   while (existing.includes(name)) name = `${prefix}-${n++}`
-  if (wait && harness !== "pi") throw new Error("settled waiting is currently supported only by pi")
-  const signalFile = wait ? `${Bun.env.XDG_RUNTIME_DIR || "/tmp"}/dotfiles-worker-${process.pid}-${Date.now()}.json` : undefined
-  const argv = harnessCommand(harness, id.path, prompt, agent, signalFile)
+  const agentId = generatedAgentId()
+  const argv = harnessCommand(harness, id.path, prompt, agentId, agent)
   const result = await command(["tmux", "new-window", "-d", "-P", "-F", "#{window_id}\t#{pane_id}", "-t", `=${session}`, "-n", name, "-c", id.path, ...argv])
   const [window, pane] = result.stdout.split("\t")
+  await command(["tmux", "set-option", "-p", "-t", pane!, "@waystation_agent_id", agentId])
+  await command(["tmux", "set-option", "-p", "-t", pane!, "@dotfiles_agent", harness])
   await command(["tmux", "set-option", "-w", "-t", window!, "@dotfiles_agent", harness])
-  const spawned: Record<string, unknown> = { identity: id, session, window, pane, name }
-  if (signalFile) {
+  const spawned: Record<string, unknown> = { identity: id, session, window, pane, name, agentId }
+  if (wait) {
     const timeout = Number(Bun.env.DOTFILES_WORKER_WAIT_TIMEOUT || 600) * 1000
-    const started = Date.now()
-    while (!Bun.file(signalFile).size) {
-      if (Date.now() - started >= timeout) throw new Error(`Timed out waiting for ${session}:${name}; worker remains running`)
-      await Bun.sleep(200)
+    const settled = await waitForAgent(agentId, { afterGeneration: 0, timeoutMs: timeout })
+    spawned.settled = settled
+    if (harness === "pi") {
+      const result = await resultForAgent(agentId, settled.settledGeneration)
+      if (result.status !== 0) throw new Error(result.errorMessage || result.stopReason || "worker failed")
+      spawned.result = result.reply
     }
-    const settled = await Bun.file(signalFile).json(); await Bun.file(signalFile).delete()
-    if (settled.status !== 0) throw new Error(settled.errorMessage || settled.stopReason || "worker failed")
-    spawned.result = settled.reply
   }
   return spawned
 }
@@ -199,15 +201,11 @@ export async function ensureDirectorySession(directory: string) {
 }
 
 export async function currentWorktreeAgents(cwd = process.cwd()) {
-  const id = await identity(cwd)
-  const output = await command(["tmux", "list-panes", "-a", "-F", "#{@dotfiles_worktree_path}\t#{@dotfiles_agent}\t#{session_name}\t#{window_id}\t#{pane_id}\t#{window_name}"], undefined, true)
-  return output.stdout.split("\n").filter(Boolean).map((line) => line.split("\t")).filter((p) => realpathSafe(p[0]!) === id.path && p[1]).map((p) => ({ harness: p[1]!, session: p[2]!, window: p[3]!, pane: p[4]!, name: p[5]! }))
+  return listAgents({ cwd })
 }
 
-export async function sendToPane(pane: string, text: string, submit = true) {
-  const buffer = `agent-bridge-${process.pid}`
-  const proc = Bun.spawn(["tmux", "load-buffer", "-b", buffer, "-"], { stdin: "pipe" })
-  proc.stdin.write(text); proc.stdin.end(); if (await proc.exited !== 0) throw new Error("tmux load-buffer failed")
-  await command(["tmux", "paste-buffer", "-d", "-b", buffer, "-t", pane])
-  if (submit) await command(["tmux", "send-keys", "-t", pane, "Enter"])
+export async function sendToPane(pane: string, text: string, submit = true, delivery?: AgentDelivery) {
+  if (!submit) throw new Error("Native agent transports cannot append without submitting a user message")
+  const agent = await agentForPane(pane)
+  return sendAgent(agent.id, text, { delivery })
 }

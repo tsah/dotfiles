@@ -8,6 +8,7 @@ a .gitconfig ~/.gitconfig
 a .tmux.conf ~/.tmux.conf
 a systemd/user/plannotator-session-cleanup.service ~/.config/systemd/user/plannotator-session-cleanup.service
 a systemd/user/plannotator-session-cleanup.timer ~/.config/systemd/user/plannotator-session-cleanup.timer
+a systemd/user/wayfinder-resource-guard.service ~/.config/systemd/user/wayfinder-resource-guard.service
 a opencode.json ~/.config/opencode/opencode.json
 a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands

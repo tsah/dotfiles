@@ -13,7 +13,7 @@ if ! command -v bun >/dev/null 2>&1; then
     echo "Waystation requires bun" >&2; exit 1
 fi
 
-cd "${DOTFILES_DIR:-$HOME/dotfiles}/alt-k-tui" || exit 1
+cd "${DOTFILES_DIR:-$HOME/dotfiles}/wayfinder" || exit 1
 
 tmux set-option -gq @alt_k_tui_open 1
 trap 'tmux set-option -gu @alt_k_tui_open 2>/dev/null || true' EXIT
@@ -25,7 +25,7 @@ LOG_FILE="$STATE_DIR/server.log"
 SOCKET_FILE="$STATE_DIR/server.tmux-socket"
 VERSION_FILE="$STATE_DIR/server.version"
 LOCK_FILE="$STATE_DIR/server.lock"
-CACHE_VERSION=9
+CACHE_VERSION=10
 CURRENT_TMUX_SOCKET=${TMUX:-}
 CURRENT_TMUX_SOCKET=${CURRENT_TMUX_SOCKET%%,*}
 

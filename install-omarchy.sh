@@ -8,6 +8,7 @@ REAL_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 if [ "$HOME" = "$REAL_HOME" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload
     systemctl --user enable --now plannotator-session-cleanup.timer
+    systemctl --user enable --now wayfinder-resource-guard.service
 fi
 if command -v nvim >/dev/null 2>&1; then nvim --headless "+MasonInstall bash-language-server gopls lua-language-server texlab rust-analyzer helm-ls basedpyright zls" +qa || true; fi
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"; fi

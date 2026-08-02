@@ -51,3 +51,7 @@ build/
 
 # Timestamped backups created by config refreshes
 *.bak.*
+
+# Python bytecode
+__pycache__/
+*.py[cod]

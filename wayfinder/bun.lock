@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "alt-k-tui",
+      "name": "wayfinder",
       "dependencies": {
         "@opentui/core": "latest",
         "@opentui/solid": "^0.2.15",

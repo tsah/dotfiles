@@ -4,7 +4,7 @@ export type Target =
   | { type: "opencode"; session: string; pane: string }
   | { type: "directory"; path: string }
 
-export type AgentState = "blocked" | "working" | "done" | "idle" | "unknown"
+export type AgentState = "failed" | "blocked" | "working" | "done" | "idle" | "unknown"
 export type ReportedAgentState = AgentState | "running" | "attention"
 
 export interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target; completionKey?: string; updatedAt: number }
@@ -80,6 +80,7 @@ export const stateWithSeen = (state: AgentState, updatedAt: number, seenAt = 0, 
 }
 
 const aggregateStates = (states: AgentState[]): AgentState => {
+  if (states.includes("failed")) return "failed"
   if (states.includes("blocked")) return "blocked"
   if (states.includes("working")) return "working"
   if (states.includes("done")) return "done"
@@ -89,15 +90,22 @@ const aggregateStates = (states: AgentState[]): AgentState => {
 
 export const sessionState = (session: SessionRow): AgentState => aggregateStates(session.details.map((detail) => detail.state))
 
-export const sessionSortRank = (session: SessionRow) => {
-  if (session.target.type === "directory") return session.directorySource === "worktree" ? 4 : 5
-  switch (sessionState(session)) {
+const agentStateSortRank = (state: AgentState) => {
+  switch (state) {
+    case "failed": return 0
     case "blocked":
-    case "working": return 0
-    case "done": return 1
-    case "idle": return 2
-    case "unknown": return 3
+    case "working": return 1
+    case "done": return 2
+    case "idle": return 3
+    case "unknown": return 4
   }
+}
+
+export const sessionSortRank = (session: SessionRow) => {
+  const state = sessionState(session)
+  if (state === "failed") return agentStateSortRank(state)
+  if (session.target.type === "directory") return session.directorySource === "worktree" ? 5 : 6
+  return agentStateSortRank(state)
 }
 
 export const fuzzyResult = (text: string, query: string): FuzzyResult | undefined => {
@@ -179,7 +187,10 @@ const detailSearchFields = (detail: DetailRow): SearchField[] => [
 ]
 const detailSearchText = (_session: SessionRow, detail: DetailRow) => [detail.kind, detail.status, detail.detail, detail.title, detail.age, detail.state].join(" ").toLowerCase()
 const selectableDetails = (session: SessionRow) => session.details.filter((detail) => !["directory", "repository", "session"].includes(detail.kind))
-const sessionTieBreak = (a: SessionRow, b: SessionRow) => sessionSortRank(a) - sessionSortRank(b) || b.recency - a.recency || (b.frecency ?? 0) - (a.frecency ?? 0) || a.name.localeCompare(b.name)
+const visibleTreeSortRank = (node: VisibleTreeNode) => node.session.target.type === "directory"
+  ? sessionSortRank(node.session)
+  : agentStateSortRank(node.state)
+const visibleTreeTieBreak = (a: VisibleTreeNode, b: VisibleTreeNode) => visibleTreeSortRank(a) - visibleTreeSortRank(b) || b.session.recency - a.session.recency || (b.session.frecency ?? 0) - (a.session.frecency ?? 0) || a.session.name.localeCompare(b.session.name)
 const maxScore = (...scores: number[]) => {
   const score = Math.max(...scores)
   return Number.isFinite(score) ? score : 0
@@ -246,7 +257,7 @@ const visibleNode = (
   const children = node.children.flatMap((child) => {
     const visible = visibleNode(child, normalizedQuery, expandedDetailSessions, [...ancestors, node], exposeLineage)
     return visible ? [visible] : []
-  })
+  }).sort((a, b) => b.score - a.score || visibleTreeTieBreak(a, b))
   if (!exposeLineage && detailMatches.length === 0 && children.length === 0) return undefined
 
   const detailsExpanded = Boolean(expandedDetailSessions?.has(node.session.name))
@@ -280,7 +291,9 @@ const expandedNode = (
   const details = selectableDetails(node.session)
   const lineageExpanded = Boolean(node.children.length > 0 && (!expandedLineageSessions || expandedLineageSessions.has(node.session.name)))
   const detailsExpanded = Boolean(details.length > 0 && expandedDetailSessions?.has(node.session.name))
-  const children = node.children.map((child) => expandedNode(child, expandedLineageSessions, expandedDetailSessions, node.key))
+  const children = node.children
+    .map((child) => expandedNode(child, expandedLineageSessions, expandedDetailSessions, node.key))
+    .sort(visibleTreeTieBreak)
   const visibleChildren = lineageExpanded ? children : []
   const visibleDetails = detailsExpanded ? details.map((detail) => ({ detail })) : []
   return {
@@ -360,7 +373,11 @@ export const defaultExpandedLineageSessions = (sessions: SessionRow[], maxChildr
   const { nodes } = sessionForest(sessions)
   return new Set(
     nodes
-      .filter((node) => node.children.length > 0 && node.children.length <= maxChildren)
+      .filter((node) => {
+        if (node.children.length === 0) return false
+        const state = subtreeState(node)
+        return node.children.length <= maxChildren || state === "failed" || state === "working" || state === "done"
+      })
       .map((node) => node.session.name),
   )
 }
@@ -378,8 +395,10 @@ export const buildTreeRows = (
           const visible = visibleNode(node, normalized, options.expandedDetailSessions)
           return visible ? [visible] : []
         })
-        .sort((a, b) => b.score - a.score || sessionTieBreak(a.session, b.session))
-    : roots.map((node) => expandedNode(node, options.expandedLineageSessions, options.expandedDetailSessions))
+        .sort((a, b) => b.score - a.score || visibleTreeTieBreak(a, b))
+    : roots
+        .map((node) => expandedNode(node, options.expandedLineageSessions, options.expandedDetailSessions))
+        .sort(visibleTreeTieBreak)
 
   const groups = visibleRoots.map((node, index) => flattenTreeRows(node, 0, [], index === visibleRoots.length - 1))
   return options.bottomUp ? groups.flatMap((rows) => [...rows].reverse()) : groups.flat()
