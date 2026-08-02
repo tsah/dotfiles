@@ -8,7 +8,8 @@ export type AgentState = "blocked" | "working" | "done" | "idle" | "unknown"
 export type ReportedAgentState = AgentState | "running" | "attention"
 
 export interface DetailRow { kind: string; status: string; detail: string; title: string; age: string; state: AgentState; target: Target; completionKey?: string; updatedAt: number }
-export interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string; activitySource?: string; frecency?: number; workspaceId?: string; parentWorkspaceId?: string | null; childWorkspaceCount?: number; lineageLabel?: string; lineageSearchText?: string }
+export type DirectorySource = "worktree" | "zoxide" | "activity"
+export interface SessionRow { name: string; path: string; branch: string; flags: string; markers: string[]; age: string; recency: number; target: Target; details: DetailRow[]; searchText: string; directorySource?: DirectorySource; activitySource?: string; frecency?: number; workspaceId?: string; parentWorkspaceId?: string | null; childWorkspaceCount?: number; lineageLabel?: string; lineageSearchText?: string }
 export interface TreeRow {
   key: string
   depth: number
@@ -88,7 +89,16 @@ const aggregateStates = (states: AgentState[]): AgentState => {
 
 export const sessionState = (session: SessionRow): AgentState => aggregateStates(session.details.map((detail) => detail.state))
 
-export const sessionSortRank = (session: SessionRow) => ["blocked", "working"].includes(sessionState(session)) ? 0 : 1
+export const sessionSortRank = (session: SessionRow) => {
+  if (session.target.type === "directory") return session.directorySource === "worktree" ? 4 : 5
+  switch (sessionState(session)) {
+    case "blocked":
+    case "working": return 0
+    case "done": return 1
+    case "idle": return 2
+    case "unknown": return 3
+  }
+}
 
 export const fuzzyResult = (text: string, query: string): FuzzyResult | undefined => {
   const chars = Array.from(text.toLowerCase())

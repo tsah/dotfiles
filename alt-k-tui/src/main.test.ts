@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionState, stateWithSeen, structuredSearch } from "./model"
+import { buildTreeRows, defaultExpandedLineageSessions, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
 import type { DetailRow, SessionRow, Target, TreeRow } from "./model"
 import { inlineSummary, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
 
@@ -29,6 +29,7 @@ const session = (name: string, options: Partial<SessionRow> & { details?: Sessio
   target: options.target ?? sessionTarget(name),
   details: options.details ?? [detail(name, `${name}-window`, `${name}-1`)],
   searchText: options.searchText ?? "",
+  directorySource: options.directorySource,
   workspaceId: options.workspaceId,
   parentWorkspaceId: options.parentWorkspaceId,
   childWorkspaceCount: options.childWorkspaceCount,
@@ -64,6 +65,17 @@ describe("agent state", () => {
     expect(sessionState(aggregate)).toBe("working")
     aggregate.details.pop()
     expect(sessionState(aggregate)).toBe("done")
+  })
+
+  test("sorts working, ready, idle, and neutral sessions before directory targets", () => {
+    const working = session("working", { details: [detail("working", "pi", "01", "working", "pi")] })
+    const ready = session("ready", { details: [detail("ready", "pi", "02", "done", "pi")] })
+    const idle = session("idle", { details: [detail("idle", "pi", "03", "idle", "pi")] })
+    const neutral = session("neutral")
+    const worktree = session("worktree", { target: { type: "directory", path: "/tmp/worktree" }, directorySource: "worktree" })
+    const directory = session("directory", { target: { type: "directory", path: "/tmp/directory" }, directorySource: "zoxide" })
+
+    expect([working, ready, idle, neutral, worktree, directory].map(sessionSortRank)).toEqual([0, 1, 2, 3, 4, 5])
   })
 })
 

@@ -7,14 +7,14 @@ import { canonicalActivityPath, gitStatusPaths, markDirectoryActivity, newestAct
 import type { ActivityRecord, ActivitySource } from "./activity"
 import { readLineageSnapshot } from "./lineage"
 import { buildTreeRows, defaultExpandedLineageSessions, fuzzyResult, normalizeReportedState, sessionSortRank, sessionState, stateWithSeen, structuredSearch } from "./model"
-import type { AgentState, DetailRow, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
+import type { AgentState, DetailRow, DirectorySource, ReportedAgentState, SessionRow, Target, TreeRow } from "./model"
 import { pickSelection, refreshSessionsAuthoritatively, selectedItem, treeRowAnchor, visibleSlice } from "./picker"
 import { detailStatusLabel, ellipsize, inlineSummaryWidth, jumpFooterAction, prefixedLabelWidth, sessionMeta, treePrefix, usesNeutralStateGlyph, visibleInlineSummary } from "./presentation"
 
 interface TmuxSession { name: string; recency: number; path: string; attached: boolean; worktreePath: string; directoryPath: string; workspaceId?: string; parentWorkspaceId?: string | null }
 interface TmuxWindow { session: string; id: string; index: string; name: string; pane: string; pid: string; command: string; title: string; activity: number; active: boolean }
 interface OpencodeStatus { directory: string; status: string; detail: string; title: string; age: string; session: string; pane: string; updatedAt: number; stablePane: string }
-interface DirectoryRow { path: string; source: "worktree" | "zoxide" | "activity"; branch: string; activityAt?: number; activitySource?: ActivitySource; frecency?: number }
+interface DirectoryRow { path: string; source: DirectorySource; branch: string; activityAt?: number; activitySource?: ActivitySource; frecency?: number }
 interface AgentReport { agent: string; state: AgentState; pane: string; updatedAt: number; hookEvent?: string }
 interface CachePayload { version: number; generatedAt: number; sessions: SessionRow[] }
 interface BranchRow { key: string; name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
@@ -31,7 +31,7 @@ const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
 const tmuxServerKey = `tmux:${detectedTmuxSocket}`
 const refreshMs = Number(Bun.env.ALT_K_TUI_REFRESH_MS ?? 1500) || 1500
-const cacheVersion = 8
+const cacheVersion = 9
 const spawnMode = Bun.env.ALT_K_TUI_MODE === "spawn"
 const theme = {
   accent: "#7dd3fc",
@@ -393,7 +393,7 @@ const buildSessionRows = (sessions: TmuxSession[], windows: TmuxWindow[], openco
     const age = directory.activityAt ? ageFromUnixSeconds(directory.activityAt / 1000) : ""
     const workspace = lineage.byPath.get(path)
     const lineageFields = buildLineageFields(workspace?.workspaceId, workspace?.parentWorkspaceId, workspace?.childWorkspaceCount ?? 0)
-    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age, recency: Math.floor((directory.activityAt ?? 0) / 1000), target: { type: "directory", path }, details, searchText: "", activitySource: directory.activitySource, frecency: directory.frecency, workspaceId: workspace?.workspaceId, parentWorkspaceId: workspace?.parentWorkspaceId, childWorkspaceCount: workspace?.childWorkspaceCount ?? 0, lineageLabel: lineageFields.lineageLabel, lineageSearchText: lineageFields.lineageSearchText }
+    const row: SessionRow = { name: path, path, branch: directory.branch, flags: "", markers: [], age, recency: Math.floor((directory.activityAt ?? 0) / 1000), target: { type: "directory", path }, details, searchText: "", directorySource: directory.source, activitySource: directory.activitySource, frecency: directory.frecency, workspaceId: workspace?.workspaceId, parentWorkspaceId: workspace?.parentWorkspaceId, childWorkspaceCount: workspace?.childWorkspaceCount ?? 0, lineageLabel: lineageFields.lineageLabel, lineageSearchText: lineageFields.lineageSearchText }
     row.searchText = [row.name, row.path, row.branch, `${directory.source} directory`, row.activitySource, row.age, row.lineageLabel, row.lineageSearchText].join(" ").toLowerCase()
     rows.push(row)
   }
@@ -669,9 +669,10 @@ const isLinkedWorktreeSync = (path: string) => {
 }
 
 const killSessionSync = (sessionName: string) => {
-  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "ignore" })
+  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
+  if (sessions.exitCode !== 0) return sessions
   const sessionId = parseTsv(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
-  if (sessionId) Bun.spawnSync(["tmux", "kill-session", "-t", sessionId], { stdout: "ignore", stderr: "ignore" })
+  return Bun.spawnSync(["tmux", "kill-session", "-t", sessionId || `=${sessionName}`], { stdout: "pipe", stderr: "pipe" })
 }
 
 function HighlightText(props: { text: string; query: string; fg: string }) {
@@ -792,6 +793,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
   const [renameName, setRenameName] = createSignal("")
   const [renameSession, setRenameSession] = createSignal<SessionRow>()
   const [deleteAction, setDeleteAction] = createSignal<DeleteAction>()
+  const [deleteError, setDeleteError] = createSignal("")
   const [newField, setNewField] = createSignal<"branch" | "base">("branch")
   const [error, setError] = createSignal("")
   const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
@@ -944,7 +946,10 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     if (isLinkedWorktreeSync(row.session.path)) return { row, kind: "worktree", pane, finalPane: true }
     return { row, kind: "session", pane, finalPane: true }
   }
-  const requestDelete = (row: TreeRow) => setDeleteAction(deleteActionForRow(row))
+  const requestDelete = (row: TreeRow) => {
+    setDeleteError("")
+    setDeleteAction(deleteActionForRow(row))
+  }
   const deletePrompt = () => {
     const action = deleteAction()
     if (!action) return ""
@@ -965,6 +970,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     if (deleteAction()) {
       if (key.name === "n" || key.name === "escape") {
         setDeleteAction(undefined)
+        setDeleteError("")
         return
       }
       if (key.name !== "y") return
@@ -972,18 +978,32 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
       const currentAction = deleteActionForRow(action.row)
       if (!currentAction) {
         setDeleteAction(undefined)
+        setDeleteError("")
         return
       }
       if (currentAction.kind !== action.kind || currentAction.pane !== action.pane || currentAction.finalPane !== action.finalPane) {
         setDeleteAction(currentAction)
+        setDeleteError("Target changed; review the updated deletion scope.")
         return
       }
+
+      const result = action.kind === "pane" && action.pane
+        ? Bun.spawnSync(["tmux", "kill-pane", "-t", action.pane], { stdout: "pipe", stderr: "pipe" })
+        : action.kind === "worktree" && action.row.session.path
+          ? Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(action.row.session.path)], { stdout: "pipe", stderr: "pipe" })
+          : action.kind === "session"
+            ? killSessionSync(action.row.session.name)
+            : undefined
+      if (!result || result.exitCode !== 0) {
+        const detail = result ? result.stderr.toString().trim() || result.stdout.toString().trim() : "Deletion command was unavailable."
+        setDeleteError(detail || `Deletion failed with exit code ${result?.exitCode ?? "unknown"}.`)
+        return
+      }
+
       setDeleteAction(undefined)
-      renderer.destroy()
-      if (action.kind === "pane" && action.pane) Bun.spawnSync(["tmux", "kill-pane", "-t", action.pane], { stdout: "ignore", stderr: "ignore" })
-      else if (action.kind === "worktree" && action.row.session.path) Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(action.row.session.path)], { stdout: "inherit", stderr: "inherit" })
-      else if (action.kind === "session") killSessionSync(action.row.session.name)
+      setDeleteError("")
       invalidateCacheSync()
+      renderer.destroy()
       return
     }
     if (key.meta && key.name === "k") return resetList("repo")
@@ -1186,6 +1206,7 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
         <box border borderStyle="single" borderColor={theme.warning} height={8} flexDirection="column" padding={1}>
           <text fg={theme.warning}>{deletePrompt()}</text>
           <text fg={theme.header}>Press y to confirm or n to cancel.</text>
+          {deleteError() ? <text fg={theme.warning}>{deleteError()}</text> : null}
         </box>
       ) : mode() === "jump" ? <JumpFooter row={selectedTreeRow()} /> : (
         <box border borderStyle="single" borderColor={theme.border} height={8} flexDirection="column">

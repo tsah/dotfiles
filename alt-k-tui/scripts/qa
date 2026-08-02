@@ -203,7 +203,7 @@ write_fixture_cache() {
           : variant === "lineage-visual"
             ? lineageVisual
             : refreshUpdated
-      writeFileSync(file, JSON.stringify({ version: 8, generatedAt: Date.now(), sessions: rows }))
+      writeFileSync(file, JSON.stringify({ version: 9, generatedAt: Date.now(), sessions: rows }))
     ' "$variant" "$cache_file"
 }
 
@@ -303,7 +303,7 @@ assert by_path[edited]["activitySource"] == "edited", by_path[edited]
 assert by_path[ledger_only]["activitySource"] == "agent", by_path[ledger_only]
 assert paths.index(durable) < paths.index(old), paths
 assert paths.index(edited) < paths.index(old), paths
-assert paths.index(ledger_only) < paths.index(old), paths
+assert paths.index(old) < paths.index(ledger_only), paths
 PY
 
 state_dir="$runtime/alt-k-tui-$uid/agent-state"
@@ -603,4 +603,4 @@ wait_for_text "qa-workflow-tree"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "qa-delete-parent"
 wait_for_text "0 targets"
 
-printf 'Alt-K tree QA passed: newest-nearest-prompt bottom-up ordering, durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, connector-aligned colored state glyphs, compact lineage-only connectors, inline summary names, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree/parent-worktree destruction with cache invalidation behave correctly.\n'
+printf 'Waystation QA passed: newest-nearest-prompt bottom-up ordering, durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, connector-aligned colored state glyphs, compact lineage-only connectors, inline summary names, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree/parent-worktree destruction with cache invalidation behave correctly.\n'

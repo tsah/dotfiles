@@ -10,7 +10,7 @@ if [[ -r "$SCRIPT_DIR/lib/bootstrap-path.sh" ]]; then
 fi
 
 if ! command -v bun >/dev/null 2>&1; then
-    echo "workspace-picker requires bun" >&2; exit 1
+    echo "Waystation requires bun" >&2; exit 1
 fi
 
 cd "${DOTFILES_DIR:-$HOME/dotfiles}/alt-k-tui" || exit 1
@@ -25,7 +25,7 @@ LOG_FILE="$STATE_DIR/server.log"
 SOCKET_FILE="$STATE_DIR/server.tmux-socket"
 VERSION_FILE="$STATE_DIR/server.version"
 LOCK_FILE="$STATE_DIR/server.lock"
-CACHE_VERSION=8
+CACHE_VERSION=9
 CURRENT_TMUX_SOCKET=${TMUX:-}
 CURRENT_TMUX_SOCKET=${CURRENT_TMUX_SOCKET%%,*}
 
@@ -52,7 +52,9 @@ server_running() {
     [[ -r "$SOCKET_FILE" ]] || return 1
     [[ "$(<"$SOCKET_FILE")" == "$CURRENT_TMUX_SOCKET" ]] || return 1
     [[ -r "$VERSION_FILE" ]] || return 1
-    [[ "$(<"$VERSION_FILE")" == "$CACHE_VERSION" ]]
+    [[ "$(<"$VERSION_FILE")" == "$CACHE_VERSION" ]] || return 1
+    # Restart after local source edits even when the cache schema is unchanged.
+    [[ -z "$(find src -type f -newer "$PID_FILE" -print -quit 2>/dev/null)" ]]
 }
 
 mkdir -p "$STATE_DIR"
@@ -68,7 +70,7 @@ if ! server_running; then
                 sleep 0.05
             done
             if kill -0 "$old_pid" 2>/dev/null; then
-                echo "workspace-picker could not stop stale cache server $old_pid" >&2
+                echo "Waystation could not stop stale cache server $old_pid" >&2
                 exit 1
             fi
         fi
