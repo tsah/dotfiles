@@ -1,119 +1,83 @@
 ---
 name: handoff
 description: >-
-  Use when the user asks to hand off work, handoff this, spawn a visible tmux
-  worktree worker, use /handoff, or run a separate worker in the current
-  harness. A handoff means a visible tmux session/window with its own worktree,
-  not a normal in-session agent/subagent and not remote/headless execution.
+  Create a visible agent worker in a separate Worktrunk worktree and tmux
+  session. Use when the user asks to hand off, handoff this, delegate work,
+  spawn an isolated or visible worker, create a worktree worker, run work in a
+  separate worktree, or give a task to another agent. Do not use for
+  communicating with an already-running agent.
 ---
 
 # Handoff
 
-A handoff is for independent, isolated implementation or research. It creates a
-visible tmux worktree worker: a separate tmux session/window with its own git
-worktree, launched from the current harness.
+A handoff creates a new visible worker in its own Worktrunk-managed worktree and
+tmux session. Use it for independent implementation, research, investigation,
+or orchestration where isolation is intentional.
 
-The separate worktree + tmux session is the point of a handoff: the worker can
-make changes, run experiments, or research independently without disturbing the
-current working tree or current tmux session.
+Do not use handoff for:
 
-Use this skill when the user asks to:
+- an existing visible agent: use the `agent-coordination` skill
+- same-session delegation: use the harness's native subagent mechanism
+- a shell, REPL, debugger, or test watcher: use appropriate interactive tooling
+- remote/headless work unless the user explicitly asks for it
 
-- hand off work
-- handoff this
-- hand this off
-- spawn a tmux worker
-- spawn a worktree worker
-- run a separate visible worker
-- use `/handoff`
+## Launch rules
 
-Do not use this skill for local, collaborative, in-session agent/subagent
-delegation. For that, use tmux interactive control or the harness's same-session
-subagent mechanism instead.
+Stay inside the current harness unless the user asks for another one:
 
-## Core Rules
+- Claude Code: `env -u ANTHROPIC_API_KEY worker-claude`
+- OpenCode: `worker-opencode`
+- Pi: `worker-pi`
 
-Stay inside the current harness unless the user explicitly asks for another one.
+All launchers accept:
 
-- Claude Code uses `/handoff` or `worker-claude`.
-  When invoking Claude Code, ensure `ANTHROPIC_API_KEY` is unset so the Claude
-  subscription is used rather than direct API access.
-- OpenCode uses `/handoff` or `worker-opencode`.
-- pi uses `worker-pi`. The in-process `Agent` tool is for same-session delegation, not a visible handoff.
-
-Do not launch remote/headless workers unless the user explicitly asks for a
-remote job, background job, detached job, or headless mode.
-
-Prefer a visible tmux session/window worker using the native launcher below.
-
-## Standalone Handoffs
-
-Use `--no-parent` when the user says **standalone**, or when the task is clearly
-standalone rather than delegated from the current workspace. A standalone
-handoff still creates a visible worktree + tmux worker, but records it as a root
-workspace instead of linking it to the caller's workspace lineage.
-
-Treat a task as clearly standalone when it has its own self-contained goal and
-the current agent is not expected to orchestrate, monitor, review, or continue
-work based on its result. Make the initial prompt self-contained because the
-worker does not inherit the current conversation.
-
-Do not infer standalone merely because the user says **independent** or asks for
-an isolated worktree: those are properties of every handoff. When the intent is
-ambiguous, use the normal parent-linked handoff.
-
-Standalone launcher forms:
-
-```bash
-env -u ANTHROPIC_API_KEY worker-claude --no-parent [--agent <agent-name>] <branch-name> <initial-prompt>
-worker-opencode --no-parent [--agent <agent-name>] <branch-name> <initial-prompt>
-worker-pi --no-parent [--agent <agent-name>] <branch-name> <initial-prompt>
+```text
+[--agent AGENT_NAME] [--base BASE] [--window WINDOW]
+[--no-parent | --parent WORKSPACE_ID]
+BRANCH INITIAL_PROMPT
 ```
 
-## Handoff vs Tmux Interactive Control
+Use a concise branch name and make the initial prompt self-contained; workers do
+not inherit the current conversation.
 
-Use **handoff** when the user wants a separate worker to own an isolated task:
+## Lineage
 
-- independent implementation
-- independent research/investigation
-- orchestration where a parent/orchestrator agent keeps tabs on an implementor agent
-- exploratory changes that should not touch the current worktree
-- a task branch/worktree the user can inspect or merge later
+Normal handoffs are linked to the caller's workspace. Use `--no-parent` only
+when the user says **standalone**, or when the task is genuinely self-contained
+and the caller will not monitor, review, coordinate, or continue from its
+result.
 
-Orchestration is allowed, but isolation still applies: the orchestrator and
-implementor must not share worktrees, mutable state, or PR ownership. The
-orchestrator may monitor, review, and coordinate; the implementor owns its
-separate worktree/task branch.
+Do not infer standalone from **independent**, **isolated**, or **separate**;
+every handoff already has those properties.
 
-Use **tmux interactive control** when the work is local to the current tmux
-session and feels like collaborating with a nearby sub-agent or CLI:
+Use `--parent WORKSPACE_ID` only when the user or orchestration flow explicitly
+requires a particular recorded parent.
 
-- driving an existing pane, REPL, debugger, test watcher, shell, or agent
-- sending keys and reading output in the current session
-- coordinating with the current worktree instead of creating an isolated one
-
-If the user says “handoff”, create a new worktree + tmux session. If the user
-asks to interact with or control something already in tmux, do not create a new
-worktree worker.
-
-## Manual Launcher Reference
-
-### Claude Code
+## Launch examples
 
 ```bash
-env -u ANTHROPIC_API_KEY worker-claude [--agent <agent-name>] <branch-name> <initial-prompt>
+env -u ANTHROPIC_API_KEY worker-claude <branch> '<self-contained prompt>'
+worker-opencode <branch> '<self-contained prompt>'
+worker-pi <branch> '<self-contained prompt>'
 ```
 
-The launcher also unsets `ANTHROPIC_API_KEY` before executing `claude`.
-
-### OpenCode
+Standalone forms:
 
 ```bash
-worker-opencode [--agent <agent-name>] <branch-name> <initial-prompt>
+env -u ANTHROPIC_API_KEY worker-claude --no-parent <branch> '<prompt>'
+worker-opencode --no-parent <branch> '<prompt>'
+worker-pi --no-parent <branch> '<prompt>'
 ```
 
-### pi
+## Result of a handoff
 
-```bash
-worker-pi [--agent <agent-name>] <branch-name> <initial-prompt>
-```
+Report the created worktree, branch, tmux session/window, harness, and stable
+`agentId` returned by the launcher. Retain the `agentId`; do not use a mutable
+session/window name as orchestration identity.
+
+If the request also asks to monitor, wait for, message, steer, or collect the
+worker's result, continue with the `agent-coordination` skill after launch.
+
+A failed or timed-out launch must leave any visible worker/worktree available
+unless the native launcher says it was never created. Never inspect or drive an
+agent through tmux terminal input or pane capture.

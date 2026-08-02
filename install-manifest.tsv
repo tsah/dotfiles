@@ -25,6 +25,11 @@ d omarchy/waybar ~/.config/waybar
 d omarchy/extensions/menu.sh ~/.config/omarchy/extensions/menu.sh
 d voxtype-config.toml ~/.config/voxtype/config.toml
 s bin/xdg-open-via-laptop ~/.local/bin/xdg-open
+a skills/agent-coordination ~/.agents/skills/agent-coordination
+a skills/agent-coordination ~/.claude/skills/agent-coordination
+a skills/agent-coordination ~/.pi/agent/skills/agent-coordination
+a skills/agent-coordination ~/.config/opencode/skills/agent-coordination
+a skills/agent-coordination ~/.codex/skills/agent-coordination
 a skills/find-skills ~/.agents/skills/find-skills
 a skills/find-skills ~/.claude/skills/find-skills
 a skills/find-skills ~/.pi/agent/skills/find-skills
