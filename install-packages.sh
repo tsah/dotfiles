@@ -79,11 +79,11 @@ else
 fi
 
 if command -v bun &> /dev/null; then
-    echo "📦 Installing Alt-K TUI dependencies..."
+    echo "📦 Installing Waystation dependencies..."
     (cd "$HOME/dotfiles/alt-k-tui" && bun install)
-    echo "✅ Alt-K TUI dependencies installed"
+    echo "✅ Waystation dependencies installed"
 else
-    echo "⚠️  Bun not found after install; Alt-K TUI will fall back to fzf"
+    echo "⚠️  Bun not found after install; Waystation will fall back to fzf"
 fi
 
 echo "📦 Installing OpenCode (SST Claude CLI)..."
@@ -112,7 +112,7 @@ echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
 echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
-echo "   • bun - JavaScript runtime for Alt-K TUI"
+echo "   • bun - JavaScript runtime for Waystation"
 echo "   • opencode - SST Claude CLI"
 echo "   • waybar - Status bar"
 echo "   • mako - Notification daemon"

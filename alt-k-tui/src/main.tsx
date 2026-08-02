@@ -1176,14 +1176,14 @@ function App(props: { sessions: SessionRow[]; repositories: SessionRow[]; curren
     })
   })
 
-  const title = () => mode() === "jump" ? "Jump" : mode() === "repo" ? "Open or create branch · choose repository" : mode() === "branch" ? `Open or create branch · ${repository()?.name ?? ""}` : mode() === "rename" ? "Rename tmux session" : `New branch · ${repository()?.name ?? ""}`
+  const title = () => mode() === "jump" ? "Waystation · Jump" : mode() === "repo" ? "Waystation · Open or create branch" : mode() === "branch" ? `Waystation · ${repository()?.name ?? ""}` : mode() === "rename" ? "Waystation · Rename tmux session" : `Waystation · New branch · ${repository()?.name ?? ""}`
 
   return (
     <box flexDirection="column" width="100%" height="100%">
       <box height={1} flexDirection="row">
         <text fg={theme.accentStrong}>{title()}</text>
         <text flexGrow={1}> </text>
-        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-k branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-r rename" : ""} · Esc close` : `Alt-k open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
+        <text fg={fetchStatus() === "failed" ? theme.warning : theme.muted}>{mode() === "jump" ? `Alt-K branches${selectedParent()?.target.type === "tmux_session" ? " · Alt-R rename" : ""} · Esc close` : `Alt-K open/create${mode() === "branch" ? ` · ^r ${fetchStatus() === "fetching" ? "fetching" : fetchStatus() === "failed" ? "fetch failed" : fetchStatus() === "done" ? "synced" : "refresh"}` : ""} · Esc back`}</text>
       </box>
       <box border borderStyle="single" borderColor={theme.border} flexGrow={1} flexDirection="column" justifyContent="flex-end">
         {mode() === "jump" ? <For each={visibleTreeRows()}>{(row) => <TreeRowView row={row} selected={row === selectedTreeRow()} query={query()} animationFrame={animationFrame()} />}</For> : null}

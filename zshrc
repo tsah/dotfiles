@@ -202,8 +202,8 @@ ssht() {
     ssh -t "$1" "exec zsh -l -c 'tmux new-session -A -s main'"
 }
 
-# Unified session/worktree/directory picker
-s() { "$HOME/dotfiles/bin/workspace-picker"; }
+# Waystation: unified session/worktree/directory navigator
+s() { "$HOME/dotfiles/bin/waystation"; }
 
 # ---- prompt ----
 if command -v starship >/dev/null 2>&1; then

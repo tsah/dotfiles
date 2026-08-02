@@ -1,6 +1,6 @@
-# Alt-K TUI Prototype
+# Waystation
 
-Experimental tmux session and directory switcher built with Bun, TypeScript, Effect, and OpenTUI.
+Waystation is a tmux session and directory navigator built with Bun, TypeScript, Effect, and OpenTUI. Open it with `Alt-K` or `s`.
 
 The jump layout is a bottom-sorted selectable tree, with the newest/highest-priority root group nearest the prompt. Session-to-session lineage uses real tree connectors and each row has one color-coded aggregate-state glyph beside its node: roots place it before the disclosure marker, while nested sessions place it immediately after the `├─`/`└─` child connector. Window and agent details stay collapsed by default and their names are summarized inline immediately after the owning session name, without moving status glyphs to the right edge. Small lineage subtrees with one to three direct child sessions begin expanded. Expanding exact details renders subdued `·` rows with their own left-side state glyphs beneath the owning session. The bottom prompt filters the full hierarchy while retaining the complete ancestor context of every matching descendant; non-empty queries show only directly matching detail rows.
 
@@ -30,7 +30,7 @@ Run the cache server directly:
 bun run ~/dotfiles/alt-k-tui/src/main.tsx --server
 ```
 
-The `alt+k` tmux binding launches this TUI. The previous live fzf switcher is kept on `alt+u` as a fallback.
+The `Alt-K` tmux binding launches Waystation. The previous live fzf switcher is kept on `Alt-U` as a fallback.
 
 Useful CLI inspection/repair commands:
 - `dotfiles-workflow workspace show --cwd PATH`
@@ -46,13 +46,13 @@ Controls:
 - `Enter`: switch to the exact selected session/window/agent target or advance the current flow; Enter on zero matches does nothing
 - `Alt-R`: rename the selected tmux session without changing its worktree identity
 - Type or paste: structured fuzzy-filter rows and fill the branch/base form; current selection is preserved when it still matches
-- `Alt-K` while the picker is open: choose a repository, then open an existing worktree/branch or type a new branch name to create it
+- `Alt-K` while Waystation is open: choose a repository, then open an existing worktree/branch or type a new branch name to create it
 - `Ctrl-R`: refresh remotes while in the branch picker
 - `Alt-D`: confirm and destroy the selected pane; destroying a session's final pane also destroys its linked worktree and session
 - `Esc`: clear search, move back one flow step, or close
 - `Ctrl-C`: close
 
-On startup, the tmux session containing the popup is selected when it appears in the jump list. Renaming stays inside the TUI and preserves the session's canonical path metadata and included agents.
+On startup, the tmux session containing the popup is selected when it appears in the jump list. Renaming stays inside Waystation and preserves the session's canonical path metadata and included agents.
 
 Run the model tests and isolated real-terminal smoke test with:
 

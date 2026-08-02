@@ -65,7 +65,8 @@ ve() {
     fi
 }
 
-s() { "$HOME/dotfiles/bin/workspace-picker"; }
+# Waystation: unified session/worktree/directory navigator
+s() { "$HOME/dotfiles/bin/waystation"; }
 
 if [ -s "$NVM_DIR/nvm.sh" ]; then
     # shellcheck disable=SC1090
