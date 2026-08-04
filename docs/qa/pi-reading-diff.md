@@ -8,7 +8,7 @@
    ```bash
    bun test pi/extensions/reading-diff/core.test.ts
    ```
-   Expected: all parser, command argument, plan-schema, bounds, prompt-injection labeling, terminal-control rejection, and source-constrained rendering tests pass.
+   Expected: all parser, command argument, structural chunking, coordinate remapping, plan-schema, bounds, prompt-injection labeling, terminal-control rejection, and source-constrained rendering tests pass.
 2. Bundle the runtime entry point while leaving Pi-provided packages external:
    ```bash
    out=$(mktemp -d)
@@ -50,7 +50,7 @@ Use one clearly named QA window (for example `qa-reading-diff`) in this worker's
 6. Cancellation: run a sufficiently large valid selection and press Escape while the planning loader is active. Expected: `Reading diff cancelled.`, no entry, and no late entry/error after the provider request settles.
 7. Authentication/model errors: in an isolated Pi invocation with no selected model, and then with a model lacking resolved auth, invoke the command. Expected: explicit `No Pi model is selected.` or authentication error and no entry. Do not alter the normal user's stored credentials.
 8. Malformed model plans: with a test provider or recorded response fixture, return fenced JSON, prose, unknown keys, out-of-bounds/overlapping/adjacent ranges, multiline/control-bearing/oversized summary, empty ranges, and over-limit output. Expected: deterministic validation error and no entry in each case.
-9. Bounds: try empty input, more than 200 KiB, more than 4,000 lines, one line over 16 KiB, CRLF input, and input containing ESC or lone CR. Expected: empty/oversized/control cases fail before a model request; CRLF is normalized and accepted.
+9. Bounds and chunking: try empty input, a 4,410-line diff, more than 2 MiB, more than 40,000 lines, one line over 16 KiB, CRLF input, and input containing ESC or lone CR. Expected: the 4,410-line diff is split at file/hunk boundaries into bounded model calls and renders one combined source-constrained result; empty/overall-oversized/control cases fail before a model request; CRLF is normalized and accepted.
 10. Exit the QA Pi normally and kill only the named QA window if it remains. Expected: unrelated windows and sessions are unchanged.
 
 ## Executed results
@@ -75,3 +75,14 @@ Executed:
 - Manual argument errors in the same window — `/reading-diff --staged --input` produced exact usage; `/reading-diff --range --output=/tmp/x` produced the safe-revision error; neither rendered an entry.
 
 Not executed: provider-request canary logging; keyless/ambient-auth provider; missing-auth/model invocation; staged/range/input end-to-end model calls; malformed-plan responses through a fake provider; Git timeout/oversized live-process cases; empty clean-worktree TUI case. These remain manual scenarios above and are **not claimed as passed**. No standalone TypeScript compiler was available; runtime loading, hot reload, bundling, tests, and two real current-provider calls were executed instead.
+
+### 2026-08-04 — large-diff chunking follow-up
+
+Executed in tmux session `dotfiles@master` (`$1`), current-worktree window `qa-reading-diff-chunking` (`@65`), without a worker or separate worktree:
+
+- `bun test pi/extensions/reading-diff/core.test.ts` — **25 passed, 0 failed, 53 assertions**. Added coverage for the former 4,000-line failure, file/hunk boundary preference, oversized-hunk fallback splitting, lossless line preservation, local-to-global coordinate mapping, boundary-range merging, and bounded UTF-8 summary combination.
+- `bun /tmp/qa-reading-diff-chunking.ts` — **passed**. A synthetic 4,410-line diff was accepted and losslessly split into two chunks starting at global physical lines 1 and 3,501; combined rendering retained global source coordinates and deterministic omission markers.
+- `bun build pi/extensions/reading-diff/index.ts --target=node ...` — **passed**, 2 modules bundled (`index.js`, 20.12 KiB) in a removed temporary directory.
+- `git diff --check` — **passed with no output**.
+
+Not executed for this follow-up: a live provider call over all chunks. The deterministic chunking/remapping path and extension bundle were exercised, but multi-request provider behavior should be confirmed by rerunning the original 4,410-line `/reading-diff` after `/reload`.

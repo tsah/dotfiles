@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	buildPlanningPrompt,
+	chunkPhysicalLines,
+	combineReadingPlans,
 	diffArguments,
+	MAX_CHUNK_LINES,
 	MAX_DIFF_BYTES,
 	MAX_DIFF_LINES,
 	MAX_LINE_BYTES,
@@ -65,6 +68,51 @@ describe("physical diff parsing and numbering", () => {
 		expect(() => validateAndSplitDiff("x".repeat(MAX_DIFF_BYTES + 1))).toThrow("too large");
 		expect(() => validateAndSplitDiff(`${"x".repeat(MAX_LINE_BYTES + 1)}\n`)).toThrow("line 1 is too large");
 		expect(() => validateAndSplitDiff(`${"x\n".repeat(MAX_DIFF_LINES + 1)}`)).toThrow("too many physical lines");
+	});
+});
+
+describe("structural chunking", () => {
+	test("accepts a diff larger than the former 4,000-line limit", () => {
+		const lines = validateAndSplitDiff(`${"+changed\n".repeat(4_410)}`);
+		expect(lines).toHaveLength(4_410);
+		expect(chunkPhysicalLines(lines).length).toBeGreaterThan(1);
+	});
+
+	test("prefers file and hunk boundaries and preserves every physical line", () => {
+		const lines = [
+			"diff --git a/a b/a", "--- a/a", "+++ b/a", "@@ -1 +1 @@", "-old-a", "+new-a",
+			"@@ -10 +10 @@", "-old-b", "+new-b",
+			"diff --git a/c b/c", "--- a/c", "+++ b/c", "@@ -1 +1 @@", "-old-c", "+new-c",
+		];
+		const chunks = chunkPhysicalLines(lines, { maxLines: 7, maxBytes: 1_024 });
+		expect(chunks.map((chunk) => chunk.startLine)).toEqual([1, 7, 10]);
+		expect(chunks.flatMap((chunk) => chunk.lines)).toEqual(lines);
+		expect(chunks.every((chunk) => chunk.lines.length <= 7)).toBeTrue();
+	});
+
+	test("hard-splits a single oversized hunk without losing coordinates", () => {
+		const lines = ["diff --git a/a b/a", "@@ -1,8 +1,8 @@", ...Array.from({ length: 8 }, (_, i) => `+line-${i}`)];
+		const chunks = chunkPhysicalLines(lines, { maxLines: 4, maxBytes: 1_024 });
+		expect(chunks.map((chunk) => chunk.startLine)).toEqual([1, 2, 6, 10]);
+		expect(chunks.flatMap((chunk) => chunk.lines)).toEqual(lines);
+	});
+
+	test("maps local chunk plans to global coordinates and merges boundary adjacency", () => {
+		const plan = combineReadingPlans([
+			{ startLine: 1, plan: { summary: "Changes A.", ranges: [{ start: 2, end: 3 }] } },
+			{ startLine: 4, plan: { summary: "Changes B.", ranges: [{ start: 1, end: 2 }] } },
+		]);
+		expect(plan.ranges).toEqual([{ start: 2, end: 5 }]);
+		expect(plan.summary).toBe("Changes A. · Changes B.");
+	});
+
+	test("keeps combined summaries within the validated display limit", () => {
+		const plan = combineReadingPlans([
+			{ startLine: 1, plan: { summary: "😀".repeat(100), ranges: [{ start: 1, end: 1 }] } },
+			{ startLine: MAX_CHUNK_LINES + 1, plan: { summary: "z".repeat(400), ranges: [{ start: 1, end: 1 }] } },
+		]);
+		expect(Buffer.byteLength(plan.summary, "utf8")).toBeLessThanOrEqual(500);
+		expect(plan.summary.endsWith("…")).toBeTrue();
 	});
 });
 
