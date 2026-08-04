@@ -14,6 +14,7 @@ a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands
 a pi/extensions/plannotator-file.ts ~/.pi/agent/extensions/plannotator-file.ts
 a pi/extensions/plannotator-shortcuts.ts ~/.pi/agent/extensions/plannotator-shortcuts.ts
+a pi/extensions/reading-diff ~/.pi/agent/extensions/reading-diff
 a pi/extensions/tmux-worker-lifecycle.ts ~/.pi/agent/extensions/tmux-worker-lifecycle.ts
 a pi/prompts/ship-pr.md ~/.pi/agent/prompts/ship-pr.md
 a pi/subagents.json ~/.pi/agent/subagents.json
