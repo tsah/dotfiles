@@ -2,10 +2,11 @@
 name: handoff
 description: >-
   Create a visible agent worker in a separate Worktrunk worktree and tmux
-  session. Use when the user asks to hand off, handoff this, delegate work,
-  spawn an isolated or visible worker, create a worktree worker, run work in a
-  separate worktree, or give a task to another agent. Do not use for
-  communicating with an already-running agent.
+  session. Use only when the user explicitly asks to hand off or delegate to
+  another agent, create an isolated worker/worktree, or run work in a separate
+  worktree. A request to run QA, tests, a shell, or an interactive command in a
+  tmux window or pane is not a handoff. Do not use for communicating with an
+  already-running agent.
 ---
 
 # Handoff
@@ -20,6 +21,17 @@ Do not use handoff for:
 - same-session delegation: use the harness's native subagent mechanism
 - a shell, REPL, debugger, or test watcher: use appropriate interactive tooling
 - remote/headless work unless the user explicitly asks for it
+
+The words **tmux**, **window**, **pane**, **visible**, or **separate** alone never
+imply a worker or a new worktree. Route requests by intent:
+
+| Request | Action |
+|---|---|
+| Run QA/tests/a shell in a tmux window | Create a window in the current tmux session and stay in the current worktree |
+| Open a command in another pane | Split the current session/window |
+| Use another agent in the current worktree | Use `agent-*` or an in-process agent, as explicitly requested |
+| Delegate/handoff to an isolated worker | Use `worker-*` |
+| Ambiguous request to run something separately | Ask whether the user wants isolation or only a tmux window |
 
 ## Launch rules
 

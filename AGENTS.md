@@ -271,7 +271,17 @@ dotfiles/
     └── subagents.json                # @tintinweb/pi-subagents limits and UI settings
 ```
 
-`bin/install-pi-packages` installs the pinned in-process subagent package. Use its `Agent` tool for same-session delegation and `worker-pi` for visible, Worktrunk-isolated handoffs.
+`bin/install-pi-packages` installs the pinned in-process subagent package. Use its
+`Agent` tool for same-session delegation and `worker-pi` only for explicit
+handoffs that require a visible, Worktrunk-isolated agent and worktree.
+
+A request to run QA, tests, a shell, or an interactive command in a tmux window
+or pane means the current tmux session and current worktree unless the user
+explicitly requests delegation or isolation. The words "tmux", "window",
+"pane", "visible", or "separate" alone never imply a worker. Use a current-
+session window/pane for command execution, `agent-*` only when another visible
+agent in the current worktree is requested, and `worker-*` only for an explicit
+isolated handoff. Ask when "separate" is ambiguous.
 
 ## Claude Code Configuration
 
