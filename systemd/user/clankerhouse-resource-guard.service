@@ -2,7 +2,8 @@
 Description=Clankerhouse conservative clanker resource-pressure guard
 Documentation=file:%h/dotfiles/clankerhouse/README.md
 ConditionPathExists=/proc/pressure/memory
-After=default.target
+After=default.target clankerhouse-recovery.service
+Wants=clankerhouse-recovery.service
 
 [Service]
 Type=simple
@@ -11,7 +12,7 @@ Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=15s
 NoNewPrivileges=true
-PrivateTmp=true
+# The guard must inspect the same /tmp/tmux-$UID socket as interactive clients.
 
 [Install]
 WantedBy=default.target

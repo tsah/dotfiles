@@ -734,6 +734,7 @@ def main():
                     "pid": pid,
                     "updated_at": state_updated_at,
                     "stable_pane": pane_id,
+                    "harness_session_id": session_id,
                 }
             )
 
@@ -752,7 +753,8 @@ def main():
             pid = str(row["pid"])
             updated_at = str(row["updated_at"] or 0)
             stable_pane = (row["stable_pane"] or "").replace("\t", " ")
-            lines.append("\t".join([directory, status, detail, title, age, session, pane, pid, updated_at, stable_pane]))
+            harness_session_id = (row["harness_session_id"] or "").replace("\t", " ")
+            lines.append("\t".join([directory, status, detail, title, age, session, pane, pid, updated_at, stable_pane, harness_session_id]))
 
         output = "\n".join(lines)
         if output:

@@ -39,7 +39,10 @@ const clankerStateDir = `${runtimeDir}/clanker-state`
 const previousClankerStateDir = `${Bun.env.XDG_RUNTIME_DIR ?? "/tmp"}/alt-k-tui-${process.getuid?.() ?? Bun.env.USER ?? "user"}/agent-state`
 const seenStateDir = `${runtimeDir}/seen-state`
 const detectedTmuxSocket = Bun.env.TMUX?.split(",")[0] || Bun.spawnSync(["tmux", "display-message", "-p", "#{socket_path}"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() || "default"
-const tmuxServerKey = `tmux:${detectedTmuxSocket}`
+const currentTmuxServerKey = () => {
+  const epoch = Bun.spawnSync(["tmux", "show-options", "-gqv", "@clankerhouse_server_epoch"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim()
+  return `tmux:${detectedTmuxSocket}:${epoch || "legacy"}`
+}
 const refreshMs = Number(Bun.env.CLANKERHOUSE_REFRESH_MS ?? 1500) || 1500
 const cacheVersion = 10
 const projectionSource = randomUUID()
@@ -141,9 +144,9 @@ const collectOpencode = runCommand([Bun.env.CLANKERHOUSE_OPENCODE_STATUS || "ope
     const directory = parts[0] ?? ""
     if (directory.endsWith("(deleted)")) return undefined
     if (parts.length >= 8) {
-      return { directory, status: parts[1] ?? "", detail: parts[2] ?? "", title: parts[3] ?? "", age: parts[4] ?? "", session: parts[5] ?? "", pane: parts[6] ?? "", updatedAt: Number(parts[8] ?? 0) || 0, stablePane: parts[9] ?? "" }
+      return { directory, status: parts[1] ?? "", detail: parts[2] ?? "", title: parts[3] ?? "", age: parts[4] ?? "", session: parts[5] ?? "", pane: parts[6] ?? "", updatedAt: Number(parts[8] ?? 0) || 0, stablePane: parts[9] ?? "", harnessSessionId: parts[10] ?? "" }
     }
-    return { directory, status: parts[1] ?? "", detail: "", title: parts[2] ?? "", age: parts[3] ?? "", session: parts[4] ?? "", pane: parts[5] ?? "", updatedAt: 0, stablePane: "" }
+    return { directory, status: parts[1] ?? "", detail: "", title: parts[2] ?? "", age: parts[3] ?? "", session: parts[4] ?? "", pane: parts[5] ?? "", updatedAt: 0, stablePane: "", harnessSessionId: "" }
   }).filter((row): row is OpencodeStatus => Boolean(row?.session))),
 )
 
@@ -243,7 +246,7 @@ const collectClankerReports = Effect.sync(() => {
         const raw = JSON.parse(readFileSync(`${directory}/${entry}`, "utf8")) as Partial<ClankerReport> & { agent?: string; state?: ReportedClankerState }
         const harness = raw.harness || raw.agent
         if (!harness || !raw.pane || !raw.state || !["blocked", "working", "done", "idle", "unknown"].includes(raw.state)) continue
-        const report = { harness, pane: raw.pane, state: normalizeReportedState(raw.state, raw.hookEvent), updatedAt: Number(raw.updatedAt ?? 0) || 0, hookEvent: raw.hookEvent }
+        const report = { harness, pane: raw.pane, state: normalizeReportedState(raw.state, raw.hookEvent), updatedAt: Number(raw.updatedAt ?? 0) || 0, hookEvent: raw.hookEvent, harnessSessionId: typeof raw.harnessSessionId === "string" ? raw.harnessSessionId : undefined, recoveryAttemptId: typeof raw.recoveryAttemptId === "string" ? raw.recoveryAttemptId : undefined }
         const existing = byPane.get(raw.pane)
         if (!existing || report.updatedAt >= existing.updatedAt) byPane.set(raw.pane, report)
       } catch {}
@@ -340,7 +343,7 @@ const collectSessions = Effect.all([
       detectedHarnessByPane,
       codexPanes: new Set([...detectedHarnessByPane].flatMap(([pane, harness]) => harness === "codex" ? [pane] : [])),
       observedAt: Date.now(),
-      tmuxServerKey,
+      tmuxServerKey: currentTmuxServerKey(),
       home: Bun.env.HOME,
     })
     for (const effect of projection.effects) applyProjectEffect(effect)
@@ -690,11 +693,17 @@ const isLinkedWorktreeSync = (path: string) => {
   return Boolean(gitDir && commonDir && gitDir !== commonDir)
 }
 
-const killSessionSync = (sessionName: string) => {
+const stopSessionIntentSync = (sessionName: string, kill: boolean) => {
   const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
   if (sessions.exitCode !== 0) return sessions
   const sessionId = parseTsv(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
-  return Bun.spawnSync(["tmux", "kill-session", "-t", sessionId || `=${sessionName}`], { stdout: "pipe", stderr: "pipe" })
+  return Bun.spawnSync([`${repoRoot}/bin/clankerhouse-tmux-stop`, kill ? "session" : "mark-session", sessionId || `=${sessionName}`], { stdout: "pipe", stderr: "pipe" })
+}
+
+const deleteWorktreeSync = (sessionName: string, path: string) => {
+  const marked = stopSessionIntentSync(sessionName, false)
+  if (marked.exitCode !== 0) return marked
+  return Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(path)], { stdout: "pipe", stderr: "pipe" })
 }
 
 function HighlightText(props: { text: string; query: string; fg: string }) {
@@ -1058,11 +1067,11 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
       }
 
       const result = action.kind === "pane" && action.pane
-        ? Bun.spawnSync(["tmux", "kill-pane", "-t", action.pane], { stdout: "pipe", stderr: "pipe" })
+        ? Bun.spawnSync([`${repoRoot}/bin/clankerhouse-tmux-stop`, "pane", action.pane], { stdout: "pipe", stderr: "pipe" })
         : action.kind === "worktree" && action.row.session.path
-          ? Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(action.row.session.path)], { stdout: "pipe", stderr: "pipe" })
+          ? deleteWorktreeSync(action.row.session.name, action.row.session.path)
           : action.kind === "session"
-            ? killSessionSync(action.row.session.name)
+            ? stopSessionIntentSync(action.row.session.name, true)
             : undefined
       if (!result || result.exitCode !== 0) {
         const detail = result ? result.stderr.toString().trim() || result.stdout.toString().trim() : "Deletion command was unavailable."

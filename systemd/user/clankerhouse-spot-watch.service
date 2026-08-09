@@ -3,6 +3,7 @@ Description=Clankerhouse EC2 Spot interruption watcher
 Documentation=https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html
 After=network-online.target
 Wants=network-online.target
+ConditionVirtualization=amazon
 StartLimitIntervalSec=5min
 StartLimitBurst=5
 
@@ -15,19 +16,8 @@ TimeoutStopSec=10s
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
-PrivateDevices=true
 ProtectSystem=full
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
-ProtectClock=true
-ProtectHostname=true
-RestrictSUIDSGID=true
-RestrictRealtime=true
-RestrictNamespaces=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-SystemCallArchitectures=native
 
 [Install]
 WantedBy=default.target

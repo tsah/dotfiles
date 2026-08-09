@@ -35,6 +35,7 @@ export interface OpencodeStatus {
   pane: string
   updatedAt: number
   stablePane: string
+  harnessSessionId?: string
 }
 
 export interface DirectoryRow {
@@ -52,4 +53,6 @@ export interface ClankerReport {
   pane: string
   updatedAt: number
   hookEvent?: string
+  harnessSessionId?: string
+  recoveryAttemptId?: string
 }

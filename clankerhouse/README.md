@@ -62,6 +62,28 @@ The local daemon protocol currently exposes read-only status/snapshot/subscripti
 
 The `Alt-K` tmux binding launches Clankerhouse.
 
+## Durable restart and Spot recovery
+
+Pi, Claude, and OpenCode clankers spawned through `clankers` are recorded in the private SQLite control-plane store at `$XDG_STATE_HOME/clankerhouse/recovery.sqlite3`. Clankerhouse persists desired state and launch intent before creating a pane. Pi and Claude receive preallocated native session IDs; the OpenCode lifecycle plugin binds its generated `ses_…` ID before prompt processing. Lifecycle attestation completes the launch attempt.
+
+`clankerhouse-recovery.service` continuously reconciles desired state with tmux. A hard reboot, replacement controller, or same-boot tmux-server loss recreates the workshop/window, resumes the exact native harness session, and immediately submits a recovery-attempt prompt that autonomously inspects Git, tests, and external state before continuing. Delivery is at-least-once: arbitrary tools cannot provide a general exactly-once guarantee, so the prompt is attempt-tagged and explicitly inspect-before-repeat.
+
+Intentional stops are journaled before tmux destruction. Resource-pressure suspension and irreversible tombstones take precedence over recovery, preventing the controller from undoing deliberate mitigation or deletion. Codex remains visible but is not automatically recoverable because an exact native resume contract is not configured.
+
+```sh
+clankers recovery status
+clankers recovery journal
+clankers recovery reconcile
+clankers recovery adopt-live
+clankers recovery stop CLANKER_ID
+clankers recovery start CLANKER_ID
+clankers recovery suspend CLANKER_ID --reason resource-pressure
+```
+
+On EC2, `clankerhouse-spot-watch.service` polls IMDSv2 without IAM credentials. A Spot interruption notice writes and fsyncs a durable marker and invokes `clankers recovery checkpoint`; rebalance recommendations can optionally trigger an earlier checkpoint. Recovery does not depend on receiving the notice.
+
+The state database, native harness session stores, repositories, and worktrees must reside on retained encrypted storage mounted at the same paths before the user service starts. Spot termination is not recoverable from a root volume configured for deletion. See `docs/qa/clankerhouse-recovery.md` for the isolated QA and migration acceptance plan.
+
 ## Resource-pressure guard
 
 On Linux, `clankerhouse-resource-guard` samples guest-kernel memory PSI and `MemAvailable` every five seconds. After one minute of sustained pressure it terminates at most one validated, non-focused Pi, Claude, OpenCode, or Codex process per boot. It prefers done/idle clankers, then unknown, blocked, and working clankers; within a state it chooses the largest process tree. The process is revalidated against its tmux pane, UID, ancestry, start time, harness, and stable clanker ID immediately before `SIGTERM`, with `SIGKILL` only after the grace period.
@@ -102,12 +124,15 @@ Controls:
 
 On startup, the tmux session containing the popup is selected when it appears in the jump list. Renaming stays inside Clankerhouse and preserves the session's canonical path metadata and included clankers.
 
-Run checks, model/API tests, and the isolated real-terminal smoke test with:
+Run checks, model/API/recovery tests, and the isolated real-terminal smoke test with:
 
 ```bash
 bun run check
 bun test
+PYTHONPATH=.. python3 -m unittest tests.test_resource_guard tests.test_spot_watch
+scripts/qa-clanker-api
 scripts/qa-daemon
+scripts/qa-recovery
 scripts/qa
 ```
 

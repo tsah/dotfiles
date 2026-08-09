@@ -9,7 +9,10 @@ a .tmux.conf ~/.tmux.conf
 a systemd/user/plannotator-session-cleanup.service ~/.config/systemd/user/plannotator-session-cleanup.service
 a systemd/user/plannotator-session-cleanup.timer ~/.config/systemd/user/plannotator-session-cleanup.timer
 a systemd/user/clankerhouse-resource-guard.service ~/.config/systemd/user/clankerhouse-resource-guard.service
+a systemd/user/clankerhouse-recovery.service ~/.config/systemd/user/clankerhouse-recovery.service
+a systemd/user/clankerhouse-spot-watch.service ~/.config/systemd/user/clankerhouse-spot-watch.service
 a opencode.json ~/.config/opencode/opencode.json
+a opencode/plugins ~/.config/opencode/plugins
 a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands
 a pi/extensions/plannotator-file.ts ~/.pi/agent/extensions/plannotator-file.ts

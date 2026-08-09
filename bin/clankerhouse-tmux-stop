@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+kind="${1:-}"
+target="${2:-}"
+[[ "$kind" == pane || "$kind" == session || "$kind" == mark-session ]] && [[ -n "$target" ]] || {
+    echo "Usage: clankerhouse-tmux-stop pane|session|mark-session TARGET" >&2
+    exit 2
+}
+
+clankers_cli="${CLANKERHOUSE_CLANKERS:-$HOME/dotfiles/bin/clankers}"
+if [[ "$kind" == pane ]]; then
+    ids=$(tmux display-message -p -t "$target" '#{@clankerhouse_clanker_id}' 2>/dev/null || true)
+else
+    ids=$(tmux list-panes -t "$target" -F '#{@clankerhouse_clanker_id}' 2>/dev/null || true)
+fi
+while IFS= read -r clanker_id; do
+    [[ -n "$clanker_id" ]] || continue
+    "$clankers_cli" recovery stop "$clanker_id" --reason intentional-tmux-stop --no-kill >/dev/null 2>&1 || true
+done <<<"$ids"
+
+if [[ "$kind" == "mark-session" ]]; then
+    exit 0
+fi
+if [[ "$kind" == pane ]]; then
+    exec tmux kill-pane -t "$target"
+fi
+exec tmux kill-session -t "$target"

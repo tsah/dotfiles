@@ -1,0 +1,18 @@
+[Unit]
+Description=Clankerhouse durable workshop and clanker recovery
+Documentation=file:%h/dotfiles/clankerhouse/README.md
+After=default.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/dotfiles/bin/clankerhouse-recovery
+Restart=always
+RestartSec=2s
+TimeoutStopSec=20s
+UMask=0077
+NoNewPrivileges=true
+# The canonical tmux socket is under /tmp/tmux-$UID; PrivateTmp would hide it.
+
+[Install]
+WantedBy=default.target

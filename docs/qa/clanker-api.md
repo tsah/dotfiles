@@ -11,6 +11,7 @@ bun run check
 bun test
 scripts/qa-clanker-api
 scripts/qa-daemon
+scripts/qa-recovery
 scripts/qa
 ```
 
@@ -25,7 +26,7 @@ The scripts must create their own `/tmp/qa-clanker-*` roots, mark ownership befo
 5. Pi `send`, `wait`, and `result` use its mode-0600 Unix socket and clanker-state reports. They never mutate or capture terminal content.
 6. Claude and Codex report lifecycle state but reject unavailable send/result operations. OpenCode remains monitor-only.
 7. Timeout is nondestructive and leaves the clanker and workshop intact.
-8. Reports contain only `harness`, `clankerId`, pane, lifecycle, state, and result fields under `clanker-state/`.
+8. Reports contain only harness/clanker/native-session identity, recovery attempt, pane, lifecycle, state, and result fields under `clanker-state/`.
 9. Revisioned snapshots are committed before publication over the mode-`0600` daemon socket; socket failure leaves version-10 JSON polling operational.
 10. The daemon accepts only status, snapshot, subscription, and non-destructive `projection.refresh` requests. Destructive or unknown actions fail without tmux/worktree mutation.
 11. Foreground harness discovery may inspect process metadata but never terminal contents, never assigns `CLANKER_ID`, and never authorizes resource-guard signals.

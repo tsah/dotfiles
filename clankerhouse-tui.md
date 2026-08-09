@@ -85,5 +85,13 @@ Clanker communication uses the native `clankers` API and never tmux input or
 pane capture. Linux foreground-process discovery reads process metadata only and
 cannot assign clanker identity or authorize destructive actions.
 
+A separate durable recovery control plane stores desired Pi, Claude, and
+OpenCode clankers, exact harness session identities, attempts, leases, and
+append-only journal events under `$XDG_STATE_HOME/clankerhouse`. Its boot-time
+reconciler recreates missing workshop windows and automatically resumes and
+continues exact sessions after a hard reboot or tmux-server restart. Tombstones,
+intentional stops, and resource-pressure suspensions take precedence. The
+snapshot transport remains observational and exposes no recovery mutation API.
+
 See `clankerhouse/README.md` for the CLI and runtime contract and
 `docs/qa/clanker-api.md` for safety-scoped API validation.

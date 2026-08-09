@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
+import { createHash } from "node:crypto"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { join } from "node:path"
 import { ClankerApiError, clankerCapabilities, clankerStatus, listClankers, resultForClanker, sendClanker, waitForClanker, type ClankerDelivery } from "./clanker-api"
-import { bootstrapRepositoryFromManifests, projectSnapshot, reconcileRepositoryWorkshops, workshopDetails, workshopTree } from "./workshop"
+import { reconcileRecovery } from "./recovery/controller"
+import { openRecoveryStore, type RecoveryStore } from "./recovery/store"
+import { bootstrapRepositoryFromManifests, projectSnapshot, reconcileRepositoryWorkshops, workshopDetails, workshopForPath, workshopTree } from "./workshop"
 import { ensureDirectorySession, ensureSession, identity, spawnClanker, spawnWorkshop, type Harness } from "./workflow"
 
 export interface ParsedArgs {
@@ -91,6 +96,83 @@ const resolveWorkshopPath = (selector: string, cwd = process.cwd()) => {
   return matches[0]!.canonicalPath
 }
 
+const adoptDesired = async (store: RecoveryStore, id: string, sessionId: string) => {
+  const matches = (await listClankers()).filter((row) => row.id === id)
+  if (matches.length !== 1) throw new Error(matches.length > 1 ? `Ambiguous live panes for ${id}` : `Unknown clanker ${id}`)
+  const live = matches[0]!
+  if (live.harness !== "pi" && live.harness !== "claude" && live.harness !== "opencode") throw new Error(`Harness ${live.harness} does not support durable recovery`)
+  const path = live.worktreePath || live.cwd
+  const workshop = workshopForPath(path)
+  const desired = store.createDesired({
+    clankerId: id,
+    harness: live.harness,
+    workshopId: workshop?.workshopId || `path-${createHash("sha256").update(path).digest("hex").slice(0, 24)}`,
+    workshopPath: path,
+    tmuxSessionName: live.session,
+    tmuxWindowName: live.name || live.harness,
+    cwd: live.cwd || path,
+    harnessSessionId: sessionId,
+    launchSpec: { version: 1, profile: null },
+    originalTask: "Autonomously continue the most recent unfinished user request.",
+  })
+  const adoption = store.beginAttempt(id, "adopted-live-session")
+  store.finishAttempt(adoption.id, "succeeded")
+  return desired
+}
+
+const adoptLivePiSessions = async (store: RecoveryStore) => {
+  const runtime = `${Bun.env.XDG_RUNTIME_DIR || "/tmp"}/clankerhouse-${process.getuid?.() || 0}/clanker-state`
+  const sessionRoot = Bun.env.PI_CODING_AGENT_SESSION_DIR || join(Bun.env.HOME || "", ".pi", "agent", "sessions")
+  const replies = new Map<string, Array<{ id: string; cwd: string }>>()
+  const sessionsByCwd = new Map<string, Array<{ id: string; cwd: string; updatedAt: number }>>()
+  const files = existsSync(sessionRoot) ? new Bun.Glob("**/*.jsonl").scanSync({ cwd: sessionRoot, absolute: true }) : []
+  for (const file of files) {
+    try {
+      const lines = readFileSync(file, "utf8").split("\n").filter(Boolean)
+      const header = JSON.parse(lines[0] || "{}")
+      if (!header.id || !header.cwd) continue
+      sessionsByCwd.set(header.cwd, [...(sessionsByCwd.get(header.cwd) || []), { id: header.id, cwd: header.cwd, updatedAt: statSync(file).mtimeMs }])
+      for (const line of lines.slice(1)) {
+        const entry = JSON.parse(line)
+        const message = entry?.message
+        if (message?.role !== "assistant" || !Array.isArray(message.content)) continue
+        const reply = message.content.filter((part: any) => part?.type === "text" && typeof part.text === "string").map((part: any) => part.text).join("\n")
+        if (!reply) continue
+        replies.set(reply, [...(replies.get(reply) || []), { id: header.id, cwd: header.cwd }])
+      }
+    } catch {}
+  }
+  const adopted: string[] = []
+  const skipped: Array<{ clankerId: string; reason: string }> = []
+  const usedSessionIds = new Set(store.listDesired({ includeTombstoned: true }).flatMap((row) => row.harnessSessionId ? [row.harnessSessionId] : []))
+  for (const live of (await listClankers()).filter((row) => row.harness === "pi" && !store.getDesired(row.id))) {
+    let report: any = {}
+    try { report = JSON.parse(readFileSync(`${runtime}/${live.pane.replace(/[^A-Za-z0-9_.%-]/g, "_")}.json`, "utf8")) } catch {}
+    const matched = new Map<string, { id: string; cwd: string }>()
+    for (const result of [...(report.results || [])].reverse()) {
+      for (const candidate of replies.get(result?.reply) || []) if (candidate.cwd === live.cwd || candidate.cwd === live.worktreePath) matched.set(candidate.id, candidate)
+      if (matched.size === 1) break
+    }
+    let sessionId = matched.size === 1 ? [...matched.values()][0]!.id : ""
+    if (!sessionId && report.updatedAt) {
+      const timed = (sessionsByCwd.get(live.cwd) || []).filter((candidate) => !usedSessionIds.has(candidate.id)).map((candidate) => ({ ...candidate, distance: Math.abs(candidate.updatedAt - Number(report.updatedAt)) })).sort((a, b) => a.distance - b.distance)
+      if (timed[0] && timed[0].distance <= 30_000 && (!timed[1] || timed[1].distance - timed[0].distance >= 1_000)) sessionId = timed[0].id
+    }
+    if (!sessionId) {
+      const only = (sessionsByCwd.get(live.cwd) || []).filter((candidate) => !usedSessionIds.has(candidate.id))
+      if (only.length === 1) sessionId = only[0]!.id
+    }
+    if (!sessionId) {
+      skipped.push({ clankerId: live.id, reason: matched.size ? "ambiguous Pi session history" : "no exact Pi result/session match" })
+      continue
+    }
+    await adoptDesired(store, live.id, sessionId)
+    usedSessionIds.add(sessionId)
+    adopted.push(live.id)
+  }
+  return { adopted, skipped }
+}
+
 const usage = `Usage:
   clankerhouse
   clankers workshop spawn --name NAME --harness HARNESS [--base REF] [--copy PATH] [--profile NAME] [--prompt TEXT]
@@ -101,13 +183,61 @@ const usage = `Usage:
   clankers status|capabilities CLANKER_ID
   clankers wait CLANKER_ID [--after GENERATION] [--timeout SECONDS]
   clankers send CLANKER_ID [--delivery steer|follow-up] [--wait] [--text TEXT]
-  clankers result CLANKER_ID [--generation GENERATION]`
+  clankers result CLANKER_ID [--generation GENERATION]
+  clankers recovery status|journal|reconcile|checkpoint
+  clankers recovery stop|start|suspend|tombstone CLANKER_ID`
 
 export async function runClankersCli(argv = process.argv.slice(2)) {
   const parsed = parseArgs(argv)
   const command = parsed.shift()
   if (!command || command === "help" || command === "--help" || command === "-h") return console.log(usage)
   if (["list", "status", "capabilities", "wait", "send", "result"].includes(command)) return runClankerApi(command, parsed)
+
+  if (command === "recovery") {
+    const subcommand = parsed.shift()
+    const store = openRecoveryStore()
+    try {
+      if (subcommand === "status") return console.log(JSON.stringify({ epochs: store.runtimeEpochs(), tmuxServerEpoch: store.getMetadata("runtime.tmux_server_epoch") ?? null, clankers: store.listDesired({ includeTombstoned: true }).map((row) => ({ ...row, originalTask: undefined })), attempts: store.listDesired({ includeTombstoned: true }).flatMap((row) => store.attemptsFor(row.clankerId)) }))
+      if (subcommand === "journal") return console.log(JSON.stringify(store.journalEntries({ afterId: nonNegativeNumber(parsed.take("--after"), "--after"), limit: nonNegativeNumber(parsed.take("--limit"), "--limit") })))
+      if (subcommand === "reconcile") return console.log(JSON.stringify(await reconcileRecovery(store, { trigger: parsed.take("--reason") || "manual" })))
+      if (subcommand === "adopt-live") return console.log(JSON.stringify(await adoptLivePiSessions(store)))
+      if (subcommand === "checkpoint") {
+        store.setMetadata("checkpoint.latest", { reason: parsed.take("--reason") || "manual", deadline: parsed.take("--deadline") || null, createdAt: Date.now() })
+        return console.log(JSON.stringify({ checkpointed: true }))
+      }
+      if (subcommand === "attest") {
+        const id = requiredClankerId(parsed)
+        const sessionId = parsed.take("--session-id")
+        if (!sessionId) throw new Error("--session-id is required")
+        let desired = store.getDesired(id)
+        if (!desired) {
+          desired = await adoptDesired(store, id, sessionId)
+        } else {
+          desired = store.bindHarnessSession(id, sessionId)
+        }
+        const attemptId = nonNegativeNumber(parsed.take("--attempt"), "--attempt")
+        if (attemptId !== undefined) {
+          const attempt = store.getAttempt(attemptId)
+          if (!attempt || attempt.clankerId !== id) throw new Error(`Recovery attempt ${attemptId} does not belong to ${id}`)
+          store.finishAttempt(attemptId, "succeeded")
+        }
+        return console.log(JSON.stringify({ clankerId: id, harnessSessionId: desired.harnessSessionId, attested: true }))
+      }
+      if (["stop", "start", "suspend", "tombstone"].includes(subcommand || "")) {
+        const id = requiredClankerId(parsed)
+        const state = subcommand === "start" ? "running" : subcommand === "suspend" ? "suspended_resource_pressure" : subcommand === "tombstone" ? "tombstoned" : "stopped"
+        const noKill = parsed.has("--no-kill")
+        const desired = store.setDesiredState(id, state, { reason: parsed.take("--reason") || subcommand })
+        if (!noKill && (subcommand === "stop" || subcommand === "suspend" || subcommand === "tombstone")) {
+          const matches = (await listClankers()).filter((row) => row.id === id)
+          if (matches.length > 1) throw new Error(`Ambiguous live panes for ${id}`)
+          if (matches.length === 1) Bun.spawnSync(["tmux", "kill-pane", "-t", matches[0]!.pane], { stdout: "ignore", stderr: "ignore" })
+        }
+        return console.log(JSON.stringify(desired))
+      }
+      throw new Error("Usage: clankers recovery status|journal|reconcile|checkpoint|attest|stop|start|suspend|tombstone ...")
+    } finally { store.close() }
+  }
 
   if (command === "workshop") {
     const subcommand = parsed.shift()

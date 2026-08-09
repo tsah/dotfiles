@@ -146,7 +146,7 @@ const pi = {
 }
 extension(pi as never)
 let idle = true
-const context = { isIdle: () => idle }
+const context = { isIdle: () => idle, sessionManager: { getSessionId: () => "pi-test-session" } }
 await handlers.get("session_start")?.({}, context)
 const socketDirectory = \`${runtime}/clankerhouse-\${process.getuid?.() || 0}/clanker-sockets\`
 const socketPath = \`\${socketDirectory}/\${readdirSync(socketDirectory).find((entry) => entry.endsWith(".sock"))}\`

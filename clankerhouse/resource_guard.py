@@ -16,6 +16,7 @@ import os
 import pathlib
 import re
 import signal
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -513,6 +514,31 @@ class ResourceGuard:
         eligible = [candidate for candidate in candidates if not candidate.focused]
         return min(eligible, key=lambda value: (STATE_RANK[value.state], -value.rss_bytes, value.report_updated_at, value.pane)) if eligible else None
 
+    def _suspend_recovery(self, candidate: Candidate) -> bool:
+        database = self.config.state_dir / "recovery.sqlite3"
+        if not database.exists():
+            return True
+        try:
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+                row = connection.execute(
+                    "SELECT desired_state FROM desired_clankers WHERE clanker_id = ?",
+                    (candidate.clanker_id,),
+                ).fetchone()
+        except (OSError, sqlite3.Error):
+            return False
+        if row is None or row[0] == "suspended_resource_pressure":
+            return True
+        if row[0] != "running":
+            return True
+        cli = os.environ.get("CLANKERHOUSE_CLANKERS", str(pathlib.Path.home() / "dotfiles/bin/clankers"))
+        result = subprocess.run(
+            [cli, "recovery", "suspend", candidate.clanker_id, "--reason", "resource-pressure", "--no-kill"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+
     def mitigate(self, sample: MemorySample, candidates: list[Candidate] | None = None) -> Candidate | None:
         if self.snapshot.get("acted"):
             return None
@@ -529,6 +555,10 @@ class ResourceGuard:
             return selected
         if not self.validate(selected):
             self.snapshot["mitigation_skipped"] = "candidate_validation_failed"
+            self._write_snapshot()
+            return None
+        if not self._suspend_recovery(selected):
+            self.snapshot["mitigation_skipped"] = "recovery_suspension_failed"
             self._write_snapshot()
             return None
         self.snapshot["acted"] = True

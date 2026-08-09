@@ -6,7 +6,7 @@ harness="${1:-}"
 state="${2:-}"
 
 case "$harness" in
-    claude|pi|codex) ;;
+    claude|pi|codex|opencode) ;;
     *) exit 0 ;;
 esac
 
@@ -34,8 +34,27 @@ activity_path=$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev
 
 # Consume hook stdin so callers that provide JSON never block on a full pipe.
 hook_input=$(cat 2>/dev/null || true)
+harness_session_id=$(HOOK_INPUT="$hook_input" python3 - <<'PY'
+import json
+import os
+try:
+    payload = json.loads(os.environ.get("HOOK_INPUT", "") or "{}")
+except Exception:
+    payload = {}
+value = payload.get("session_id") or payload.get("sessionID") or ""
+print(value if isinstance(value, str) else "")
+PY
+)
+expected_session_id="${CLANKER_SESSION_ID:-}"
+recovery_attempt_id="${CLANKER_RECOVERY_ATTEMPT:-}"
+if [[ -n "$harness_session_id" ]]; then
+    tmux set-option -p -t "$pane" @clankerhouse_harness_session_id "$harness_session_id" 2>/dev/null || true
+fi
+if [[ -n "$recovery_attempt_id" ]]; then
+    tmux set-option -p -t "$pane" @clankerhouse_recovery_attempt "$recovery_attempt_id" 2>/dev/null || true
+fi
 
-HARNESS="$harness" CLANKER_ID="$clanker_id" STATE="$state" PANE="$pane" HOOK_INPUT="$hook_input" STATE_DIR="$state_dir" ACTIVITY_DIR="$activity_dir" ACTIVITY_PATH="$activity_path" python3 - <<'PY'
+HARNESS="$harness" CLANKER_ID="$clanker_id" STATE="$state" PANE="$pane" HOOK_INPUT="$hook_input" HARNESS_SESSION_ID="$harness_session_id" RECOVERY_ATTEMPT_ID="$recovery_attempt_id" STATE_DIR="$state_dir" ACTIVITY_DIR="$activity_dir" ACTIVITY_PATH="$activity_path" python3 - <<'PY'
 import hashlib
 import json
 import os
@@ -88,6 +107,8 @@ if state == "done":
 record = {
     "harness": harness,
     "clankerId": clanker_id or previous.get("clankerId"),
+    "harnessSessionId": os.environ.get("HARNESS_SESSION_ID") or previous.get("harnessSessionId"),
+    "recoveryAttemptId": os.environ.get("RECOVERY_ATTEMPT_ID") or previous.get("recoveryAttemptId"),
     "state": state,
     "pane": pane,
     "generation": generation,
@@ -106,6 +127,16 @@ if activity_dir and activity_path:
     activity_tmp.write_text(json.dumps({"path": str(activity_path), "source": "clanker", "updatedAt": record["updatedAt"]}), encoding="utf-8")
     activity_tmp.replace(activity_target)
 PY
+
+if [[ -n "$harness_session_id" ]]; then
+    if [[ -n "$expected_session_id" && "$expected_session_id" != "$harness_session_id" ]]; then
+        exit 0
+    fi
+    clankers_cli="${CLANKERHOUSE_CLANKERS:-$HOME/dotfiles/bin/clankers}"
+    attest_args=(recovery attest "$clanker_id" --session-id "$harness_session_id")
+    [[ -n "$recovery_attempt_id" ]] && attest_args+=(--attempt "$recovery_attempt_id")
+    "$clankers_cli" "${attest_args[@]}" >/dev/null 2>&1 || true
+fi
 
 if [[ "$state" == "unknown" ]]; then
     tmux set-option -p -u -t "$pane" @dotfiles_harness 2>/dev/null || true

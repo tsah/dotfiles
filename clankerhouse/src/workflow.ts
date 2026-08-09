@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { realpathSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 import { markDirectoryActivity } from "./activity"
 import { clankerForPane, generatedClankerId, listClankers, resultForClanker, sendClanker, waitForClanker, type ClankerDelivery } from "./clanker-api"
-import { lineageMode, persistWorkshopLineage, type LineageMode, type WorkshopRecord, workshopForId } from "./workshop"
+import { initialHarnessCommand } from "./recovery/harness"
+import { openRecoveryStore } from "./recovery/store"
+import { lineageMode, persistWorkshopLineage, type LineageMode, type WorkshopRecord, workshopForId, workshopForPath } from "./workshop"
 
 export type Harness = "pi" | "claude" | "opencode" | "codex"
 export interface WorktreeIdentity { path: string; commonDir: string; repo: string; branch: string }
@@ -72,31 +74,16 @@ export async function ensureSession(id: WorktreeIdentity, options: { parentWorks
   return name
 }
 
-function harnessCommand(harness: Harness, cwd: string, prompt: string, clankerId: string, profile?: string) {
-  const plannotatorEnv = [
-    `BROWSER=${Bun.env.BROWSER || "xdg-open"}`,
-    `PLANNOTATOR_BROWSER=${Bun.env.PLANNOTATOR_BROWSER || `${Bun.env.HOME}/.local/bin/xdg-open`}`,
-    `PLANNOTATOR_REMOTE=${Bun.env.PLANNOTATOR_REMOTE || "1"}`,
-    `PLANNOTATOR_PORT=${Bun.env.PLANNOTATOR_PORT || "19432-19439"}`,
-  ]
-  const clankerhouseEnv = `CLANKER_ID=${clankerId}`
-  if (harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", ...plannotatorEnv, clankerhouseEnv, "claude", ...(profile ? ["--agent", profile] : []), prompt]
-  if (harness === "opencode") return ["env", ...plannotatorEnv, clankerhouseEnv, "oc", ...(profile ? ["--agent", profile] : []), "--prompt", prompt]
-  if (harness === "codex") return ["env", ...plannotatorEnv, clankerhouseEnv, "codex", prompt]
-  const presetArgs: string[] = []
-  if (profile) {
-    const helper = resolve(import.meta.dir, "../../bin/pi-agent-config")
-    const resolved = Bun.spawnSync([helper, "--cwd", cwd, "--format", "json", profile], { stdout: "pipe", stderr: "pipe" })
-    if (resolved.exitCode !== 0) throw new Error(resolved.stderr.toString().trim() || `Unknown pi profile: ${profile}`)
-    const config = JSON.parse(resolved.stdout.toString())
-    if (config.model) presetArgs.push("--model", config.model)
-    if (config.thinking) presetArgs.push("--thinking", config.thinking)
-    if (config.tools?.length) presetArgs.push("--tools", config.tools.join(","))
-    const body = Bun.spawnSync([helper, "--cwd", cwd, "--body", profile], { stdout: "pipe" }).stdout.toString()
-    if (body.trim()) presetArgs.push("--append-system-prompt", body)
-  }
-  return ["env", ...plannotatorEnv, clankerhouseEnv, "pi", ...presetArgs, prompt]
-}
+const codexCommand = (prompt: string, clankerId: string) => [
+  "env",
+  `BROWSER=${Bun.env.BROWSER || "xdg-open"}`,
+  `PLANNOTATOR_BROWSER=${Bun.env.PLANNOTATOR_BROWSER || `${Bun.env.HOME}/.local/bin/xdg-open`}`,
+  `PLANNOTATOR_REMOTE=${Bun.env.PLANNOTATOR_REMOTE || "1"}`,
+  `PLANNOTATOR_PORT=${Bun.env.PLANNOTATOR_PORT || "19432-19439"}`,
+  `CLANKER_ID=${clankerId}`,
+  "codex",
+  prompt,
+]
 
 export async function spawnClanker(harness: Harness, cwd: string, prompt: string, profile?: string, requestedName?: string, wait = false) {
   if (wait && harness === "opencode") throw new Error("OpenCode does not expose a verified lifecycle report transport for waiting")
@@ -108,13 +95,36 @@ export async function spawnClanker(harness: Harness, cwd: string, prompt: string
   let name = prefix; let n = 2
   while (existing.includes(name)) name = `${prefix}-${n++}`
   const clankerId = generatedClankerId()
-  const argv = harnessCommand(harness, id.path, prompt, clankerId, profile)
+  const recoverable = harness !== "codex"
+  const harnessSessionId = harness === "pi" || harness === "claude" ? randomUUID() : null
+  let argv = codexCommand(prompt, clankerId)
+  if (recoverable) {
+    const recoverableHarness = harness as Exclude<Harness, "codex">
+    const workshop = workshopForPath(id.path)
+    const store = openRecoveryStore()
+    try {
+      store.createDesired({
+        clankerId,
+        harness: recoverableHarness,
+        workshopId: workshop?.workshopId || `path-${createHash("sha256").update(id.path).digest("hex").slice(0, 24)}`,
+        workshopPath: id.path,
+        tmuxSessionName: session,
+        tmuxWindowName: name,
+        cwd: id.path,
+        harnessSessionId,
+        launchSpec: { version: 1, profile: profile || null },
+        originalTask: prompt,
+      })
+      const attempt = store.beginAttempt(clankerId, "initial")
+      argv = initialHarnessCommand({ harness: recoverableHarness, cwd: id.path, prompt, clankerId, harnessSessionId, launchSpec: { version: 1, profile: profile || null }, attemptId: String(attempt.id) })
+    } finally { store.close() }
+  }
   const result = await command(["tmux", "new-window", "-d", "-P", "-F", "#{window_id}\t#{pane_id}", "-t", `=${session}`, "-n", name, "-c", id.path, ...argv])
   const [window, pane] = result.stdout.split("\t")
   await command(["tmux", "set-option", "-p", "-t", pane!, "@clankerhouse_clanker_id", clankerId])
   await command(["tmux", "set-option", "-p", "-t", pane!, "@dotfiles_harness", harness])
   await command(["tmux", "set-option", "-w", "-t", window!, "@dotfiles_harness", harness])
-  const spawned: Record<string, unknown> = { identity: id, session, window, pane, name, clankerId }
+  const spawned: Record<string, unknown> = { identity: id, session, window, pane, name, clankerId, ...(recoverable ? { harnessSessionId } : {}) }
   if (wait) {
     const timeout = Number(Bun.env.CLANKER_WAIT_TIMEOUT || 600) * 1000
     const settled = await waitForClanker(clankerId, { afterGeneration: 0, timeoutMs: timeout })

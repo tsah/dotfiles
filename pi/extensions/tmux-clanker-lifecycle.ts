@@ -27,6 +27,8 @@ interface ClankerResult {
 
 interface PersistedReport {
 	clankerId?: string;
+	harnessSessionId?: string;
+	recoveryAttemptId?: string;
 	generation?: number;
 	settledGeneration?: number;
 	result?: ClankerResult;
@@ -96,6 +98,14 @@ export default function (pi: ExtensionAPI) {
 	let server: Server | undefined;
 	let activeSocketPath = "";
 	let externalSendInFlight = false;
+	let harnessSessionId = process.env.CLANKER_SESSION_ID?.trim() || "";
+	const recoveryAttemptId = process.env.CLANKER_RECOVERY_ATTEMPT?.trim() || "";
+
+	const attestSession = () => {
+		if (!harnessSessionId) return;
+		const cli = process.env.CLANKERHOUSE_CLANKERS || join(process.env.HOME || "", "dotfiles", "bin", "clankers");
+		spawnSync(cli, ["recovery", "attest", clankerId, "--session-id", harnessSessionId, ...(recoveryAttemptId ? ["--attempt", recoveryAttemptId] : [])], { stdio: "ignore" });
+	};
 
 	const report = (state: State, event: string) => {
 		if (!pane || !stateFile) return;
@@ -107,6 +117,8 @@ export default function (pi: ExtensionAPI) {
 			const record = {
 				harness: "pi",
 				clankerId,
+				harnessSessionId,
+				recoveryAttemptId,
 				state,
 				pane,
 				generation,
@@ -175,6 +187,8 @@ export default function (pi: ExtensionAPI) {
 		clankerId = paneOption("@clankerhouse_clanker_id") || clankerId;
 		setPaneOption("@clankerhouse_clanker_id", clankerId);
 		setPaneOption("@dotfiles_harness", "pi");
+		if (harnessSessionId) setPaneOption("@clankerhouse_harness_session_id", harnessSessionId);
+		if (recoveryAttemptId) setPaneOption("@clankerhouse_recovery_attempt", recoveryAttemptId);
 		setPaneOption("@clankerhouse_clanker_pid", String(process.pid));
 		setPaneOption("@clankerhouse_clanker_capabilities", "status,wait,send,result");
 		mkdirSync(socketDirectory, { recursive: true, mode: 0o700 });
@@ -246,7 +260,15 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		currentContext = ctx;
+		harnessSessionId = ctx.sessionManager.getSessionId();
+		const expectedSessionId = process.env.CLANKER_SESSION_ID?.trim();
+		if (expectedSessionId && harnessSessionId !== expectedSessionId) {
+			reportParentState("blocked", "session_identity_mismatch");
+			return;
+		}
+		setPaneOption("@clankerhouse_harness_session_id", harnessSessionId);
 		await startSocket();
+		attestSession();
 		reportParentState("idle", "session_start");
 	});
 	pi.on("agent_start", (_event, ctx) => {
