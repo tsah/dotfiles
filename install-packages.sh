@@ -79,11 +79,11 @@ else
 fi
 
 if command -v bun &> /dev/null; then
-    echo "📦 Installing Waystation dependencies..."
-    (cd "$HOME/dotfiles/wayfinder" && bun install)
-    echo "✅ Waystation dependencies installed"
+    echo "📦 Installing Clankerhouse dependencies..."
+    (cd "$HOME/dotfiles/clankerhouse" && bun install)
+    echo "✅ Clankerhouse dependencies installed"
 else
-    echo "⚠️  Bun not found after install; Waystation will fall back to fzf"
+    echo "⚠️  Bun not found after install; Clankerhouse will fall back to fzf"
 fi
 
 echo "📦 Installing OpenCode (SST Claude CLI)..."
@@ -112,7 +112,7 @@ echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
 echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
-echo "   • bun - JavaScript runtime for Waystation"
+echo "   • bun - JavaScript runtime for Clankerhouse"
 echo "   • opencode - SST Claude CLI"
 echo "   • waybar - Status bar"
 echo "   • mako - Notification daemon"

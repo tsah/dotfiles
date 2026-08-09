@@ -22,18 +22,8 @@
       }
     ]
   ],
-  "mcp": {
-    "linear": {
-      "type": "remote",
-      "url": "https://mcp.linear.app/mcp"
-    }
-  },
   "lsp": false,
-  "tools": {
-    "linear_*": false
-  },
   "permission": {
-    "linear_*": "deny",
     "external_directory": {
       "/**": "allow"
     }

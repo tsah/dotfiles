@@ -126,8 +126,8 @@ keymap('n', '<leader>on', function() require('opencode').command('session.new') 
 keymap({ 'n', 'v' }, '<leader>os', function() require('opencode').select() end, { desc = 'Select opencode prompt' })
 
 -- Pi tmux integration
-require("pi_tmux").setup()
-keymap("n", "<leader>pp", "<cmd>AgentSendReference<cr>", { desc = "Agent: send reference" })
-keymap("v", "<leader>ps", ":AgentSendContents<cr>", { desc = "Agent: send selection" })
-keymap("n", "<leader>pb", "<cmd>%AgentSendContents<cr>", { desc = "Agent: send buffer" })
-keymap("n", "<leader>pf", "<cmd>AgentFocus<cr>", { desc = "Agent: focus" })
+require("clankerhouse").setup()
+keymap("n", "<leader>pp", "<cmd>ClankerSendReference<cr>", { desc = "Clanker: send reference" })
+keymap("v", "<leader>ps", ":ClankerSendContents<cr>", { desc = "Clanker: send selection" })
+keymap("n", "<leader>pb", "<cmd>%ClankerSendContents<cr>", { desc = "Clanker: send buffer" })
+keymap("n", "<leader>pf", "<cmd>ClankerFocus<cr>", { desc = "Clanker: focus" })

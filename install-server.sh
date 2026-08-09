@@ -7,7 +7,7 @@ DOTFILES_DIR=${DOTFILES_DIR:-"$HOME/dotfiles"}
 REAL_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 if [ "$HOME" = "$REAL_HOME" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload
-    systemctl --user enable --now wayfinder-resource-guard.service
+    systemctl --user enable --now clankerhouse-resource-guard.service
     if command -v loginctl >/dev/null 2>&1 && [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != "yes" ]; then
         echo "Warning: run 'sudo loginctl enable-linger $(id -un)' so the resource guard survives SSH logout." >&2
     fi

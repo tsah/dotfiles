@@ -1,6 +1,6 @@
 # Agent Guidelines for dotfiles Repository
 
-> **Workflow changes:** read [`docs/dotfiles-workflow.md`](docs/dotfiles-workflow.md) and execute the safety-scoped [`docs/qa/dotfiles-workflow.md`](docs/qa/dotfiles-workflow.md) QA plan. Never run its destructive scenarios against real sessions/worktrees.
+> **Clankerhouse changes:** read [`clankerhouse-tui.md`](clankerhouse-tui.md) and execute the safety-scoped [`clankerhouse/scripts/qa`](clankerhouse/scripts/qa) and [`docs/qa/clanker-api.md`](docs/qa/clanker-api.md) plans. Never run destructive scenarios against real workshops, clankers, tmux sessions, or worktrees.
 
 ## IMPORTANT: Edit Files in This Repository
 
@@ -267,31 +267,36 @@ Pi configs are in `~/dotfiles/pi/` and symlinked to `~/.pi/agent/`:
 dotfiles/
 └── pi/
     ├── extensions/
-    │   └── tmux-worker-lifecycle.ts  # Globally loaded tmux Pi lifecycle status hooks
+    │   └── tmux-clanker-lifecycle.ts  # Globally loaded Pi clanker lifecycle hooks
     └── subagents.json                # @tintinweb/pi-subagents limits and UI settings
 ```
 
-`bin/install-pi-packages` installs the pinned in-process subagent package. Use its
-`Agent` tool for same-session delegation and `worker-pi` only for explicit
-handoffs that require a visible, Worktrunk-isolated agent and worktree.
+`bin/install-pi-packages` installs the pinned in-process subagent package and
+the shared Linear skill's pinned SDK dependency. Use its `Agent` tool for
+same-session delegation and `workshop-pi` only for explicit handoffs that require
+a visible clanker in a Worktrunk-isolated workshop.
 
 A request to run QA, tests, a shell, or an interactive command in a tmux window
 or pane means the current tmux session and current worktree unless the user
 explicitly requests delegation or isolation. The words "tmux", "window",
-"pane", "visible", or "separate" alone never imply a worker. Use a current-
-session window/pane for command execution, `agent-*` only when another visible
-agent in the current worktree is requested, and `worker-*` only for an explicit
-isolated handoff. Ask when "separate" is ambiguous.
+"pane", "visible", or "separate" alone never imply a workshop. Use a current-
+session window/pane for command execution, `clanker-*` only when another visible
+clanker in the current workshop is requested, and `workshop-*` only for an
+explicit isolated handoff. Harness-native in-process subagents are not clankers.
+Ask when "separate" is ambiguous.
 
 ## Claude Code Configuration
 
 Claude Code commands are in `~/dotfiles/claude/commands/` and symlinked to `~/.claude/commands/`.
-Shared skills live in `~/dotfiles/skills/` and are symlinked to `~/.claude/skills/`.
+Shared skills live in `~/dotfiles/skills/` and are symlinked to each supported
+harness. The `linear` skill is available to Pi, Claude Code, and OpenCode and
+uses `LINEAR_API_KEY` from `~/.env`.
 
-Harness-native worker launchers:
-- Claude Code: `worker-claude`
-- OpenCode: `worker-opencode`
-- pi: `worker-pi`
+Workshop launchers:
+- Claude Code: `workshop-claude`
+- OpenCode: `workshop-opencode`
+- Codex: `workshop-codex`
+- Pi: `workshop-pi`
 
 ## OpenCode Configuration
 
@@ -314,28 +319,12 @@ dotfiles/
 ### Key Configuration
 
 **opencode.json** configures:
-- MCP servers (e.g., Linear integration)
 - Provider/model settings
 - Agent overrides (model, tools, permissions)
 - Global tool enable/disable
 
-**Limiting MCP to specific agents:**
-```json
-{
-  "mcp": {
-    "linear": { "type": "remote", "url": "https://mcp.linear.app/mcp" }
-  },
-  "tools": {
-    "linear_*": false
-  },
-  "agent": {
-    "linear-agent": {
-      "mode": "subagent",
-      "tools": { "linear_*": true }
-    }
-  }
-}
-```
+Linear access is provided by the shared `skills/linear` skill rather than an
+MCP server. Keep its personal API key in `~/.env`, never in tracked config.
 
 ### Omarchy Skill
 

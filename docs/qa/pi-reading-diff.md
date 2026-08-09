@@ -40,7 +40,7 @@ Create a disposable repository containing committed `tracked.txt`, ignored `secr
 
 ## Tmux/manual Pi scenarios
 
-Use one clearly named QA window (for example `qa-reading-diff`) in this worker's existing tmux session, launch `pi -e "$PWD/pi/extensions/reading-diff/index.ts"`, and remove only that window afterward.
+Use one clearly named QA window (for example `qa-reading-diff`) in this clanker's existing workshop session, launch `pi -e "$PWD/pi/extensions/reading-diff/index.ts"`, and remove only that window afterward.
 
 1. Startup: inspect Pi's Extensions list. Expected: `reading-diff` is present and there are no startup errors.
 2. Help and argument errors: run `/reading-diff --help`, `/reading-diff --staged --input`, `/reading-diff --range`, and `/reading-diff --range --output=/tmp/x`. Expected: clear usage/safe-revision errors, no model call, and no reading-diff entry.
@@ -78,7 +78,7 @@ Not executed: provider-request canary logging; keyless/ambient-auth provider; mi
 
 ### 2026-08-04 — large-diff chunking follow-up
 
-Executed in tmux session `dotfiles@master` (`$1`), current-worktree window `qa-reading-diff-chunking` (`@65`), without a worker or separate worktree:
+Executed in tmux session `dotfiles@master` (`$1`), current-worktree window `qa-reading-diff-chunking` (`@65`), without another clanker or separate workshop:
 
 - `bun test pi/extensions/reading-diff/core.test.ts` — **25 passed, 0 failed, 53 assertions**. Added coverage for the former 4,000-line failure, file/hunk boundary preference, oversized-hunk fallback splitting, lossless line preservation, local-to-global coordinate mapping, boundary-range merging, and bounded UTF-8 summary combination.
 - `bun /tmp/qa-reading-diff-chunking.ts` — **passed**. A synthetic 4,410-line diff was accepted and losslessly split into two chunks starting at global physical lines 1 and 3,501; combined rendering retained global source coordinates and deterministic omission markers.

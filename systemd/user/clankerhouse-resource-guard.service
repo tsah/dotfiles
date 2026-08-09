@@ -1,0 +1,17 @@
+[Unit]
+Description=Clankerhouse conservative clanker resource-pressure guard
+Documentation=file:%h/dotfiles/clankerhouse/README.md
+ConditionPathExists=/proc/pressure/memory
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/dotfiles/bin/clankerhouse-resource-guard
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

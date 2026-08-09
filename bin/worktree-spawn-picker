@@ -20,7 +20,7 @@ fi
 result=$(wt -C "$repo_path" switch --branches --remotes --no-cd --format json) || exit $?
 
 worktree_path=$(printf '%s' "$result" | python3 -c 'import json,sys; print(json.load(sys.stdin)["path"])')
-session=$("$SCRIPT_DIR/dotfiles-workflow" session --cwd "$worktree_path")
+session=$("$SCRIPT_DIR/clankers" workshop ensure --cwd "$worktree_path")
 
 if [ -n "${TMUX:-}" ]; then
     exec tmux switch-client -t "=$session"

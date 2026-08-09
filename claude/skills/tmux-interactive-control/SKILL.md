@@ -3,7 +3,7 @@ name: Tmux Interactive Control
 description: >-
   Drive non-agent interactive CLIs inside tmux panes by sending keys, capturing
   pane output, and waiting for prompts. Use this for REPLs, debuggers, shells,
-  and test watchers, not agent communication or isolated worker spawning.
+  and test watchers, not agent communication or isolated workshop spawning.
 ---
 
 # Tmux Interactive Control
@@ -14,40 +14,40 @@ session.
 
 This skill is for “nearby” terminal interaction in the current session or an
 explicitly named existing session. It should not create an isolated
-branch/worktree, and it must not use terminal input or pane capture as an agent
+branch/worktree, and it must not use terminal input or pane capture as an clanker
 communication protocol.
 
-Use this skill when you need to control a non-agent REPL, debugger, shell, or
+Use this skill when you need to control a non-clanker REPL, debugger, shell, or
 test watcher with `send-keys`, inspect its pane output, or poll for a prompt.
 
-For an existing agent, use `waystation agent list|status|capabilities|wait|send|result`.
+For an existing clanker, use `clankers list|status|capabilities|wait|send|result`.
 Tmux may discover or focus the pane, but never use `send-keys`, `load-buffer`,
-`paste-buffer`, or `capture-pane` to communicate with an agent. Unsupported
-Waystation capabilities must fail explicitly.
+`paste-buffer`, or `capture-pane` to communicate with a clanker. Unsupported
+Clanker API capabilities must fail explicitly.
 
-Do NOT use this skill to spawn worktree-backed workers. If the user asks for a
+Do NOT use this skill to spawn worktree-backed workshops. If the user asks for a
 handoff or an independent isolated implementation/research task, use the
-harness-native worker mechanism instead:
-- Claude Code: `/handoff` or `worker-claude`
-- OpenCode: `/handoff` or `worker-opencode`
-- pi: `worker-pi`
+workshop launcher instead:
+- Claude Code: `/handoff` or `workshop-claude`
+- OpenCode: `/handoff` or `workshop-opencode`
+- pi: `workshop-pi`
 
 ## Tmux Interactive vs Handoff
 
-Use **tmux interactive control** for a non-agent REPL, debugger, shell, or test
-watcher in the current tmux context. Use the native Waystation API or a
-same-session harness mechanism for agents.
+Use **tmux interactive control** for a non-clanker REPL, debugger, shell, or test
+watcher in the current tmux context. Use the native Clankerhouse API or a
+same-session harness mechanism for subagents.
 
 Use **handoff** for independent, isolated implementation/research or orchestration:
 
 - create a new git worktree and a separate tmux session/window
-- let a worker own a task branch independently
-- allow an orchestrator agent to monitor/review/coordinate an implementor agent
+- let a clanker own a task branch independently
+- allow an orchestrator clanker to monitor/review/coordinate an implementor clanker
 - keep experimental edits away from the current working tree/session
 - never share worktrees, mutable state, or PR ownership between orchestrator and implementor
 
 Rule of thumb: tmux interactive control is “work with what is here”; handoff is
-“send this away to an isolated worker.”
+“send this away to an isolated workshop.”
 
 ## Core Rules
 
@@ -62,7 +62,7 @@ Rule of thumb: tmux interactive control is “work with what is here”; handoff
 ### Existing tmux server (default for your repo workflow)
 
 Use plain `tmux ...` commands to discover or focus sessions created by `wt`,
-`worker-opencode`, `worker-claude`, or `worker-pi`. Use Waystation for any agent
+`workshop-opencode`, `workshop-claude`, or `workshop-pi`. Use Clankerhouse for any clanker
 message, wait, or result operation.
 
 ```bash

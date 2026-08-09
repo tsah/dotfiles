@@ -1,10 +1,15 @@
 #!/bin/sh
 set -eu
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DOTFILES_DIR=$(dirname "$SCRIPT_DIR")
+
 if ! command -v pi >/dev/null 2>&1; then
     echo "pi is required. Run the platform package installer first." >&2
     exit 1
 fi
 
 pi install npm:@tintinweb/pi-subagents@0.14.0
-pi install npm:@plannotator/pi-extension@0.25.0
+pi install npm:@plannotator/pi-extension@0.25.1
+
+npm ci --omit=dev --prefix "$DOTFILES_DIR/skills/linear/scripts"

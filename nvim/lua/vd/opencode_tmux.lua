@@ -1,12 +1,12 @@
--- Neovim bridge for existing Waystation agents and the opencode.nvim provider.
--- Agent messages use the native Waystation API. Tmux is limited to metadata,
+-- Neovim bridge for existing Clankerhouse clankers and the opencode.nvim provider.
+-- Clanker messages use the native Clankerhouse API. Tmux is limited to metadata,
 -- focus, and spawning an OpenCode pane for the provider startup hook.
 
 local M = {}
 
 local function notify(message, level)
     vim.schedule(function()
-        vim.notify(tostring(message), level or vim.log.levels.INFO, { title = "agents" })
+        vim.notify(tostring(message), level or vim.log.levels.INFO, { title = "clankers" })
     end)
 end
 
@@ -27,20 +27,20 @@ local function project_anchor()
     return git_root(directory)
 end
 
-local function list_agents()
-    local result = run("~/dotfiles/bin/waystation", { "agent", "list", "--cwd", project_anchor() })
+local function list_clankers()
+    local result = run("~/dotfiles/bin/clankers", { "list", "--cwd", project_anchor() })
     if result.code ~= 0 then
         return nil, vim.trim(result.stderr)
     end
     local ok, rows = pcall(vim.json.decode, result.stdout)
     if not ok or type(rows) ~= "table" then
-        return nil, "Waystation returned invalid agent metadata"
+        return nil, "Clankerhouse returned invalid clanker metadata"
     end
     return rows
 end
 
 local function native_targets()
-    local rows, err = list_agents()
+    local rows, err = list_clankers()
     if not rows then
         return nil, err
     end
@@ -85,7 +85,7 @@ local function compose(selection, message)
 end
 
 local function send_native(agent, text)
-    local result = run("~/dotfiles/bin/waystation", { "agent", "send", agent.id }, text)
+    local result = run("~/dotfiles/bin/clankers", { "send", agent.id }, text)
     if result.code ~= 0 then
         notify(vim.trim(result.stderr), vim.log.levels.ERROR)
         return false
@@ -108,7 +108,7 @@ local function choose_target(callback)
         local names = vim.tbl_keys(harnesses)
         table.sort(names)
         local suffix = #names > 0 and " (found: " .. table.concat(names, ", ") .. ")" or ""
-        notify("No current-worktree agent advertises native send" .. suffix, vim.log.levels.ERROR)
+        notify("No current-workshop clanker advertises native send" .. suffix, vim.log.levels.ERROR)
         return
     end
     if #targets == 1 then
@@ -116,7 +116,7 @@ local function choose_target(callback)
         return
     end
     vim.ui.select(targets, {
-        prompt = "Native Waystation agent",
+        prompt = "Native Clankerhouse clanker",
         format_item = function(row)
             return string.format("%s · %s · %s", row.harness, row.name, row.id)
         end,
@@ -130,7 +130,7 @@ function M.ask()
     if vim.fn.mode():match("^[vV\22]") then
         vim.cmd("normal! \27")
     end
-    vim.ui.input({ prompt = "Ask agent: " }, function(input)
+    vim.ui.input({ prompt = "Ask clanker: " }, function(input)
         local message = input and vim.trim(input) or ""
         if message == "" then return end
         choose_target(function(agent)
@@ -143,14 +143,14 @@ M.ask_this = M.ask
 
 local function generated_id(pane)
     local seed = table.concat({ pane, tostring(vim.uv.hrtime()), tostring(math.random()) }, ":")
-    return "ws-" .. vim.fn.sha256(seed):sub(1, 36)
+    return "clanker-" .. vim.fn.sha256(seed):sub(1, 36)
 end
 
 -- opencode.nvim owns its HTTP communication. This hook only ensures a visible
--- OpenCode process exists; Waystation intentionally exposes no OpenCode send or
+-- OpenCode process exists; Clankerhouse intentionally exposes no OpenCode send or
 -- result capability until that HTTP mutation contract is verified.
 function M.ensure_sync()
-    local rows = list_agents()
+    local rows = list_clankers()
     if rows then
         for _, row in ipairs(rows) do
             if row.harness == "opencode" then return end
@@ -169,8 +169,8 @@ function M.ensure_sync()
         return
     end
     local spawned_pane = vim.trim(spawn.stdout)
-    vim.system({ "tmux", "set-option", "-p", "-t", spawned_pane, "@waystation_agent_id", generated_id(spawned_pane) }):wait()
-    vim.system({ "tmux", "set-option", "-p", "-t", spawned_pane, "@dotfiles_agent", "opencode" }):wait()
+    vim.system({ "tmux", "set-option", "-p", "-t", spawned_pane, "@clankerhouse_clanker_id", generated_id(spawned_pane) }):wait()
+    vim.system({ "tmux", "set-option", "-p", "-t", spawned_pane, "@dotfiles_harness", "opencode" }):wait()
 end
 
 M.ensure = M.ensure_sync
