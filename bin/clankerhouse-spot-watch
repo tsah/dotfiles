@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+DOTFILES_DIR=${DOTFILES_DIR:-"$HOME/dotfiles"}
+exec python3 "$DOTFILES_DIR/clankerhouse/spot_watch.py" "$@"
