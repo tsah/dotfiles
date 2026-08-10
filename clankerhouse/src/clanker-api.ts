@@ -3,6 +3,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs"
 import { createConnection } from "node:net"
 import { resolve } from "node:path"
 import type { ClankerState } from "./model"
+import { parseTmuxFields, tmuxFields } from "./tmux-fields"
 
 export type ClankerHarness = "pi" | "claude" | "opencode" | "codex" | string
 export type ClankerDelivery = "steer" | "followUp"
@@ -137,7 +138,7 @@ export interface PaneMetadata {
 }
 
 export const parsePaneMetadata = (output: string): PaneMetadata[] => output.split("\n").filter(Boolean).map((line) => {
-  const [harness = "", id = "", socketPath = "", sessionId = "", session = "", window = "", name = "", pane = "", cwd = "", worktreePath = ""] = line.split("\t")
+  const [harness = "", id = "", socketPath = "", sessionId = "", session = "", window = "", name = "", pane = "", cwd = "", worktreePath = ""] = parseTmuxFields(line)
   return { harness, id, socketPath, sessionId, session, window, name, pane, cwd, worktreePath }
 }).filter((row) => row.harness && row.pane)
 
@@ -158,11 +159,11 @@ export async function ensurePaneClankerId(pane: string, preferredId?: string) {
 }
 
 const discoverRecords = async (): Promise<ClankerRecord[]> => {
-  const format = [
+  const format = tmuxFields(
     "#{@dotfiles_harness}", "#{@clankerhouse_clanker_id}", "#{@clankerhouse_clanker_socket}",
     "#{session_id}", "#{session_name}", "#{window_id}", "#{window_name}", "#{pane_id}",
     "#{pane_current_path}", "#{@dotfiles_worktree_path}",
-  ].join("\t")
+  )
   const listed = await command(["tmux", "list-panes", "-a", "-F", format], true)
   if (listed.code !== 0 || !listed.stdout) return []
   const rows = parsePaneMetadata(listed.stdout)

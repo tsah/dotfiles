@@ -22,6 +22,7 @@ import type { ProjectEffect } from "./server/project"
 import type { ClankerReport, DirectoryRow, OpencodeStatus, TmuxSession, TmuxWindow } from "./server/resources"
 import { refreshProjection, startSnapshotServer, subscribeSnapshots } from "./transport"
 import type { SnapshotServer, SnapshotSubscription } from "./transport"
+import { parseTmuxRows, tmuxFields } from "./tmux-fields"
 
 interface BranchRow { key: string; name: string; value: string; kind: "worktree" | "local" | "remote" | "create"; path: string; recency: number; searchText: string }
 interface DeleteAction { row: TreeRow; kind: "pane" | "session" | "worktree"; pane?: string; finalPane?: boolean }
@@ -103,8 +104,8 @@ const ageFromUnixSeconds = (seconds: number) => {
   return `${Math.floor(diff / 86400)}d`
 }
 
-const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{@dotfiles_worktree_path}\t#{@dotfiles_directory_path}\t#{session_path}\t#{session_attached}\t#{@dotfiles_workshop_id}\t#{@dotfiles_workshop_parent_id}\t#{@dotfiles_workspace_id}\t#{@dotfiles_workspace_parent_id}"]).pipe(
-  Effect.map((output) => parseTsv(output).map((parts): TmuxSession => {
+const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", tmuxFields("#{session_name}", "#{session_last_attached}", "#{session_activity}", "#{session_created}", "#{@dotfiles_worktree_path}", "#{@dotfiles_directory_path}", "#{session_path}", "#{session_attached}", "#{@dotfiles_workshop_id}", "#{@dotfiles_workshop_parent_id}", "#{@dotfiles_workspace_id}", "#{@dotfiles_workspace_parent_id}")]).pipe(
+  Effect.map((output) => parseTmuxRows(output).map((parts): TmuxSession => {
     const worktreePath = parts[4] ?? ""
     const directoryPath = parts[5] ?? ""
     const sessionPath = parts[6] ?? ""
@@ -123,8 +124,8 @@ const collectTmuxSessions = runCommand(["tmux", "list-sessions", "-F", "#{sessio
   }).filter((session) => session.name.length > 0)),
 )
 
-const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{window_activity}\t#{window_active}"]).pipe(
-  Effect.map((output) => parseTsv(output).map((parts): TmuxWindow => ({
+const collectTmuxWindows = runCommand(["tmux", "list-windows", "-a", "-F", tmuxFields("#{session_name}", "#{window_id}", "#{window_index}", "#{window_name}", "#{pane_id}", "#{pane_pid}", "#{pane_current_command}", "#{pane_title}", "#{window_activity}", "#{window_active}")]).pipe(
+  Effect.map((output) => parseTmuxRows(output).map((parts): TmuxWindow => ({
     session: parts[0] ?? "",
     id: parts[1] ?? "",
     index: parts[2] ?? "",
@@ -694,9 +695,9 @@ const isLinkedWorktreeSync = (path: string) => {
 }
 
 const stopSessionIntentSync = (sessionName: string, kill: boolean) => {
-  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
+  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
   if (sessions.exitCode !== 0) return sessions
-  const sessionId = parseTsv(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
+  const sessionId = parseTmuxRows(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
   return Bun.spawnSync([`${repoRoot}/bin/clankerhouse-tmux-stop`, kill ? "session" : "mark-session", sessionId || `=${sessionName}`], { stdout: "pipe", stderr: "pipe" })
 }
 
@@ -1015,8 +1016,8 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
     return `Destroy ${action.kind} '${row.session.name}'?`
   }
   const setTmuxWorkshopParent = (sessionName: string, parentWorkshopId: string | null) => {
-    const found = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
-    const sessionId = parseTsv(found.stdout.toString()).find(([, name]) => name === sessionName)?.[0] ?? ""
+    const found = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
+    const sessionId = parseTmuxRows(found.stdout.toString()).find(([, name]) => name === sessionName)?.[0] ?? ""
     if (found.exitCode !== 0 || !sessionId) return found.stderr.toString().trim() || "Selected session no longer exists"
     const args = parentWorkshopId === null
       ? ["tmux", "set-option", "-u", "-t", sessionId, "@dotfiles_workshop_parent_id"]
@@ -1231,8 +1232,8 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
       if (mode() === "rename" && renameSession()?.target.type === "tmux_session" && renameName().trim()) {
         const row = renameSession()!
         const oldName = row.target.type === "tmux_session" ? row.target.session : ""
-        const found = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
-        const sessionId = parseTsv(found.stdout.toString()).find(([, name]) => name === oldName)?.[0] ?? ""
+        const found = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
+        const sessionId = parseTmuxRows(found.stdout.toString()).find(([, name]) => name === oldName)?.[0] ?? ""
         if (found.exitCode !== 0 || !sessionId) {
           setError(found.stderr.toString().trim() || "Selected session no longer exists")
           return
@@ -1242,8 +1243,8 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
           setError(renamed.stderr.toString().trim() || "Unable to rename session")
           return
         }
-        const refreshed = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}"], { stdout: "pipe", stderr: "pipe" })
-        const actual = parseTsv(refreshed.stdout.toString()).find(([id]) => id === sessionId)?.[1] || renameName().trim()
+        const refreshed = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
+        const actual = parseTmuxRows(refreshed.stdout.toString()).find(([id]) => id === sessionId)?.[1] || renameName().trim()
         const updateTarget = (target: Target): Target => target.type === "tmux_session" ? { ...target, session: actual } : target.type === "tmux_window" || target.type === "opencode" ? { ...target, session: actual } : target
         row.name = actual
         row.target = updateTarget(row.target)

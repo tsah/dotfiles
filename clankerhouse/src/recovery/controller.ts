@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs"
 import { RECOVERY_POLICY, type DesiredClankerRecord, type ProcessIdentity } from "./model"
 import { initialHarnessCommand, recoveryHarnessCommand } from "./harness"
 import { openRecoveryStore, type RecoveryStore } from "./store"
+import { parseTmuxFields, tmuxFields } from "../tmux-fields"
 
 const sleep = (ms: number) => Bun.sleep(ms)
 const realpathSafe = (path: string) => { try { return realpathSync(path) } catch { return path } }
@@ -33,20 +34,20 @@ export interface ObservedPane {
 }
 
 export const observePanes = async (): Promise<ObservedPane[]> => {
-  const result = await command(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{@clankerhouse_clanker_id}\t#{@dotfiles_harness}\t#{@clankerhouse_harness_session_id}\t#{@clankerhouse_recovery_attempt}"], true)
+  const result = await command(["tmux", "list-panes", "-a", "-F", tmuxFields("#{pane_id}", "#{session_name}", "#{@clankerhouse_clanker_id}", "#{@dotfiles_harness}", "#{@clankerhouse_harness_session_id}", "#{@clankerhouse_recovery_attempt}")], true)
   if (result.code !== 0) return []
   return result.stdout.split("\n").filter(Boolean).map((line) => {
-    const [pane = "", session = "", clankerId = "", harness = "", harnessSessionId = "", recoveryAttemptId = ""] = line.split("\t")
+    const [pane = "", session = "", clankerId = "", harness = "", harnessSessionId = "", recoveryAttemptId = ""] = parseTmuxFields(line)
     return { pane, session, clankerId, harness, harnessSessionId, recoveryAttemptId }
   }).filter((row) => row.pane && row.session)
 }
 
 interface ObservedSession { id: string; name: string; path: string; workshopId: string }
 const observeSessions = async (): Promise<ObservedSession[]> => {
-  const result = await command(["tmux", "list-sessions", "-F", "#{session_id}\t#{session_name}\t#{@dotfiles_worktree_path}\t#{session_path}\t#{@dotfiles_workshop_id}"], true)
+  const result = await command(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}", "#{@dotfiles_worktree_path}", "#{session_path}", "#{@dotfiles_workshop_id}")], true)
   if (result.code !== 0) return []
   return result.stdout.split("\n").filter(Boolean).map((line) => {
-    const [id = "", name = "", taggedPath = "", sessionPath = "", workshopId = ""] = line.split("\t")
+    const [id = "", name = "", taggedPath = "", sessionPath = "", workshopId = ""] = parseTmuxFields(line)
     return { id, name, path: taggedPath || sessionPath, workshopId }
   })
 }
@@ -122,8 +123,8 @@ export const reconcileRecovery = async (providedStore?: RecoveryStore, options: 
         const argv = previousSucceeded
           ? recoveryHarnessCommand(desired, attemptId)
           : initialHarnessCommand({ harness: desired.harness, cwd: desired.cwd, prompt: desired.originalTask, clankerId: desired.clankerId, harnessSessionId: desired.harnessSessionId, launchSpec: desired.launchSpec, attemptId })
-        const launched = await command(["tmux", "new-window", "-d", "-P", "-F", "#{window_id}\t#{pane_id}", "-t", `=${session}`, "-n", windowName, "-c", desired.cwd, ...argv])
-        const [window = "", pane = ""] = launched.stdout.split("\t")
+        const launched = await command(["tmux", "new-window", "-d", "-P", "-F", tmuxFields("#{window_id}", "#{pane_id}"), "-t", `=${session}`, "-n", windowName, "-c", desired.cwd, ...argv])
+        const [window = "", pane = ""] = parseTmuxFields(launched.stdout)
         if (!pane) throw new Error("tmux did not return a pane id")
         await command(["tmux", "set-option", "-p", "-t", pane, "@clankerhouse_clanker_id", desired.clankerId])
         await command(["tmux", "set-option", "-p", "-t", pane, "@dotfiles_harness", desired.harness])

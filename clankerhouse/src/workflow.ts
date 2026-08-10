@@ -5,6 +5,7 @@ import { markDirectoryActivity } from "./activity"
 import { clankerForPane, generatedClankerId, listClankers, resultForClanker, sendClanker, waitForClanker, type ClankerDelivery } from "./clanker-api"
 import { initialHarnessCommand } from "./recovery/harness"
 import { openRecoveryStore } from "./recovery/store"
+import { parseTmuxFields, tmuxFields } from "./tmux-fields"
 import { lineageMode, persistWorkshopLineage, type LineageMode, type WorkshopRecord, workshopForId, workshopForPath } from "./workshop"
 
 export type Harness = "pi" | "claude" | "opencode" | "codex"
@@ -32,11 +33,11 @@ async function sessionForPath(path: string) {
   const canonical = realpathSafe(path)
   const result = await command([
     "tmux", "list-sessions", "-F",
-    "#{session_id}\t#{session_name}\t#{@dotfiles_worktree_path}\t#{@dotfiles_directory_path}\t#{session_path}\t#{session_activity}",
+    tmuxFields("#{session_id}", "#{session_name}", "#{@dotfiles_worktree_path}", "#{@dotfiles_directory_path}", "#{session_path}", "#{session_activity}"),
   ], undefined, true)
   if (result.code !== 0) return undefined
   return result.stdout.split("\n").filter(Boolean).map((line) => {
-    const [id = "", name = "", worktreePath = "", directoryPath = "", sessionPath = "", activity = "0"] = line.split("\t")
+    const [id = "", name = "", worktreePath = "", directoryPath = "", sessionPath = "", activity = "0"] = parseTmuxFields(line)
     const taggedPath = worktreePath || directoryPath
     const candidatePath = taggedPath || sessionPath
     return { id, name, candidatePath, activity: Number(activity) || 0 }
@@ -46,9 +47,9 @@ async function sessionForPath(path: string) {
 
 export async function sessionName(id: WorktreeIdentity) {
   const human = safeName(`${id.repo}@${id.branch}`)
-  const result = await command(["tmux", "display-message", "-p", "-t", `=${human}`, "#{@dotfiles_worktree_path}\t#{session_path}"], undefined, true)
+  const result = await command(["tmux", "display-message", "-p", "-t", `=${human}`, tmuxFields("#{@dotfiles_worktree_path}", "#{session_path}")], undefined, true)
   if (result.code !== 0 || !result.stdout) return human
-  const [taggedPath = "", sessionPath = ""] = result.stdout.split("\t")
+  const [taggedPath = "", sessionPath = ""] = parseTmuxFields(result.stdout)
   if (realpathSafe(taggedPath || sessionPath) === id.path) return human
   return `${human}-${createHash("sha256").update(id.path).digest("hex").slice(0, 8)}`
 }
@@ -119,8 +120,8 @@ export async function spawnClanker(harness: Harness, cwd: string, prompt: string
       argv = initialHarnessCommand({ harness: recoverableHarness, cwd: id.path, prompt, clankerId, harnessSessionId, launchSpec: { version: 1, profile: profile || null }, attemptId: String(attempt.id) })
     } finally { store.close() }
   }
-  const result = await command(["tmux", "new-window", "-d", "-P", "-F", "#{window_id}\t#{pane_id}", "-t", `=${session}`, "-n", name, "-c", id.path, ...argv])
-  const [window, pane] = result.stdout.split("\t")
+  const result = await command(["tmux", "new-window", "-d", "-P", "-F", tmuxFields("#{window_id}", "#{pane_id}"), "-t", `=${session}`, "-n", name, "-c", id.path, ...argv])
+  const [window, pane] = parseTmuxFields(result.stdout)
   await command(["tmux", "set-option", "-p", "-t", pane!, "@clankerhouse_clanker_id", clankerId])
   await command(["tmux", "set-option", "-p", "-t", pane!, "@dotfiles_harness", harness])
   await command(["tmux", "set-option", "-w", "-t", window!, "@dotfiles_harness", harness])
@@ -201,9 +202,9 @@ export async function ensureDirectorySession(directory: string) {
   }
   const base = safeName(basename(canonical)) || "shell"
   let name = base
-  const current = await command(["tmux", "display-message", "-p", "-t", `=${name}`, "#{@dotfiles_worktree_path}\t#{@dotfiles_directory_path}\t#{session_path}"], undefined, true)
+  const current = await command(["tmux", "display-message", "-p", "-t", `=${name}`, tmuxFields("#{@dotfiles_worktree_path}", "#{@dotfiles_directory_path}", "#{session_path}")], undefined, true)
   if (current.code === 0) {
-    const [worktreePath = "", directoryPath = "", sessionPath = ""] = current.stdout.split("\t")
+    const [worktreePath = "", directoryPath = "", sessionPath = ""] = parseTmuxFields(current.stdout)
     if (realpathSafe(worktreePath || directoryPath || sessionPath) !== canonical) name = `${base}-${createHash("sha256").update(canonical).digest("hex").slice(0, 8)}`
   }
   if ((await command(["tmux", "has-session", "-t", `=${name}`], undefined, true)).code !== 0) await command(["tmux", "new-session", "-d", "-s", name, "-n", "main", "-c", canonical])
