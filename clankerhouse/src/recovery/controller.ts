@@ -181,7 +181,7 @@ export class RecoveryController {
         }
         this.store.renewLease({ ...identity, scope, ownerToken: this.ownerToken }, Math.max(10_000, this.intervalMs * 4))
       }
-      if (options.once) break
+      if (options.once && lease) break
       await sleep(this.intervalMs)
     }
     this.store.releaseLease({ ...identity, scope, ownerToken: this.ownerToken })

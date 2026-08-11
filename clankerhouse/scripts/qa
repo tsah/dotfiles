@@ -218,8 +218,19 @@ if [[ -e "$root" && ! -f "$qa_marker" ]]; then
     exit 1
 fi
 rm -rf "$root"
-mkdir -p "$runtime" "$state_home/clankerhouse/activity" "$root/zoxide" "$root/dev"
+mkdir -p "$runtime" "$state_home/clankerhouse/activity" "$root/zoxide" "$root/dev" "$root/bin"
 touch "$qa_marker"
+
+# Match the popup launcher's non-login PATH after boot-time recovery.
+# shellcheck source=/dev/null
+. "$repo/../bin/lib/bootstrap-path.sh"
+real_wt=$(command -v wt)
+cat > "$root/bin/wt" <<SH
+#!/bin/bash
+sleep 1
+exec "$real_wt" "\$@"
+SH
+chmod +x "$root/bin/wt"
 
 for recovery_repo in recovery-old recovery-durable recovery-edited; do
     recovery_path="$root/dev/$recovery_repo"
@@ -335,7 +346,7 @@ tmux -S "$outer_socket" set-option -gq @clankerhouse_open 1
 tmux -S "$inner_socket" set-option -gq @clankerhouse_open 1
 sleep 0.2
 
-picker_command="env XDG_RUNTIME_DIR='$runtime' XDG_STATE_HOME='$state_home' _ZO_DATA_DIR='$root/zoxide' CLANKERHOUSE_DEV_ROOT='$root/dev' CLANKERHOUSE_OPENCODE_STATUS=/bin/true bun run '$repo/src/main.tsx'"
+picker_command="env PATH='$root/bin:$PATH' XDG_RUNTIME_DIR='$runtime' XDG_STATE_HOME='$state_home' _ZO_DATA_DIR='$root/zoxide' CLANKERHOUSE_DEV_ROOT='$root/dev' CLANKERHOUSE_OPENCODE_STATUS=/bin/true bun run '$repo/src/main.tsx'"
 tmux -S "$inner_socket" new-window -t "=$session" -n picker -c "$repo" "$picker_command"
 animation_picker_pane=$(tmux -S "$inner_socket" display-message -p -t "=$session:picker" '#{pane_id}')
 wait_for_text "qa-workshop-tree"
@@ -566,6 +577,8 @@ tmux -S "$inner_socket" has-session -t "=$delete_session"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" M-d
 wait_for_text "Destroy final pane, session, and worktree"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" y
+wait_for_text "Destroying workshop"
+wait_for_text "Removing worktree with Worktrunk"
 for _ in {1..100}; do
     if ! tmux -S "$inner_socket" has-session -t "=$delete_session" 2>/dev/null && [[ ! -d "$worktree" ]]; then
         break
@@ -609,4 +622,4 @@ wait_for_text "qa-workshop-tree"
 tmux -S "$outer_socket" send-keys -t "$outer_pane" -l "qa-delete-parent"
 wait_for_text "0 targets"
 
-printf 'Clankerhouse QA passed: newest-nearest-prompt bottom-up ordering, durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, connector-aligned colored state glyphs, compact lineage-only connectors, inline summary names, expanded detail bullets, status animation, focus acknowledgement, and confirmed pane/final-worktree/parent-worktree destruction with cache invalidation behave correctly.\n'
+printf 'Clankerhouse QA passed: newest-nearest-prompt bottom-up ordering, durable recovery ordering, long-list scrolling, typed and bracketed-paste search, no-match Enter, authoritative cache refresh, connector-aligned colored state glyphs, compact lineage-only connectors, inline summary names, expanded detail bullets, status animation, focus acknowledgement, and responsive step-by-step progress and confirmed pane/final-worktree/parent-worktree destruction with cache invalidation behave correctly.\n'

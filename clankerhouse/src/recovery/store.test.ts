@@ -120,6 +120,28 @@ describe("recovery store", () => {
     store.close()
   })
 
+  test("accepts only the latest successful harness exit attestation", () => {
+    const { dbPath } = fixture()
+    const store = openRecoveryStore({ dbPath })
+    store.createDesired(desired({ harnessSessionId: "pi-session-exact" }), { now: 10 })
+    const first = store.beginAttempt("clanker-1", "initial", { now: 20 })
+    store.finishAttempt(first.id, "succeeded", { now: 30 })
+
+    const stopped = store.attestHarnessExit("clanker-1", first.id, { harnessSessionId: "pi-session-exact", reason: "user-exit", now: 40 })
+    expect(stopped).toMatchObject({ desiredState: "stopped", revision: 2 })
+    expect(store.attestHarnessExit("clanker-1", first.id, { harnessSessionId: "pi-session-exact", reason: "duplicate", now: 50 }).revision).toBe(2)
+    expect(store.journalEntries({ clankerId: "clanker-1" }).at(-1)).toMatchObject({ event: "desired.exit_attested", payload: { attemptId: first.id, reason: "user-exit" } })
+
+    store.setDesiredState("clanker-1", "running", { now: 60 })
+    const second = store.beginAttempt("clanker-1", "recovery", { now: 70 })
+    expect(() => store.attestHarnessExit("clanker-1", second.id, { harnessSessionId: "pi-session-exact", reason: "early", now: 80 })).toThrow(/not succeeded/)
+    store.finishAttempt(second.id, "succeeded", { now: 90 })
+    expect(() => store.attestHarnessExit("clanker-1", first.id, { harnessSessionId: "pi-session-exact", reason: "stale", now: 100 })).toThrow(/not latest/)
+    expect(() => store.attestHarnessExit("clanker-1", second.id, { harnessSessionId: "wrong-session", reason: "mismatch", now: 110 })).toThrow(/session mismatch/)
+    expect(store.attestHarnessExit("clanker-1", second.id, { harnessSessionId: "pi-session-exact", reason: "clean-exit", now: 120 }).desiredState).toBe("stopped")
+    store.close()
+  })
+
   test("contends, renews, expires, and reclaims global and per-clanker leases", () => {
     const { dbPath } = fixture()
     const store = openRecoveryStore({ dbPath })

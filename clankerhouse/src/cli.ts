@@ -185,6 +185,7 @@ const usage = `Usage:
   clankers send CLANKER_ID [--delivery steer|follow-up] [--wait] [--text TEXT]
   clankers result CLANKER_ID [--generation GENERATION]
   clankers recovery status|journal|reconcile|checkpoint
+  clankers recovery attest-exit CLANKER_ID --attempt ID [--session-id ID]
   clankers recovery stop|start|suspend|tombstone CLANKER_ID`
 
 export async function runClankersCli(argv = process.argv.slice(2)) {
@@ -223,10 +224,23 @@ export async function runClankersCli(argv = process.argv.slice(2)) {
         }
         return console.log(JSON.stringify({ clankerId: id, harnessSessionId: desired.harnessSessionId, attested: true }))
       }
+      if (subcommand === "attest-exit") {
+        const id = requiredClankerId(parsed)
+        const attemptId = nonNegativeNumber(parsed.take("--attempt"), "--attempt")
+        if (attemptId === undefined) throw new Error("--attempt is required")
+        const sessionId = parsed.take("--session-id")
+        if (!sessionId) throw new Error("--session-id is required")
+        const desired = store.attestHarnessExit(id, attemptId, {
+          harnessSessionId: sessionId,
+          reason: parsed.take("--reason") || "harness-exit",
+        })
+        return console.log(JSON.stringify(desired))
+      }
       if (["stop", "start", "suspend", "tombstone"].includes(subcommand || "")) {
         const id = requiredClankerId(parsed)
         const state = subcommand === "start" ? "running" : subcommand === "suspend" ? "suspended_resource_pressure" : subcommand === "tombstone" ? "tombstoned" : "stopped"
         const noKill = parsed.has("--no-kill")
+        if (parsed.has("--if-present") && !store.getDesired(id)) return console.log(JSON.stringify({ clankerId: id, tracked: false }))
         const desired = store.setDesiredState(id, state, { reason: parsed.take("--reason") || subcommand })
         if (!noKill && (subcommand === "stop" || subcommand === "suspend" || subcommand === "tombstone")) {
           const matches = (await listClankers()).filter((row) => row.id === id)
@@ -235,7 +249,7 @@ export async function runClankersCli(argv = process.argv.slice(2)) {
         }
         return console.log(JSON.stringify(desired))
       }
-      throw new Error("Usage: clankers recovery status|journal|reconcile|checkpoint|attest|stop|start|suspend|tombstone ...")
+      throw new Error("Usage: clankers recovery status|journal|reconcile|checkpoint|attest|attest-exit|stop|start|suspend|tombstone ...")
     } finally { store.close() }
   }
 

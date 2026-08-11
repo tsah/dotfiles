@@ -36,9 +36,11 @@ Pi send/result communication is native through the globally installed lifecycle
 extension's per-process Unix socket. Tmux is discovery and metadata only;
 unsupported harness transports fail explicitly instead of injecting terminal
 input. Pi, Claude, and OpenCode launches also persist exact native session
-identity and desired state; the boot recovery service automatically recreates
-and continues them after hard reboot or tmux-server loss. EC2 Spot notices are a
-checkpoint fast path rather than a recovery dependency. See
+identity and desired state; the one-shot boot recovery service automatically
+recreates and continues them once after a hard reboot. It does not resurrect a
+clanker that is later interrupted with Ctrl-C; same-boot tmux recovery is an
+explicit service restart or reconciliation. EC2 Spot notices are a checkpoint
+fast path rather than a recovery dependency. See
 [`clankerhouse/README.md`](clankerhouse/README.md),
 [`clankerhouse-tui.md`](clankerhouse-tui.md),
 [`docs/qa/clanker-api.md`](docs/qa/clanker-api.md), and

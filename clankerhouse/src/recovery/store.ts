@@ -287,6 +287,30 @@ export class RecoveryStore {
     return this.setDesiredState(clankerId, "tombstoned", options)
   }
 
+  attestHarnessExit(clankerId: string, attemptId: number, options: { harnessSessionId: string; reason: string; now?: number }) {
+    if (!Number.isSafeInteger(attemptId) || attemptId <= 0) throw new Error("Invalid recovery attempt")
+    if (!options.reason || options.reason.trim() !== options.reason || /[\0\r\n]/.test(options.reason)) throw new Error("Invalid harness exit reason")
+    const now = this.now(options.now)
+    return this.db.transaction(() => {
+      const current = this.getDesired(clankerId)
+      if (!current) throw new Error(`Unknown clanker ${clankerId}`)
+      const attempt = this.getAttempt(attemptId)
+      if (!attempt || attempt.clankerId !== clankerId) throw new Error(`Recovery attempt ${attemptId} does not belong to ${clankerId}`)
+      const latest = this.attemptsFor(clankerId).at(-1)
+      if (!latest || latest.id !== attemptId) throw new Error(`Recovery attempt ${attemptId} is not latest for ${clankerId}`)
+      if (attempt.status !== "succeeded") throw new Error(`Recovery attempt ${attemptId} is not succeeded`)
+      if (!current.harnessSessionId) throw new Error(`Clanker ${clankerId} has no exact harness session id`)
+      if (!options.harnessSessionId || current.harnessSessionId !== options.harnessSessionId) throw new Error(`Harness session mismatch for clanker ${clankerId}`)
+      if (current.desiredState === "stopped") return current
+      if (current.desiredState !== "running") return current
+      const revision = current.revision + 1
+      this.db.query("UPDATE desired_clankers SET desired_state = 'stopped', revision = ?2, updated_at = ?3 WHERE clanker_id = ?1 AND desired_state = 'running'")
+        .run(clankerId, revision, now)
+      this.journal(clankerId, "desired.exit_attested", revision, { from: "running", to: "stopped", attemptId, attempt: attempt.attempt, reason: options.reason }, now)
+      return this.getDesired(clankerId)!
+    }).immediate()
+  }
+
   journalEntries(options: { clankerId?: string; afterId?: number; limit?: number } = {}) {
     const limit = options.limit ?? 1_000
     if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 10_000) throw new Error("Invalid journal limit")

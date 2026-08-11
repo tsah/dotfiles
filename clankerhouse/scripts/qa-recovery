@@ -15,6 +15,15 @@ boot_file="$root/boot-id"
 log="$root/harness.log"
 printf 'boot-a\n' > "$boot_file"
 
+recovery_unit="$repo/systemd/user/clankerhouse-recovery.service"
+grep -Fx 'Type=oneshot' "$recovery_unit" >/dev/null || { echo "Recovery service must be one-shot" >&2; exit 1; }
+grep -Fx 'ExecStart=%h/dotfiles/bin/clankerhouse-recovery --once' "$recovery_unit" >/dev/null || { echo "Recovery service must run one reconciliation" >&2; exit 1; }
+grep -Fx 'RemainAfterExit=yes' "$recovery_unit" >/dev/null || { echo "Recovery service must remain active after reconciliation" >&2; exit 1; }
+if grep -Eq '^Restart=(always|on-failure|on-abnormal|on-abort|on-watchdog)$' "$recovery_unit"; then
+    echo "Recovery service must not restart automatically" >&2
+    exit 1
+fi
+
 cleanup() {
     tmux -S "$socket" kill-server 2>/dev/null || true
     [[ "${CLANKERHOUSE_RECOVERY_QA_KEEP:-0}" == 1 ]] || { [[ -f "$marker" ]] && rm -rf -- "$root"; }
@@ -27,6 +36,7 @@ set -euo pipefail
 harness=$(basename "$0")
 session_id=""
 mode=initial
+clean_exit=false
 while (($#)); do
     case "$1" in
         --session-id|--session|--resume)
@@ -34,7 +44,10 @@ while (($#)); do
             session_id="${2:-}"
             shift 2
             ;;
-        *) shift ;;
+        *)
+            [[ "$1" == "QA clean exit" ]] && clean_exit=true
+            shift
+            ;;
     esac
 done
 if [[ -z "$session_id" && "$harness" == opencode ]]; then
@@ -44,10 +57,41 @@ printf '%s\t%s\t%s\t%s\n' "$harness" "$mode" "$session_id" "${CLANKER_RECOVERY_A
 args=(recovery attest "$CLANKER_ID" --session-id "$session_id")
 [[ -z "${CLANKER_RECOVERY_ATTEMPT:-}" ]] || args+=(--attempt "$CLANKER_RECOVERY_ATTEMPT")
 "$CLANKERHOUSE_CLANKERS" "${args[@]}" >/dev/null
+tmux set-option -p -t "$TMUX_PANE" @clankerhouse_harness_session_id "$session_id"
+[[ "$clean_exit" == false ]] || exit 0
 exec sleep 300
 SH
 chmod +x "$root/bin/fake-harness"
 for harness in pi claude opencode; do ln -s fake-harness "$root/bin/$harness"; done
+
+cat > "$root/bin/signal-child" <<'SH'
+#!/bin/bash
+trap 'printf "int\n" >> "$CLANKERHOUSE_QA_SIGNAL_LOG"; exit 130' INT
+while :; do sleep 0.1; done
+SH
+chmod +x "$root/bin/signal-child"
+CLANKERHOUSE_QA_ROOT="$root" CLANKERHOUSE_LIFECYCLE="$repo/bin/clankerhouse-harness-lifecycle" python3 - <<'PY'
+import os
+import signal
+import subprocess
+import time
+
+root = os.environ["CLANKERHOUSE_QA_ROOT"]
+signal_log = f"{root}/signal.log"
+env = {**os.environ, "CLANKERHOUSE_QA_SIGNAL_LOG": signal_log, "CLANKER_RECOVERY_TRACKED": "0"}
+process = subprocess.Popen(
+    [os.environ["CLANKERHOUSE_LIFECYCLE"], "--", f"{root}/bin/signal-child"],
+    env=env,
+    start_new_session=True,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+time.sleep(0.2)
+os.killpg(process.pid, signal.SIGINT)
+assert process.wait(timeout=3) == 130
+with open(signal_log, encoding="utf-8") as handle:
+    assert handle.readlines() == ["int\n"]
+PY
 
 fixture="$root/repo"
 git init -q -b main "$fixture"
@@ -104,12 +148,22 @@ wait_for_attested 3
 recover
 wait_for_count 3
 
-# Same-boot tmux loss recreates workshops and resumes exact sessions automatically.
+# A clanker exiting after the one-shot pass stays down until explicit recovery.
+exited_pane=$(tmux -S "$socket" list-panes -a -F '#{pane_id} #{@clankerhouse_clanker_id}' | awk '$2 ~ /^clanker-/ {print $1; exit}')
+tmux -S "$socket" kill-pane -t "$exited_pane"
+wait_for_count 2
+sleep 3
+wait_for_count 2
+recover
+wait_for_count 3
+wait_for_attested 4
+
+# Explicit same-boot recovery after tmux loss recreates workshops and resumes exact sessions.
 tmux -S "$socket" kill-server
 recover
 wait_for_count 3
-wait_for_attested 6
-[[ "$(awk -F '\t' '$2=="recovery" {count++} END {print count+0}' "$log")" == 3 ]] || { echo "Expected three exact same-boot resumes" >&2; cat "$log" >&2; exit 1; }
+wait_for_attested 7
+[[ "$(awk -F '\t' '$2=="recovery" {count++} END {print count+0}' "$log")" == 4 ]] || { echo "Expected four exact explicit resumes" >&2; cat "$log" >&2; exit 1; }
 
 # A hard boot with an empty runtime directory uses only persistent desired state.
 tmux -S "$socket" kill-server
@@ -118,7 +172,7 @@ mkdir -p "$root/runtime"
 printf 'boot-b\n' > "$boot_file"
 recover
 wait_for_count 3
-wait_for_attested 9
+wait_for_attested 10
 
 # Competing controllers share a durable singleton lease and do not duplicate panes.
 tmux -S "$socket" kill-server
@@ -143,9 +197,21 @@ wait_for_count 0
 recover
 wait_for_count 0
 
+# A clean harness process exit durably opts out of future boot recovery.
+clean_exit_id=$(cd "$fixture" && "${qa_env[@]}" "$repo/bin/clankers" spawn --workshop "$fixture" --name clean-exit --harness pi --prompt "QA clean exit" | python3 -c 'import json,sys; print(json.load(sys.stdin)["clankerId"])')
+for _ in {1..100}; do
+    clean_exit_state=$(clankers recovery status | CLEAN_EXIT_ID="$clean_exit_id" python3 -c 'import json,os,sys; rows=json.load(sys.stdin)["clankers"]; print(next(row["desiredState"] for row in rows if row["clankerId"] == os.environ["CLEAN_EXIT_ID"]))')
+    [[ "$clean_exit_state" == stopped ]] && break
+    sleep 0.05
+done
+[[ "${clean_exit_state:-}" == stopped ]] || { echo "Clean harness exit did not stop future recovery" >&2; exit 1; }
+wait_for_count 0
+recover
+wait_for_count 0
+
 after_status=$(git -C "$fixture" status --porcelain=v1)
 [[ "$before_status" == "$after_status" ]] || { echo "Recovery changed dirty or untracked Git state" >&2; diff -u <(printf '%s\n' "$before_status") <(printf '%s\n' "$after_status") >&2 || true; exit 1; }
 [[ "$(stat -c '%a' "$root/state/clankerhouse")" == 700 ]] || { echo "Recovery state directory is not mode 700" >&2; exit 1; }
 [[ "$(stat -c '%a' "$root/state/clankerhouse/recovery.sqlite3")" == 600 ]] || { echo "Recovery database is not mode 600" >&2; exit 1; }
 
-printf 'Clankerhouse recovery QA passed: exact Pi/Claude/OpenCode identities, controller adoption, same-boot tmux recovery, hard-boot recovery without runtime state, automatic continuation, lease contention, durable stop/suspension/tombstones, private state permissions, and dirty worktree preservation behave correctly.\n'
+printf 'Clankerhouse recovery QA passed: one-shot service policy, exact Pi/Claude/OpenCode identities, controller adoption, no automatic resurrection after abrupt pane loss, clean-exit opt-out, explicit same-boot recovery, hard-boot recovery without runtime state, automatic boot continuation, lease contention, durable stop/suspension/tombstones, private state permissions, and dirty worktree preservation behave correctly.\n'

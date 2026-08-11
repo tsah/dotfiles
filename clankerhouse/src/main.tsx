@@ -694,17 +694,54 @@ const isLinkedWorktreeSync = (path: string) => {
   return Boolean(gitDir && commonDir && gitDir !== commonDir)
 }
 
-const stopSessionIntentSync = (sessionName: string, kill: boolean) => {
-  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
-  if (sessions.exitCode !== 0) return sessions
-  const sessionId = parseTmuxRows(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
-  return Bun.spawnSync([`${repoRoot}/bin/clankerhouse-tmux-stop`, kill ? "session" : "mark-session", sessionId || `=${sessionName}`], { stdout: "pipe", stderr: "pipe" })
+interface DeleteCommandResult { exitCode: number; stdout: string; stderr: string }
+type DeleteProgressReporter = (step: string) => void
+const deleteProgressPrefix = "CLANKERHOUSE_PROGRESS\t"
+
+const consumeDeleteOutput = async (stream: ReadableStream<Uint8Array>, reportProgress?: DeleteProgressReporter) => {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let pending = ""
+  let output = ""
+  while (true) {
+    const { done, value } = await reader.read()
+    pending += decoder.decode(value, { stream: !done })
+    const lines = pending.split("\n")
+    pending = done ? "" : lines.pop() ?? ""
+    for (const line of lines) {
+      if (line.startsWith(deleteProgressPrefix)) reportProgress?.(line.slice(deleteProgressPrefix.length))
+      else output += `${line}\n`
+    }
+    if (done) {
+      if (pending.startsWith(deleteProgressPrefix)) reportProgress?.(pending.slice(deleteProgressPrefix.length))
+      else output += pending
+      return output
+    }
+  }
 }
 
-const deleteWorktreeSync = (sessionName: string, path: string) => {
-  const marked = stopSessionIntentSync(sessionName, false)
+const runDeleteCommand = async (argv: string[], reportProgress?: DeleteProgressReporter): Promise<DeleteCommandResult> => {
+  const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...Bun.env, CLANKERHOUSE_PROGRESS: "1" } })
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    consumeDeleteOutput(proc.stdout, reportProgress),
+    consumeDeleteOutput(proc.stderr, reportProgress),
+  ])
+  return { exitCode, stdout, stderr }
+}
+
+const stopSessionIntent = async (sessionName: string, kill: boolean, reportProgress?: DeleteProgressReporter) => {
+  const sessions = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
+  if (sessions.exitCode !== 0) return { exitCode: sessions.exitCode, stdout: sessions.stdout.toString(), stderr: sessions.stderr.toString() }
+  const sessionId = parseTmuxRows(sessions.stdout.toString()).find(([, name]) => name === sessionName)?.[0]
+  reportProgress?.("Stopping tracked clankers")
+  return runDeleteCommand([`${repoRoot}/bin/clankerhouse-tmux-stop`, kill ? "session" : "mark-session", sessionId || `=${sessionName}`], reportProgress)
+}
+
+const deleteWorktree = async (sessionName: string, path: string, reportProgress?: DeleteProgressReporter) => {
+  const marked = await stopSessionIntent(sessionName, false, reportProgress)
   if (marked.exitCode !== 0) return marked
-  return Bun.spawnSync([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(path)], { stdout: "pipe", stderr: "pipe" })
+  return runDeleteCommand([`${repoRoot}/bin/worktree-delete`, "--yes", expandHome(path)], reportProgress)
 }
 
 function HighlightText(props: { text: string; query: string; fg: string }) {
@@ -829,6 +866,8 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
   const [attachCandidateIds, setAttachCandidateIds] = createSignal<ReadonlySet<string>>(new Set())
   const [deleteAction, setDeleteAction] = createSignal<DeleteAction>()
   const [deleteError, setDeleteError] = createSignal("")
+  const [deletePending, setDeletePending] = createSignal(false)
+  const [deleteSteps, setDeleteSteps] = createSignal<string[]>([])
   const [newField, setNewField] = createSignal<"branch" | "base">("branch")
   const [error, setError] = createSignal("")
   const [fetchStatus, setFetchStatus] = createSignal<"" | "fetching" | "done" | "failed">("")
@@ -1003,6 +1042,7 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
   }
   const requestDelete = (row: TreeRow) => {
     setDeleteError("")
+    setDeleteSteps([])
     setDeleteAction(deleteActionForRow(row))
   }
   const deletePrompt = () => {
@@ -1014,6 +1054,15 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
     if (action.finalPane) return `Destroy final pane and session '${row.session.name}'?`
     if (action.kind === "worktree") return `Destroy session and worktree '${row.session.branch || row.session.path}'?`
     return `Destroy ${action.kind} '${row.session.name}'?`
+  }
+  const deleteProgress = () => {
+    const width = 18
+    const segment = 5
+    const position = animationFrame() % (width - segment + 1)
+    return `[${"·".repeat(position)}${"█".repeat(segment)}${"·".repeat(width - segment - position)}]`
+  }
+  const reportDeleteStep = (step: string) => {
+    setDeleteSteps((steps) => steps.at(-1) === step ? steps : [...steps, step])
   }
   const setTmuxWorkshopParent = (sessionName: string, parentWorkshopId: string | null) => {
     const found = Bun.spawnSync(["tmux", "list-sessions", "-F", tmuxFields("#{session_id}", "#{session_name}")], { stdout: "pipe", stderr: "pipe" })
@@ -1048,9 +1097,11 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
 
   useKeyboard((key) => {
     if (deleteAction()) {
+      if (deletePending()) return
       if (key.name === "n" || key.name === "escape") {
         setDeleteAction(undefined)
         setDeleteError("")
+        setDeleteSteps([])
         return
       }
       if (key.name !== "y") return
@@ -1059,6 +1110,7 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
       if (!currentAction) {
         setDeleteAction(undefined)
         setDeleteError("")
+        setDeleteSteps([])
         return
       }
       if (currentAction.kind !== action.kind || currentAction.pane !== action.pane || currentAction.finalPane !== action.finalPane) {
@@ -1067,23 +1119,37 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
         return
       }
 
-      const result = action.kind === "pane" && action.pane
-        ? Bun.spawnSync([`${repoRoot}/bin/clankerhouse-tmux-stop`, "pane", action.pane], { stdout: "pipe", stderr: "pipe" })
-        : action.kind === "worktree" && action.row.session.path
-          ? deleteWorktreeSync(action.row.session.name, action.row.session.path)
-          : action.kind === "session"
-            ? stopSessionIntentSync(action.row.session.name, true)
-            : undefined
-      if (!result || result.exitCode !== 0) {
-        const detail = result ? result.stderr.toString().trim() || result.stdout.toString().trim() : "Deletion command was unavailable."
-        setDeleteError(detail || `Deletion failed with exit code ${result?.exitCode ?? "unknown"}.`)
-        return
-      }
-
-      setDeleteAction(undefined)
+      setDeletePending(true)
       setDeleteError("")
-      invalidateCacheSync()
-      renderer.destroy()
+      setDeleteSteps(["Preparing deletion"])
+      void (async () => {
+        try {
+          let result: DeleteCommandResult | undefined
+          if (action.kind === "pane" && action.pane) {
+            reportDeleteStep("Stopping tracked clanker and pane")
+            result = await runDeleteCommand([`${repoRoot}/bin/clankerhouse-tmux-stop`, "pane", action.pane], reportDeleteStep)
+          } else if (action.kind === "worktree" && action.row.session.path) {
+            result = await deleteWorktree(action.row.session.name, action.row.session.path, reportDeleteStep)
+          } else if (action.kind === "session") {
+            result = await stopSessionIntent(action.row.session.name, true, reportDeleteStep)
+          }
+          if (!result || result.exitCode !== 0) {
+            const detail = result ? result.stderr.trim() || result.stdout.trim() : "Deletion command was unavailable."
+            setDeleteError(detail || `Deletion failed with exit code ${result?.exitCode ?? "unknown"}.`)
+            setDeletePending(false)
+            return
+          }
+          setDeleteAction(undefined)
+          setDeleteError("")
+          setDeletePending(false)
+          setDeleteSteps([])
+          invalidateCacheSync()
+          renderer.destroy()
+        } catch (error) {
+          setDeleteError(error instanceof Error ? error.message : String(error))
+          setDeletePending(false)
+        }
+      })()
       return
     }
     if (key.meta && key.name === "k") return resetList("repo")
@@ -1341,7 +1407,7 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
 
     const initialRepositoryRefresh = setTimeout(() => { void refreshRepositories() }, 0)
     const animationInterval = setInterval(() => {
-      if (mode() === "jump" && filteredTreeRows().some((row) => row.state === "working" || row.state === "blocked")) {
+      if (deletePending() || (mode() === "jump" && filteredTreeRows().some((row) => row.state === "working" || row.state === "blocked"))) {
         setAnimationFrame((frame) => (frame + 1) % animationFrameCount)
       }
     }, 100)
@@ -1388,9 +1454,17 @@ function App(props: { sessions: SessionRow[]; initialRevision: ProjectionRevisio
         ) : null}
       </box>
       {deleteAction() ? (
-        <box border borderStyle="single" borderColor={theme.warning} height={8} flexDirection="column" padding={1}>
+        <box border borderStyle="single" borderColor={theme.warning} height={deletePending() ? 12 : 8} flexDirection="column" padding={1}>
           <text fg={theme.warning}>{deletePrompt()}</text>
-          <text fg={theme.header}>Press y to confirm or n to cancel.</text>
+          {deletePending() ? (
+            <>
+              <text fg={theme.accentStrong}>Destroying workshop… {deleteProgress()}</text>
+              <For each={deleteSteps().slice(-5)}>{(step, stepIndex) => {
+                const current = () => stepIndex() === deleteSteps().slice(-5).length - 1
+                return <text fg={current() ? theme.working : theme.muted}>{current() ? "▶" : "✓"} {step}</text>
+              }}</For>
+            </>
+          ) : <text fg={theme.header}>Press y to confirm or n to cancel.</text>}
           {deleteError() ? <text fg={theme.warning}>{deleteError()}</text> : null}
         </box>
       ) : mode() === "jump" ? <JumpFooter row={selectedTreeRow()} error={error()} /> : (

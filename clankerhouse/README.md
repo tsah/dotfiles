@@ -66,9 +66,9 @@ The `Alt-K` tmux binding launches Clankerhouse.
 
 Pi, Claude, and OpenCode clankers spawned through `clankers` are recorded in the private SQLite control-plane store at `$XDG_STATE_HOME/clankerhouse/recovery.sqlite3`. Clankerhouse persists desired state and launch intent before creating a pane. Pi and Claude receive preallocated native session IDs; the OpenCode lifecycle plugin binds its generated `ses_…` ID before prompt processing. Lifecycle attestation completes the launch attempt.
 
-`clankerhouse-recovery.service` continuously reconciles desired state with tmux. A hard reboot, replacement controller, or same-boot tmux-server loss recreates the workshop/window, resumes the exact native harness session, and immediately submits a recovery-attempt prompt that autonomously inspects Git, tests, and external state before continuing. Delivery is at-least-once: arbitrary tools cannot provide a general exactly-once guarantee, so the prompt is attempt-tagged and explicitly inspect-before-repeat.
+`clankerhouse-recovery.service` performs one reconciliation when the user service manager starts. After a hard reboot it recreates missing workshop windows, resumes each exact native harness session once, and immediately submits a recovery-attempt prompt that autonomously inspects Git, tests, and external state before continuing. It then remains `active (exited)`: a later Ctrl-C, harness exit, or tmux pane loss is not resurrected. Same-boot recovery is explicit through `systemctl --user restart clankerhouse-recovery.service` or `clankers recovery reconcile`. Delivery is at-least-once: arbitrary tools cannot provide a general exactly-once guarantee, so the prompt is attempt-tagged and explicitly inspect-before-repeat.
 
-Intentional stops are journaled before tmux destruction. Resource-pressure suspension and irreversible tombstones take precedence over recovery, preventing the controller from undoing deliberate mitigation or deletion. Codex remains visible but is not automatically recoverable because an exact native resume contract is not configured.
+Tracked harnesses run through a lifecycle wrapper. A clean process exit, including a final Ctrl-C that actually terminates the harness, is validated against the latest successful recovery attempt and exact native session before durably changing desired state to `stopped`; it will not return on a later boot. Ctrl-C that only cancels an active turn does not stop recovery eligibility. Crashes, SIGHUP/tmux loss, and host SIGTERM leave desired state `running` so boot recovery remains possible. Intentional tmux stops are journaled before destruction. Resource-pressure suspension and irreversible tombstones take precedence over recovery, preventing the controller from undoing deliberate mitigation or deletion. Codex remains visible but is not automatically recoverable because an exact native resume contract is not configured.
 
 ```sh
 clankers recovery status
@@ -118,7 +118,7 @@ Controls:
 - Type or paste: structured fuzzy-filter rows and fill the branch/base form; current selection is preserved when it still matches
 - `Alt-K` while Clankerhouse is open: choose a repository, then open an existing worktree/branch or type a new branch name to create it
 - `Ctrl-R`: refresh remotes while in the branch picker
-- `Alt-D`: confirm and destroy the selected pane; destroying a session's final pane also destroys its linked worktree and session
+- `Alt-D`: confirm and asynchronously destroy the selected pane with a live step trace (recovery stop, Git inspection, tmux discovery, Worktrunk removal, and session closure) plus progress; destroying a session's final pane also destroys its linked worktree and session
 - `Esc`: clear search, move back one flow step, or close
 - `Ctrl-C`: close
 

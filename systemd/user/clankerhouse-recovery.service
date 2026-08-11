@@ -5,10 +5,10 @@ After=default.target network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
-ExecStart=%h/dotfiles/bin/clankerhouse-recovery
-Restart=always
-RestartSec=2s
+Type=oneshot
+ExecStart=%h/dotfiles/bin/clankerhouse-recovery --once
+RemainAfterExit=yes
+Restart=no
 TimeoutStopSec=20s
 UMask=0077
 NoNewPrivileges=true

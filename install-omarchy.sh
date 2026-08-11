@@ -8,7 +8,8 @@ REAL_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 if [ "$HOME" = "$REAL_HOME" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload
     systemctl --user enable --now plannotator-session-cleanup.timer
-    systemctl --user enable --now clankerhouse-recovery.service
+    systemctl --user enable clankerhouse-recovery.service
+    systemctl --user restart clankerhouse-recovery.service
     systemctl --user enable --now clankerhouse-resource-guard.service
     systemctl --user enable --now clankerhouse-spot-watch.service
 fi

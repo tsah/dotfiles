@@ -69,7 +69,7 @@ matches by concatenating unrelated fields.
 - `Alt-R`: rename a tmux session without changing workshop identity
 - `Alt-A`: attach a workshop to another valid parent
 - `Alt-L`: detach a workshop from its parent
-- `Alt-D`: confirm and destroy the selected disposable target
+- `Alt-D`: confirm and asynchronously destroy the selected disposable target with a live step trace and progress indicator
 - `Esc`: clear the query or close the current flow
 
 ## Implementation
@@ -87,11 +87,14 @@ cannot assign clanker identity or authorize destructive actions.
 
 A separate durable recovery control plane stores desired Pi, Claude, and
 OpenCode clankers, exact harness session identities, attempts, leases, and
-append-only journal events under `$XDG_STATE_HOME/clankerhouse`. Its boot-time
-reconciler recreates missing workshop windows and automatically resumes and
-continues exact sessions after a hard reboot or tmux-server restart. Tombstones,
-intentional stops, and resource-pressure suspensions take precedence. The
-snapshot transport remains observational and exposes no recovery mutation API.
+append-only journal events under `$XDG_STATE_HOME/clankerhouse`. Its one-shot
+boot reconciler recreates missing workshop windows and automatically resumes and
+continues exact sessions once after a hard reboot. Later pane loss is not
+immediately resurrected, and a clean final Ctrl-C durably opts that clanker out
+of future boot recovery; same-boot recovery requires explicit reconciliation.
+Tombstones, intentional stops, and resource-pressure suspensions take
+precedence. The snapshot transport remains observational and exposes no recovery
+mutation API.
 
 See `clankerhouse/README.md` for the CLI and runtime contract and
 `docs/qa/clanker-api.md` for safety-scoped API validation.

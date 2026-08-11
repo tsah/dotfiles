@@ -16,7 +16,10 @@ else
 fi
 while IFS= read -r clanker_id; do
     [[ -n "$clanker_id" ]] || continue
-    "$clankers_cli" recovery stop "$clanker_id" --reason intentional-tmux-stop --no-kill >/dev/null 2>&1 || true
+    if ! stop_output=$("$clankers_cli" recovery stop "$clanker_id" --reason intentional-tmux-stop --no-kill --if-present 2>&1); then
+        printf 'Unable to persist stop intent for %s: %s\n' "$clanker_id" "$stop_output" >&2
+        exit 1
+    fi
 done <<<"$ids"
 
 if [[ "$kind" == "mark-session" ]]; then

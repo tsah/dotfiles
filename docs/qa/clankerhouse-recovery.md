@@ -1,6 +1,6 @@
 # Clankerhouse restart and Spot recovery QA
 
-This plan validates durable automatic continuation after controller failure, tmux-server loss, Linux reboot, and an EC2 Spot interruption notice. It must never inspect, signal, or mutate real workshops, clankers, tmux servers, worktrees, harness sessions, or AWS resources.
+This plan validates one-shot automatic continuation at user-service startup after Linux reboot, plus explicit recovery after controller or tmux-server loss and EC2 Spot checkpoint handling. It must never inspect, signal, or mutate real workshops, clankers, tmux servers, worktrees, harness sessions, or AWS resources.
 
 ## Safety boundary
 
@@ -37,13 +37,15 @@ scripts/qa
 1. Pi and Claude receive preallocated exact native session IDs before launch.
 2. OpenCode durably attests its generated session ID before fake prompt work begins.
 3. Restarting only the recovery controller adopts panes without duplication.
-4. Killing the private tmux server recreates the workshop and resumes all three exact sessions with an automatic, idempotent continuation.
-5. Changing the simulated Linux boot ID and deleting runtime state recovers from persistent state alone.
-6. Competing controllers hold a durable singleton lease and launch at most one pane per clanker.
-7. Intentional stop, resource-pressure suspension, and tombstones prevent resurrection.
-8. Dirty and untracked Git state remains byte-for-byte unchanged.
-9. The recovery directory and database remain mode `0700` and `0600` respectively.
-10. No operation touches the user's real tmux socket or harness session stores.
+4. Abrupt pane loss after the one-shot pass remains absent until an explicit recovery command.
+5. A clean harness exit durably changes desired state to `stopped` and remains absent even after explicit or next-boot recovery.
+6. Explicit recovery after killing the private tmux server recreates the workshop and resumes all three exact sessions with an idempotent continuation.
+7. Changing the simulated Linux boot ID and deleting runtime state recovers from persistent state alone.
+8. Competing controllers hold a durable singleton lease and launch at most one pane per clanker.
+9. Intentional stop, resource-pressure suspension, and tombstones prevent resurrection.
+10. Dirty and untracked Git state remains byte-for-byte unchanged.
+11. The recovery directory and database remain mode `0700` and `0600` respectively.
+12. No operation touches the user's real tmux socket or harness session stores.
 
 Unit tests additionally cover schema reopening, transactionally coupled journaling, append-only journal enforcement, exact-session mismatch rejection, tombstone precedence, lease contention/expiry/new-boot reclamation, attempts, runtime epochs, command construction, and IMDSv2 token/404/401/rebalance/interruption behavior.
 

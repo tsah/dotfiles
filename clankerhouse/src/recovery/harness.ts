@@ -3,6 +3,8 @@ import type { DesiredClankerRecord, LaunchSpec, RecoveryHarness } from "./model"
 
 export const recoveryPrompt = (attemptId: string) => `Clankerhouse recovery attempt ${attemptId}: the previous host or tmux server ended unexpectedly. Resume the existing session and autonomously continue the most recent unfinished user request. Inspect the repository, Git diff and status, test artifacts, and relevant external state before acting. Do not repeat completed or externally visible work solely because this recovery message may have been delivered more than once. Do not wait for a user unless a configured harness permission policy requires it.`
 
+const lifecycleWrapper = resolve(import.meta.dir, "../../../bin/clankerhouse-harness-lifecycle")
+
 const plannotatorEnv = () => [
   `BROWSER=${Bun.env.BROWSER || "xdg-open"}`,
   `PLANNOTATOR_BROWSER=${Bun.env.PLANNOTATOR_BROWSER || `${Bun.env.HOME}/.local/bin/xdg-open`}`,
@@ -48,13 +50,13 @@ export const initialHarnessCommand = (input: InitialHarnessCommandInput) => {
   const profile = input.launchSpec.profile
   if (input.harness === "pi") {
     if (!input.harnessSessionId) throw new Error("Pi requires a preallocated session id")
-    return ["env", ...env, "pi", "--session-id", input.harnessSessionId, ...piProfileArgs(input.cwd, profile), input.prompt]
+    return ["env", ...env, lifecycleWrapper, "--", "pi", "--session-id", input.harnessSessionId, ...piProfileArgs(input.cwd, profile), input.prompt]
   }
   if (input.harness === "claude") {
     if (!input.harnessSessionId) throw new Error("Claude requires a preallocated session id")
-    return ["env", "-u", "ANTHROPIC_API_KEY", ...env, "claude", "--session-id", input.harnessSessionId, ...(profile ? ["--agent", profile] : []), input.prompt]
+    return ["env", "-u", "ANTHROPIC_API_KEY", ...env, lifecycleWrapper, "--", "claude", "--session-id", input.harnessSessionId, ...(profile ? ["--agent", profile] : []), input.prompt]
   }
-  return ["env", ...env, "opencode", input.cwd, ...(profile ? ["--agent", profile] : []), "--prompt", input.prompt]
+  return ["env", ...env, lifecycleWrapper, "--", "opencode", input.cwd, ...(profile ? ["--agent", profile] : []), "--prompt", input.prompt]
 }
 
 export const recoveryHarnessCommand = (desired: DesiredClankerRecord, attemptId: string) => {
@@ -62,7 +64,7 @@ export const recoveryHarnessCommand = (desired: DesiredClankerRecord, attemptId:
   const env = trackedEnvironment(desired.clankerId, desired.harnessSessionId, attemptId)
   const prompt = recoveryPrompt(attemptId)
   const profile = desired.launchSpec.profile
-  if (desired.harness === "pi") return ["env", ...env, "pi", "--session", desired.harnessSessionId, ...piProfileArgs(desired.cwd, profile), prompt]
-  if (desired.harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", ...env, "claude", "--resume", desired.harnessSessionId, ...(profile ? ["--agent", profile] : []), prompt]
-  return ["env", ...env, "opencode", desired.cwd, "--session", desired.harnessSessionId, ...(profile ? ["--agent", profile] : []), "--prompt", prompt]
+  if (desired.harness === "pi") return ["env", ...env, lifecycleWrapper, "--", "pi", "--session", desired.harnessSessionId, ...piProfileArgs(desired.cwd, profile), prompt]
+  if (desired.harness === "claude") return ["env", "-u", "ANTHROPIC_API_KEY", ...env, lifecycleWrapper, "--", "claude", "--resume", desired.harnessSessionId, ...(profile ? ["--agent", profile] : []), prompt]
+  return ["env", ...env, lifecycleWrapper, "--", "opencode", desired.cwd, "--session", desired.harnessSessionId, ...(profile ? ["--agent", profile] : []), "--prompt", prompt]
 }
