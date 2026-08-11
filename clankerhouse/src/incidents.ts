@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { canonicalActivityPath } from "./activity"
 import type { DetailRow, SessionRow, Target } from "./model"
@@ -52,6 +53,30 @@ export const readResourceIncidents = (directory = incidentStateDirectory): Resou
       return []
     }
   }).sort((a, b) => b.occurredAt - a.occurredAt || a.id.localeCompare(b.id))
+}
+
+export const resolveRecoveredClankerIncidents = (clankerId: string, directory = incidentStateDirectory, resolvedAt = Date.now()) => {
+  if (!clankerId) throw new Error("clankerId is required")
+  if (!existsSync(directory)) return []
+  const resolved: string[] = []
+  for (const entry of readdirSync(directory)) {
+    if (!entry.endsWith(".json")) continue
+    const path = resolve(directory, entry)
+    let incident: Record<string, unknown>
+    try {
+      incident = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const clanker = incident.clanker as Record<string, unknown> | undefined
+    if (incident.kind !== "unclean_boot_clanker_loss" || incident.status !== "open" || clanker?.clankerId !== clankerId) continue
+    const next = { ...incident, status: "resolved", resolvedAt }
+    const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+    renameSync(temporary, path)
+    resolved.push(String(incident.id))
+  }
+  return resolved
 }
 
 const incidentPath = (incident: ResourceIncident) => incident.clanker.worktreePath || incident.clanker.cwd || ""

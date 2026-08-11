@@ -84,7 +84,13 @@ const aggregateStates = (states: ClankerState[]): ClankerState => {
   return "unknown"
 }
 
-export const sessionState = (session: SessionRow): ClankerState => aggregateStates(session.details.map((detail) => detail.state))
+export const sessionState = (session: SessionRow): ClankerState => {
+  const hasLiveClanker = session.details.some((detail) => detail.kind === "clanker" && detail.state !== "unknown")
+  const currentDetails = hasLiveClanker
+    ? session.details.filter((detail) => detail.kind !== "incident" || detail.status !== "lost on reboot")
+    : session.details
+  return aggregateStates(currentDetails.map((detail) => detail.state))
+}
 
 const clankerStateSortRank = (state: ClankerState) => {
   switch (state) {

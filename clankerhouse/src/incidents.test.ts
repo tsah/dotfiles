@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { applyResourceIncidents, readResourceIncidents, type ResourceIncident } from "./incidents"
+import { applyResourceIncidents, readResourceIncidents, resolveRecoveredClankerIncidents, type ResourceIncident } from "./incidents"
 import type { SessionRow } from "./model"
 
 const roots: string[] = []
@@ -43,6 +43,18 @@ describe("resource incidents", () => {
     writeFileSync(join(root, "broken.json"), "{")
 
     expect(readResourceIncidents(root).map((record) => record.id)).toEqual(["pressure-test"])
+  })
+
+  test("resolves only reboot-loss incidents for an attested recovered clanker", () => {
+    const root = mkdtempSync(join(tmpdir(), "clankerhouse-incidents-"))
+    roots.push(root)
+    const rebootPath = join(root, "reboot.json")
+    writeFileSync(rebootPath, JSON.stringify(incident({ id: "reboot-test", kind: "unclean_boot_clanker_loss" })))
+    writeFileSync(join(root, "pressure.json"), JSON.stringify(incident()))
+
+    expect(resolveRecoveredClankerIncidents("clanker-test", root, 3_000)).toEqual(["reboot-test"])
+    expect(readResourceIncidents(root).map((record) => record.id)).toEqual(["pressure-test"])
+    expect(JSON.parse(readFileSync(rebootPath, "utf8"))).toMatchObject({ status: "resolved", resolvedAt: 3_000 })
   })
 
   test("attaches a red-x detail to the original session at the prepared observation time", () => {

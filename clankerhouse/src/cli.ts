@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { ClankerApiError, clankerCapabilities, clankerStatus, listClankers, resultForClanker, sendClanker, waitForClanker, type ClankerDelivery } from "./clanker-api"
+import { resolveRecoveredClankerIncidents } from "./incidents"
 import { reconcileRecovery } from "./recovery/controller"
 import { openRecoveryStore, type RecoveryStore } from "./recovery/store"
 import { bootstrapRepositoryFromManifests, projectSnapshot, reconcileRepositoryWorkshops, workshopDetails, workshopForPath, workshopTree } from "./workshop"
@@ -221,6 +222,7 @@ export async function runClankersCli(argv = process.argv.slice(2)) {
           const attempt = store.getAttempt(attemptId)
           if (!attempt || attempt.clankerId !== id) throw new Error(`Recovery attempt ${attemptId} does not belong to ${id}`)
           store.finishAttempt(attemptId, "succeeded")
+          resolveRecoveredClankerIncidents(id)
         }
         return console.log(JSON.stringify({ clankerId: id, harnessSessionId: desired.harnessSessionId, attested: true }))
       }

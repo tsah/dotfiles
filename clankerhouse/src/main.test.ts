@@ -86,6 +86,17 @@ describe("clanker state", () => {
     expect([failed, working].map(sessionSortRank)).toEqual([0, 1])
     expect(sessionRows(buildTreeRows([working, failed], "", { bottomUp: true })).map((row) => row.session.name)).toEqual(["failed", "working"])
   })
+
+  test("reports live replacement work instead of a prior reboot loss", () => {
+    const rebootLoss = { ...detail("recovered", "lost clanker", "06", "failed", "incident"), status: "lost on reboot" }
+    const live = detail("recovered", "pi", "07", "working", "pi")
+    const recovered = session("recovered", { details: [rebootLoss, live] })
+    expect(sessionState(recovered)).toBe("working")
+
+    const termination = { ...rebootLoss, status: "terminated" }
+    expect(sessionState(session("terminated", { details: [termination, live] }))).toBe("failed")
+    expect(sessionState(session("still-lost", { details: [rebootLoss] }))).toBe("failed")
+  })
 })
 
 describe("structured search", () => {
