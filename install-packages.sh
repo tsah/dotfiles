@@ -74,14 +74,6 @@ else
     echo "✅ Bun already installed"
 fi
 
-if command -v bun &> /dev/null; then
-    echo "📦 Installing Clankerhouse dependencies..."
-    (cd "$HOME/dotfiles/clankerhouse" && bun install)
-    echo "✅ Clankerhouse dependencies installed"
-else
-    echo "⚠️  Bun not found after install; Clankerhouse will fall back to fzf"
-fi
-
 echo "📦 Installing OpenCode (SST Claude CLI)..."
 if ! command -v opencode &> /dev/null; then
     curl -sSL https://opencode.ai/install | bash
@@ -112,7 +104,7 @@ echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
 echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
-echo "   • bun - JavaScript runtime for Clankerhouse"
+echo "   • bun - JavaScript runtime"
 echo "   • opencode - SST Claude CLI"
 echo "   • plannotator - Browser-based agent review UI"
 echo "   • fuzzel - Dmenu fallback for custom scripts"

@@ -1,7 +1,5 @@
 # Agent Guidelines for dotfiles Repository
 
-> **Clankerhouse changes:** read [`clankerhouse-tui.md`](clankerhouse-tui.md) and execute the safety-scoped [`clankerhouse/scripts/qa`](clankerhouse/scripts/qa) and [`docs/qa/clanker-api.md`](docs/qa/clanker-api.md) plans. Never run destructive scenarios against real workshops, clankers, tmux sessions, or worktrees.
-
 ## IMPORTANT: Edit Files in This Repository
 
 **All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/`, `~/.pi/`, or other live config directories directly.** The files here are symlinked to their destinations by `install-omarchy.sh`. For example:
@@ -266,15 +264,14 @@ Pi configs are in `~/dotfiles/pi/` and symlinked to `~/.pi/agent/`:
 ```
 dotfiles/
 └── pi/
-    ├── extensions/
-    │   └── tmux-clanker-lifecycle.ts  # Globally loaded Pi clanker lifecycle hooks
-    └── subagents.json                # @tintinweb/pi-subagents limits and UI settings
+    ├── extensions/                  # Personal Pi extensions
+    └── subagents.json               # @tintinweb/pi-subagents limits and UI settings
 ```
 
 `bin/install-pi-packages` installs the pinned in-process subagent package and
 the shared Linear skill's pinned SDK dependency. Use its `Agent` tool for
-same-session delegation and `workshop-pi` only for explicit handoffs that require
-a visible clanker in a Worktrunk-isolated workshop.
+same-session delegation and the externally installed `workshop-pi` only for
+explicit handoffs that require a visible clanker in a Worktrunk-isolated workshop.
 
 A request to run QA, tests, a shell, or an interactive command in a tmux window
 or pane means the current tmux session and current worktree unless the user

@@ -28,7 +28,7 @@ local function project_anchor()
 end
 
 local function list_clankers()
-    local result = run("~/dotfiles/bin/clankers", { "list", "--cwd", project_anchor() })
+    local result = run("clankers", { "list", "--cwd", project_anchor() })
     if result.code ~= 0 then
         return nil, vim.trim(result.stderr)
     end
@@ -85,7 +85,7 @@ local function compose(selection, message)
 end
 
 local function send_native(agent, text)
-    local result = run("~/dotfiles/bin/clankers", { "send", agent.id }, text)
+    local result = run("clankers", { "send", agent.id }, text)
     if result.code ~= 0 then
         notify(vim.trim(result.stderr), vim.log.levels.ERROR)
         return false

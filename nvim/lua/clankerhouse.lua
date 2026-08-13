@@ -5,7 +5,7 @@ local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "clankers" })
 end
 local function clankers(args, input)
-  local cmd = { vim.fn.expand("~/dotfiles/bin/clankers") }
+  local cmd = { "clankers" }
   vim.list_extend(cmd, args)
   return vim.system(cmd, { text = true, stdin = input }):wait()
 end

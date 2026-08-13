@@ -1,4 +1,0 @@
-#!/bin/sh
-set -eu
-DOTFILES_DIR=${DOTFILES_DIR:-"$HOME/dotfiles"}
-exec bun "$DOTFILES_DIR/clankerhouse/src/cli.ts" "$@"

@@ -1,6 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.opencode/bin:$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/node/latest/bin:${PATH:-/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin}"
-bun_bin=$(command -v bun || true)
-[[ -n "$bun_bin" ]] || { echo "bun is required for Clankerhouse recovery" >&2; exit 127; }
-exec "$bun_bin" run "${DOTFILES_DIR:-$HOME/dotfiles}/clankerhouse/src/recovery-daemon.ts" "$@"

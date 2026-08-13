@@ -203,7 +203,7 @@ ssht() {
 }
 
 # Clankerhouse: unified session/worktree/directory navigator
-s() { "$HOME/dotfiles/bin/clankerhouse"; }
+s() { clankerhouse; }
 
 # ---- prompt ----
 if command -v starship >/dev/null 2>&1; then

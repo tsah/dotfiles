@@ -9,42 +9,10 @@ Use the matching install scripts for each profile.
 
 ## Clankerhouse
 
-`clankerhouse` opens the product's interactive tmux/worktree TUI. `clankers` is
-the primary CLI. A **workshop** is a durable worktree plus its canonical/lazy
-tmux-session container; a **clanker** is one visible Pi, Claude, OpenCode, or
-Codex harness session inside it. Harness-native in-process subagents are not
-clankers.
-
-```bash
-clankers workshop spawn --name feature-x --harness pi
-clankers spawn --workshop feature-x --name reviewer --harness claude
-clankers list --cwd "$PWD"
-clankers status CLANKER_ID
-clankers capabilities CLANKER_ID
-clankers wait CLANKER_ID --after GENERATION
-printf '%s' 'Review the latest changes' | clankers send CLANKER_ID --wait
-clankers result CLANKER_ID
-```
-
-The first command asks Worktrunk to create branch/worktree `feature-x`, records
-the workshop, lazily ensures its tmux session and stable `main` window, then
-starts its initial Pi clanker. The second adds a `reviewer` window to that same
-workshop without creating a worktree or lineage edge. Omitted prompts default to
-`Ready for instructions.` Names are labels; the returned `clankerId` is identity.
-
-Pi send/result communication is native through the globally installed lifecycle
-extension's per-process Unix socket. Tmux is discovery and metadata only;
-unsupported harness transports fail explicitly instead of injecting terminal
-input. Pi, Claude, and OpenCode launches also persist exact native session
-identity and desired state; the one-shot boot recovery service automatically
-recreates and continues them once after a hard reboot. It does not resurrect a
-clanker that is later interrupted with Ctrl-C; same-boot tmux recovery is an
-explicit service restart or reconciliation. EC2 Spot notices are a checkpoint
-fast path rather than a recovery dependency. See
-[`clankerhouse/README.md`](clankerhouse/README.md),
-[`clankerhouse-tui.md`](clankerhouse-tui.md),
-[`docs/qa/clanker-api.md`](docs/qa/clanker-api.md), and
-[`docs/qa/clankerhouse-recovery.md`](docs/qa/clankerhouse-recovery.md).
+The tmux configuration installs [tsah/clankerhouse](https://github.com/tsah/clankerhouse)
+through TPM. The profile installers install its commands, harness integrations,
+and user services under `~/.local`; this repository owns only personal bindings
+and client configuration.
 
 ## Main laptop (Omarchy)
 

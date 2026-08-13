@@ -66,7 +66,7 @@ ve() {
 }
 
 # Clankerhouse: unified session/worktree/directory navigator
-s() { "$HOME/dotfiles/bin/clankerhouse"; }
+s() { clankerhouse; }
 
 if [ -s "$NVM_DIR/nvm.sh" ]; then
     # shellcheck disable=SC1090

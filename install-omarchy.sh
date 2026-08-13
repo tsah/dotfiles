@@ -3,17 +3,16 @@ set -eu
 DOTFILES_DIR=${DOTFILES_DIR:-"$HOME/dotfiles"}
 "$DOTFILES_DIR/bin/dotfiles-install" desktop
 "$DOTFILES_DIR/bin/install-pi-packages"
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"; fi
+if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then "$HOME/.tmux/plugins/tpm/bin/install_plugins" >/dev/null 2>&1 || true; fi
+if [ -x "$HOME/.tmux/plugins/clankerhouse/scripts/install" ]; then
+    "$HOME/.tmux/plugins/clankerhouse/scripts/install" --prefix "$HOME/.local" --integrations --systemd
+fi
 if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then tmux source-file "$HOME/.tmux.conf"; fi
 REAL_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 if [ "$HOME" = "$REAL_HOME" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload
     systemctl --user enable --now plannotator-session-cleanup.timer
-    systemctl --user enable clankerhouse-recovery.service
-    systemctl --user restart clankerhouse-recovery.service
-    systemctl --user enable --now clankerhouse-resource-guard.service
-    systemctl --user enable --now clankerhouse-spot-watch.service
 fi
 if command -v nvim >/dev/null 2>&1; then nvim --headless "+MasonInstall bash-language-server gopls lua-language-server texlab rust-analyzer helm-ls basedpyright zls" +qa || true; fi
-if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"; fi
-if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then "$HOME/.tmux/plugins/tpm/bin/install_plugins" >/dev/null 2>&1 || true; fi
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then hyprctl reload; omarchy restart shell 2>/dev/null || true; fi

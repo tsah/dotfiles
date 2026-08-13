@@ -6,8 +6,9 @@ set -euo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/lib/bootstrap-path.sh"
 
-if ! command -v opencode-status >/dev/null 2>&1; then
-    echo "opencode-status not found in PATH." >&2
+OPENCODE_STATUS=${CLANKERHOUSE_OPENCODE_STATUS:-$HOME/.local/lib/clankerhouse/libexec/opencode-status}
+if [[ ! -x "$OPENCODE_STATUS" ]]; then
+    echo "Clankerhouse opencode-status helper not found: $OPENCODE_STATUS" >&2
     exit 1
 fi
 
@@ -16,7 +17,7 @@ build_picker_rows() {
     tmp_rows=$(mktemp)
     trap 'rm -f "$tmp_rows"' RETURN
 
-    opencode-status --tsv >"$tmp_rows"
+    "$OPENCODE_STATUS" --tsv >"$tmp_rows"
 
     python3 - "$tmp_rows" <<'PY'
 import shutil
