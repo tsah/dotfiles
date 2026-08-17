@@ -1,39 +1,14 @@
 #!/bin/bash
 
-# Rotate active workspaces between two monitors
-# Example: Monitor1 showing WS2, Monitor2 showing WS5
-# After: Monitor1 showing WS5, Monitor2 showing WS2
+monitor1=$(hyprctl activeworkspace -j | jq -r '.monitor')
+workspace1=$(hyprctl activeworkspace -j | jq -r '.id')
+[[ "$workspace1" -ge 0 ]] || exit 0
 
-# Get current monitor's name and active workspace ID
-MONITOR1=$(hyprctl activeworkspace -j | jq -r '.monitor')
-WS1=$(hyprctl activeworkspace -j | jq -r '.id')
+monitor2=$(hyprctl monitors -j | jq -r --arg current "$monitor1" '.[] | select(.name != $current) | .name' | head -1)
+[[ -n "$monitor2" ]] || exit 0
 
-# Exit if we're on a special workspace (negative ID)
-if [ "$WS1" -lt 0 ]; then
-    exit 0
-fi
+workspace2=$(hyprctl monitors -j | jq -r --arg monitor "$monitor2" '.[] | select(.name == $monitor) | .activeWorkspace.id')
+[[ "$workspace2" -ge 0 ]] || exit 0
 
-# Get the other monitor's name and active workspace ID
-MONITOR2=$(hyprctl monitors -j | jq -r --arg m1 "$MONITOR1" '.[] | select(.name != $m1) | .name' | head -n1)
-
-# Exit if there's no second monitor
-if [ -z "$MONITOR2" ]; then
-    exit 0
-fi
-
-WS2=$(hyprctl monitors -j | jq -r --arg m2 "$MONITOR2" '.[] | select(.name == $m2) | .activeWorkspace.id')
-
-# Exit if second monitor has a special workspace
-if [ "$WS2" -lt 0 ]; then
-    exit 0
-fi
-
-# Perform the swap
-# 1. Move WS1 to MONITOR2
-hyprctl dispatch moveworkspacetomonitor "$WS1" "$MONITOR2"
-
-# 2. Move WS2 to MONITOR1  
-hyprctl dispatch moveworkspacetomonitor "$WS2" "$MONITOR1"
-
-# 3. Move focus to the OTHER monitor (MONITOR2)
-hyprctl dispatch focusmonitor "$MONITOR2"
+hyprctl dispatch "hl.dsp.workspace.swap_monitors({ monitor1 = \"$monitor1\", monitor2 = \"$monitor2\" })"
+hyprctl dispatch "hl.dsp.focus({ monitor = \"$monitor2\" })"

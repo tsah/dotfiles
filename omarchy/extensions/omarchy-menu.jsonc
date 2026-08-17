@@ -1,0 +1,28 @@
+{
+  // Personal actions added to the Quattro Omarchy menu.
+  "startup": {
+    "icon": "",
+    "label": "Startup",
+    "action": "~/dotfiles/bin/workspace-startup"
+  },
+  "audio-output": {
+    "icon": "󰕾",
+    "label": "Audio output",
+    "action": "~/dotfiles/bin/audio-output-menu"
+  },
+  "wifi-restart": {
+    "icon": "󰖩",
+    "label": "Wi-Fi restart",
+    "action": "~/dotfiles/bin/recover-wifi"
+  },
+  "bluetooth-reset": {
+    "icon": "󰂯",
+    "label": "Bluetooth USB reset",
+    "action": "~/dotfiles/bin/recover-bluetooth"
+  },
+  "camera-recovery": {
+    "icon": "󰄀",
+    "label": "Camera recovery",
+    "action": "~/dotfiles/bin/recover-camera"
+  }
+}

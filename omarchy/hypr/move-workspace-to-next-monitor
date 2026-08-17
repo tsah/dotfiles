@@ -1,5 +1,3 @@
 #!/bin/bash
 
-# Move current workspace to next monitor
-CURRENT_WS=$(hyprctl activeworkspace -j | jq -r '.id')
-hyprctl dispatch moveworkspacetomonitor $CURRENT_WS +1
+hyprctl dispatch 'hl.dsp.workspace.move({ monitor = "+1" })'

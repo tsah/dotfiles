@@ -6,7 +6,7 @@ CURRENT_WINDOW=$(hyprctl activewindow -j 2>/dev/null)
 # Check if there's no active window (empty workspace)
 if [ $? -ne 0 ] || [ "$(echo "$CURRENT_WINDOW" | jq -r '.address')" = "null" ]; then
     # Empty workspace, just switch to previous workspace
-    hyprctl dispatch workspace -1
+    hyprctl dispatch 'hl.dsp.focus({ workspace = "-1" })'
     exit 0
 fi
 
@@ -21,8 +21,8 @@ LEFTMOST_POS=$(echo "$WINDOWS_ON_WS" | head -1)
 
 # If we're already at the leftmost window, move to previous workspace
 if [ "$CURRENT_POS" = "$LEFTMOST_POS" ]; then
-    hyprctl dispatch movetoworkspace -1
-    hyprctl dispatch movewindow r
+    hyprctl dispatch 'hl.dsp.window.move({ workspace = "-1" })'
+    hyprctl dispatch 'hl.dsp.window.move({ direction = "r" })'
 else
-    hyprctl dispatch movewindow l
+    hyprctl dispatch 'hl.dsp.window.move({ direction = "l" })'
 fi

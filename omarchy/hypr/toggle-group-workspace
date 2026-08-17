@@ -1,46 +1,35 @@
 #!/bin/bash
-# Toggle group/ungroup all tiled windows in the current workspace
 
-active_ws=$(hyprctl activeworkspace -j | jq -r '.id')
+active_workspace=$(hyprctl activeworkspace -j | jq -r '.id')
 clients=$(hyprctl clients -j)
+mapfile -t windows < <(jq -r "[.[] | select(.workspace.id == $active_workspace and .floating == false)] | .[].address" <<<"$clients")
+[[ ${#windows[@]} -ge 2 ]] || exit 0
 
-# Get tiled window addresses in this workspace
-mapfile -t windows < <(echo "$clients" | jq -r "[.[] | select(.workspace.id == $active_ws and .floating == false)] | .[].address")
+grouped_count=$(jq "[.[] | select(.address == \"${windows[0]}\")] | .[0].grouped | length" <<<"$clients")
+focus_window() {
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })"
+}
 
-# Need at least 2 windows to group
-if [[ ${#windows[@]} -lt 2 ]]; then
+focus_window "${windows[0]}"
+if [[ "$grouped_count" -gt 0 ]]; then
+    hyprctl dispatch 'hl.dsp.group.toggle()'
     exit 0
 fi
 
-# Check if the first window is already in a group
-grouped_count=$(echo "$clients" | jq "[.[] | select(.address == \"${windows[0]}\")] | .[0].grouped | length")
+hyprctl dispatch 'hl.dsp.group.toggle()'
+for pass in 1 2 3; do
+    for address in "${windows[@]:1}"; do
+        is_grouped=$(hyprctl clients -j | jq "[.[] | select(.address == \"$address\")] | .[0].grouped | length")
+        [[ "$is_grouped" -gt 0 ]] && continue
 
-if [[ "$grouped_count" -gt 0 ]]; then
-    # Ungroup: dissolve the group
-    hyprctl dispatch focuswindow "address:${windows[0]}"
-    hyprctl dispatch togglegroup
-else
-    # Group all windows together
-    # Create a group from the first window
-    hyprctl dispatch focuswindow "address:${windows[0]}"
-    hyprctl dispatch togglegroup
-
-    # Move remaining windows into the group
-    # Multiple passes handle windows that aren't initially adjacent to the group
-    for pass in 1 2 3; do
-        for addr in "${windows[@]:1}"; do
-            is_grouped=$(hyprctl clients -j | jq "[.[] | select(.address == \"$addr\")] | .[0].grouped | length")
-            [[ "$is_grouped" -gt 0 ]] && continue
-
-            hyprctl dispatch focuswindow "address:$addr"
-            hyprctl --batch "dispatch moveintogroup l ; dispatch moveintogroup r ; dispatch moveintogroup u ; dispatch moveintogroup d"
+        focus_window "$address"
+        for direction in l r u d; do
+            hyprctl dispatch "hl.dsp.window.move({ into_group = \"$direction\" })"
         done
-
-        # Stop early if all windows are grouped
-        ungrouped=$(hyprctl clients -j | jq "[.[] | select(.workspace.id == $active_ws and .floating == false and (.grouped | length == 0))] | length")
-        [[ "$ungrouped" -eq 0 ]] && break
     done
 
-    # Focus back to the first window in the group
-    hyprctl dispatch focuswindow "address:${windows[0]}"
-fi
+    ungrouped=$(hyprctl clients -j | jq "[.[] | select(.workspace.id == $active_workspace and .floating == false and (.grouped | length == 0))] | length")
+    [[ "$ungrouped" -eq 0 ]] && break
+done
+
+focus_window "${windows[0]}"

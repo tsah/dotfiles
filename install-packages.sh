@@ -45,12 +45,9 @@ sudo pacman -S --needed \
     wtype \
     lazygit \
     sqlite \
-    waybar \
-    mako \
     fuzzel \
     nautilus \
     chromium \
-    blueberry \
     brightnessctl \
     playerctl \
     pipewire-pulse \
@@ -63,7 +60,6 @@ sudo systemctl enable --now iwd
 echo "📦 Installing AUR packages..."
 yay -S --needed \
     ghostty \
-    hyprlock \
     wiremix \
     uwsm
 
@@ -118,18 +114,15 @@ echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
 echo "   • bun - JavaScript runtime for Clankerhouse"
 echo "   • opencode - SST Claude CLI"
-echo "   • waybar - Status bar"
-echo "   • mako - Notification daemon"
-echo "   • fuzzel - App launcher"
+echo "   • plannotator - Browser-based agent review UI"
+echo "   • fuzzel - Dmenu fallback for custom scripts"
 echo "   • nautilus - File manager"
 echo "   • chromium - Web browser"
-echo "   • blueberry - Bluetooth manager"
 echo "   • brightnessctl - Brightness control"
 echo "   • playerctl - Media control"
 echo "   • pipewire-pulse - Audio control"
 echo "   • libva-utils - VA-API diagnostics (vainfo)"
 echo "   • vdpauinfo - VDPAU diagnostics"
-echo "   • hyprlock - Screen locker"
 echo "   • wiremix - Audio mixer"
 echo "   • uwsm - Universal Wayland Session Manager"
 echo ""

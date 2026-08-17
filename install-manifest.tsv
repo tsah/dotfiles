@@ -27,8 +27,8 @@ a starship.toml ~/.config/starship.toml
 a atuin-config.toml ~/.config/atuin/config.toml
 d ghostty-config ~/.config/ghostty/config
 d omarchy/hypr ~/.config/hypr
-d omarchy/waybar ~/.config/waybar
-d omarchy/extensions/menu.sh ~/.config/omarchy/extensions/menu.sh
+d omarchy/extensions/omarchy-menu.jsonc ~/.config/omarchy/extensions/omarchy-menu.jsonc
+d omarchy/shell.json ~/.config/omarchy/shell.json
 d voxtype-config.toml ~/.config/voxtype/config.toml
 s bin/xdg-open-via-laptop ~/.local/bin/xdg-open
 a skills/clanker-coordination ~/.agents/skills/clanker-coordination

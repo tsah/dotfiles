@@ -1,15 +1,12 @@
 #!/bin/bash
-# Launch or focus Slack with dedicated profile
 
-WINDOW_CLASS="chrome-app.slack.com__client_T086WDUM9LM_C087BVCGJ49-Default"
-USER_DATA_DIR="$HOME/.config/chromium-slack"
-SLACK_URL="https://app.slack.com/client/T086WDUM9LM/C087BVCGJ49"
+window_class="chrome-app.slack.com__client_T086WDUM9LM_C087BVCGJ49-Default"
+user_data_dir="$HOME/.config/chromium-slack"
+slack_url="https://app.slack.com/client/T086WDUM9LM/C087BVCGJ49"
 
-# Check if Slack window already exists
-if hyprctl clients | grep -q "class: ${WINDOW_CLASS}"; then
-    # Focus existing window
-    hyprctl dispatch focuswindow "class:${WINDOW_CLASS}"
+window_address=$(hyprctl clients -j | jq -r --arg class "$window_class" '.[] | select(.class == $class) | .address' | head -1)
+if [[ -n "$window_address" ]]; then
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$window_address\" })"
 else
-    # Launch new Slack instance with dedicated profile
-    exec uwsm app -- chromium --user-data-dir="${USER_DATA_DIR}" --app="${SLACK_URL}"
+    exec uwsm-app -- chromium --user-data-dir="$user_data_dir" --app="$slack_url"
 fi

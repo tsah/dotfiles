@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Recover Wi-Fi by power-cycling each iwd adapter.
+set -euo pipefail
+
+LOGFILE="$HOME/.cache/wifi-recovery.log"
+mkdir -p "$(dirname "$LOGFILE")"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+}
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Wi-Fi recovery" "$1"
+    fi
+}
+
+if ! command -v iwctl >/dev/null 2>&1; then
+    log "ERROR: iwctl is not installed"
+    notify "Failed: iwctl is not installed"
+    exit 1
+fi
+
+mapfile -t adapters < <(find /sys/class/ieee80211 -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null)
+if [ "${#adapters[@]}" -eq 0 ]; then
+    log "ERROR: no Wi-Fi adapter found"
+    notify "Failed: no Wi-Fi adapter found"
+    exit 1
+fi
+
+log "=== Wi-Fi recovery started ==="
+notify "Restarting the Wi-Fi adapter…"
+
+restore_power() {
+    local adapter
+    for adapter in "${adapters[@]}"; do
+        iwctl adapter "$adapter" set-property Powered on >/dev/null 2>&1 || true
+    done
+}
+trap restore_power EXIT
+
+for adapter in "${adapters[@]}"; do
+    log "Powering off ${adapter}"
+    iwctl adapter "$adapter" set-property Powered off
+ done
+
+sleep 2
+
+for adapter in "${adapters[@]}"; do
+    log "Powering on ${adapter}"
+    iwctl adapter "$adapter" set-property Powered on
+done
+
+trap - EXIT
+
+interface=$(iw dev 2>/dev/null | awk '$1 == "Interface" { print $2; exit }')
+if [ -n "$interface" ]; then
+    for _ in {1..15}; do
+        if iw dev "$interface" link 2>/dev/null | grep -q '^Connected to '; then
+            network=$(iw dev "$interface" link | awk -F': ' '/SSID:/ { print $2; exit }')
+            log "Wi-Fi reconnected${network:+ to ${network}}"
+            notify "Reconnected${network:+ to ${network}}"
+            log "=== Wi-Fi recovery finished ==="
+            exit 0
+        fi
+        sleep 1
+    done
+fi
+
+log "Wi-Fi adapter reset; connection is still pending"
+notify "Adapter reset; connection is still pending"

@@ -1,40 +1,26 @@
 #!/bin/bash
 
-# Display recovery script for black screen issues
-LOGFILE="$HOME/.cache/display-recovery.log"
-mkdir -p "$(dirname "$LOGFILE")"
+logfile="$HOME/.cache/display-recovery.log"
+mkdir -p "$(dirname "$logfile")"
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$logfile"
 }
 
 log "=== Display recovery started ==="
-
-# Kill any stuck lock screens
-log "Killing hyprlock processes"
-pkill -KILL hyprlock 2>/dev/null
-
-# Reset display power management
 log "Resetting DPMS"
-hyprctl dispatch dpms off
+hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'
 sleep 1
-hyprctl dispatch dpms on
+hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
 
-# Force refresh all outputs
 log "Refreshing displays"
 hyprctl reload
 
-# Restart waybar if it's running
-if pgrep waybar >/dev/null; then
-    log "Restarting waybar"
-    pkill waybar
-    sleep 1
-    waybar &
-fi
+log "Restarting Omarchy shell"
+omarchy restart shell
 
-# Focus on a workspace to force redraw
 log "Forcing workspace focus"
-hyprctl dispatch workspace 1
+hyprctl dispatch 'hl.dsp.focus({ workspace = "1" })'
 
 log "=== Display recovery finished ==="
-echo "Display recovery completed. Check $LOGFILE for details."
+echo "Display recovery completed. Check $logfile for details."

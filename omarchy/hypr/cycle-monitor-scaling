@@ -1,0 +1,9 @@
+#!/bin/bash
+
+current_scale=$(omarchy hyprland monitor scaling)
+
+if awk -v scale="$current_scale" 'BEGIN { exit !(scale >= 4) }'; then
+    omarchy hyprland monitor scaling 1
+else
+    omarchy hyprland monitor scaling up
+fi
