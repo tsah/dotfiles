@@ -6,7 +6,6 @@ confirm-close-surface = false
 keybind = alt+t=text:\x1bt
 keybind = alt+w=text:\x1bw
 keybind = alt+j=text:\x1bj
-keybind = alt+k=text:\x1bk
 # Pass through Alt+numbers for tmux window switching
 keybind = alt+1=text:\x1b1
 keybind = alt+2=text:\x1b2
@@ -25,8 +24,10 @@ shell-integration = detect
 shell-integration-features = no-title
 window-decoration = none
 
-# Scrollback configuration
+# Scrollback and clipboard configuration
 scrollback-limit = 10000
+# Omarchy's clipboard picker injects Shift+Insert after updating CLIPBOARD.
+keybind = shift+insert=paste_from_clipboard
 
 # Integration with Neovim for scrollback/copy
 # Ctrl+Shift+y : Open scrollback file in nvim (native Ghostty feature)
@@ -34,3 +35,9 @@ keybind = ctrl+shift+y=write_screen_file:open
 
 # Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
 async-backend = epoll
+
+# Send Shift+Enter as CSI-u so TUIs can distinguish it from Enter.
+keybind = shift+enter=csi:13;2u
+
+# Legacy encoding sends Alt+Shift+Enter the same as Alt+Enter; send CSI-u so tmux can match M-S-Enter.
+keybind = alt+shift+enter=csi:13;4u
