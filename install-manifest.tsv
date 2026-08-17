@@ -11,6 +11,8 @@ a systemd/user/plannotator-session-cleanup.timer ~/.config/systemd/user/plannota
 a systemd/user/clankerhouse-resource-guard.service ~/.config/systemd/user/clankerhouse-resource-guard.service
 a systemd/user/clankerhouse-recovery.service ~/.config/systemd/user/clankerhouse-recovery.service
 a systemd/user/clankerhouse-spot-watch.service ~/.config/systemd/user/clankerhouse-spot-watch.service
+a ssh/config ~/.ssh/config
+a ssh/authorized_keys ~/.ssh/authorized_keys
 a opencode.json ~/.config/opencode/opencode.json
 a opencode/plugins ~/.config/opencode/plugins
 a opencode/agents ~/.config/opencode/agents

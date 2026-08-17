@@ -1,0 +1,5 @@
+Host tsah-dev-frankfurt
+    LocalForward 9999 localhost:9999
+
+Host tsah-dev-ireland
+    ForwardAgent yes

@@ -1,0 +1,2 @@
+restrict,command="/home/tsah/dotfiles/bin/xdg-open-from-ssh" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIaJpVecR8tyOpXtOrbX4ezSX0744cJVap9Zsj7PgP7l tsah@tsah-dev-frankfurt
+restrict,command="/home/tsah/dotfiles/bin/xdg-open-from-ssh" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP/83Oh77bpejyn+LCO7OJvXnAMUHbXQWulAFPkfzhkD tsah@tsah-dev-ireland

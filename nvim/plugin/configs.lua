@@ -1,4 +1,6 @@
 local opt = vim.opt
+
+require("config.remote_clipboard").setup()
 -- opt.guicursor = "i:block" -- cursor style in insert mode
 opt.colorcolumn = "99" -- vertical line at column 99 for line length guide
 opt.signcolumn = "yes:1" -- always show sign column with width 1
