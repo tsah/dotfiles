@@ -355,11 +355,16 @@ install_ai_clis() {
     install_npx_wrapper "codex" "@openai/codex" "codex"
 }
 
+install_plannotator() {
+    log "Installing Plannotator..."
+    curl -fsSL https://plannotator.ai/install.sh | bash -s -- --minimal
+}
+
 print_versions() {
     log ""
     log "Installed tool versions:"
 
-    for cmd in zsh tmux nvim rg fd delta lazygit starship zoxide atuin gh uv python opencode pi claude codex; do
+    for cmd in zsh tmux nvim rg fd delta lazygit starship zoxide atuin gh uv python opencode pi claude codex plannotator; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf '  - %s: %s\n' "$cmd" "$("$cmd" --version 2>/dev/null | head -1)"
         else
@@ -426,6 +431,7 @@ install_binary_from_tar "max-sixty/worktrunk" "$WORKTRUNK_SUFFIX" "wt"
 install_ghostty_terminfo
 
 install_ai_clis
+install_plannotator
 print_versions
 
 log ""

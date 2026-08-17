@@ -94,6 +94,10 @@ else
     echo "✅ OpenCode already installed"
 fi
 
+echo "📦 Installing Plannotator..."
+curl -fsSL https://plannotator.ai/install.sh | bash -s -- --minimal
+echo "✅ Plannotator installed"
+
 echo ""
 echo "🎯 Optional packages (install as needed):"
 echo "   yay -S impala bt-device"
