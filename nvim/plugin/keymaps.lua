@@ -118,16 +118,19 @@ keymap('n', '<leader>aw', function() require('trevj').format_at_cursor() end, { 
 keymap({ 'n', 'x', 'o' }, 's', function() require('flash').jump() end, { desc = "Flash jump" })
 
 keymap('v', '<leader>oi', function() require('opencode').prompt("Implement @this", {submit = true}) end, { desc = 'Implement selection' })
-keymap({ 'n', 'v' }, '<leader>oa', function() dofile(vim.fn.stdpath('config') .. '/lua/vd/opencode_tmux.lua').ask() end, { desc = 'Ask nearest agent (opencode/claude/codex/pi) about selection' })
 keymap('n', '<leader>o+', function() require('opencode').prompt('@buffer', { append = true }) end, { desc = 'Add buffer to prompt' })
 keymap('v', '<leader>o+', function() require('opencode').prompt('@this', { append = true }) end, { desc = 'Add selection to prompt' })
 keymap('n', '<leader>oe', function() require('opencode').ask('Explain @this and its context', { submit = true }) end, { desc = 'Explain code at cursor' })
 keymap('n', '<leader>on', function() require('opencode').command('session.new') end, { desc = 'New opencode session' })
 keymap({ 'n', 'v' }, '<leader>os', function() require('opencode').select() end, { desc = 'Select opencode prompt' })
 
--- Pi tmux integration
-require("clankerhouse").setup()
-keymap("n", "<leader>pp", "<cmd>ClankerSendReference<cr>", { desc = "Clanker: send reference" })
-keymap("v", "<leader>ps", ":ClankerSendContents<cr>", { desc = "Clanker: send selection" })
-keymap("n", "<leader>pb", "<cmd>%ClankerSendContents<cr>", { desc = "Clanker: send buffer" })
-keymap("n", "<leader>pf", "<cmd>ClankerFocus<cr>", { desc = "Clanker: focus" })
+vim.opt.runtimepath:prepend(vim.env.CLANKERHOUSE_HOME or vim.fn.expand("~/.local/lib/clankerhouse"))
+require("clankerhouse").setup({
+    mappings = {
+        ask = "<leader>oa",
+        send_reference = "<leader>pp",
+        send_contents = "<leader>ps",
+        send_buffer = "<leader>pb",
+        focus = "<leader>pf",
+    },
+})

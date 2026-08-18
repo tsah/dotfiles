@@ -297,12 +297,16 @@ Workshop launchers:
 
 ## OpenCode Configuration
 
-OpenCode configs are in `~/dotfiles/opencode/` and symlinked to `~/.config/opencode/`:
+This repository targets the **OpenCode 2 beta**. Use the `opencode2` CLI and the
+documentation under `https://opencode.ai/v2/docs/`; do not infer behavior from
+OpenCode 1 or the unversioned `opencode` binary.
+
+OpenCode 2 configs are in `~/dotfiles/opencode/` and symlinked to `~/.config/opencode/`:
 
 ```
 dotfiles/
-├── opencode.json              # Main config (symlinked to ~/.config/opencode/opencode.json)
 └── opencode/
+    ├── global.json            # Main config (symlinked to ~/.config/opencode/opencode.json)
     ├── agents/                # Custom subagent definitions (markdown)
     │   ├── code-review.md
     │   ├── pr-ci-analyzer.md
@@ -315,13 +319,26 @@ dotfiles/
 
 ### Key Configuration
 
-**opencode.json** configures:
+**opencode/global.json** configures:
 - Provider/model settings
 - Agent overrides (model, tools, permissions)
 - Global tool enable/disable
 
 Linear access is provided by the shared `skills/linear` skill rather than an
 MCP server. Keep its personal API key in `~/.env`, never in tracked config.
+
+### Slash Commands
+
+OpenCode 2 Markdown slash commands are prompt templates. Invoking one submits a
+durable user prompt in the current session and schedules normal model execution;
+they cannot register direct command handlers or bypass the model. TUI plugins
+can register direct slash handlers with `api.keymap.registerLayer`. `/plr` and
+`/pll` use that API in `opencode/plugins/plannotator-shortcuts.ts` to match Pi's
+direct Plannotator commands; do not replace them with Markdown command files.
+
+The Plannotator plugin's direct `/plannotator-review`, `/plannotator-annotate`,
+and `/plannotator-last` handlers are OpenCode 1-only. Do not recommend those as
+a direct-execution workaround for OpenCode 2.
 
 ### Omarchy Skill
 
@@ -336,10 +353,10 @@ The skill is automatically loaded when editing files in `~/.config/hypr/`, `~/.c
 
 **Useful debug commands:**
 ```bash
-opencode debug skill          # List available skills and locations
-opencode debug config         # Show resolved configuration
-opencode agent list           # List agents and their permissions
-opencode mcp list             # List MCP servers and status
+opencode2 service status              # Check the shared background service
+opencode2 api get /api/health         # Verify API connectivity
+opencode2 plugin list                 # List loaded plugins
+opencode2 --standalone                # Isolate shared-service problems
 ```
 
 ## Common Tasks

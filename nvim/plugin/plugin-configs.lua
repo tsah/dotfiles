@@ -166,13 +166,13 @@ local function has_c_compiler()
     return false
 end
 
-local can_compile_treesitter = has_c_compiler()
+local can_install_treesitter = has_c_compiler() and vim.fn.executable('tree-sitter') == 1
 local has_ts_configs, ts_configs = pcall(require, 'nvim-treesitter.configs')
 
 if has_ts_configs then
     ts_configs.setup({
-        ensure_installed = can_compile_treesitter and ts_languages or {},
-        auto_install = can_compile_treesitter,
+        ensure_installed = can_install_treesitter and ts_languages or {},
+        auto_install = can_install_treesitter,
         highlight = {
             enable = true,
         },
@@ -200,7 +200,7 @@ else
                 end
             end
 
-            if can_compile_treesitter and #missing > 0 then
+            if can_install_treesitter and #missing > 0 then
                 local install_ok, install_err = pcall(ts.install, missing)
                 if not install_ok then
                     vim.notify('Treesitter parser install failed: ' .. tostring(install_err), vim.log.levels.WARN)

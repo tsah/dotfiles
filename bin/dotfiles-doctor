@@ -199,7 +199,7 @@ check_command_links "$HOME/.claude/commands"
 check_command_links "$HOME/.config/opencode/command"
 check_command_links "$HOME/.config/opencode/commands"
 
-check_opencode_plugins "$dotfiles_root/opencode.json"
+check_opencode_plugins "$dotfiles_root/opencode/global.json"
 
 printf '\nSummary: %d checks, %d warnings, %d failures\n' "$checks" "$warnings" "$failures"
 

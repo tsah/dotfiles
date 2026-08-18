@@ -37,6 +37,7 @@ sudo pacman -S --needed \
     zsh \
     zsh-autosuggestions \
     neovim \
+    tree-sitter-cli \
     worktrunk \
     iwd \
     cliphist \
@@ -97,6 +98,7 @@ echo "   • zsh - Z shell"
 echo "   • zsh-autosuggestions - Fish-style command suggestions for Zsh"
 echo "   • iwd - Wireless daemon"
 echo "   • neovim - Neovim stable release"
+echo "   • tree-sitter-cli - Parser compiler required by nvim-treesitter"
 echo "   • cliphist - Clipboard history manager"
 echo "   • wl-clipboard - Wayland clipboard tools (wl-copy/wl-paste)"
 echo "   • xclip - X11 clipboard tools"

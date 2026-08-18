@@ -10,7 +10,8 @@ a systemd/user/plannotator-session-cleanup.service ~/.config/systemd/user/planno
 a systemd/user/plannotator-session-cleanup.timer ~/.config/systemd/user/plannotator-session-cleanup.timer
 a ssh/config ~/.ssh/config
 a ssh/authorized_keys ~/.ssh/authorized_keys
-a opencode.json ~/.config/opencode/opencode.json
+a opencode/global.json ~/.config/opencode/opencode.json
+a opencode/plugins/plannotator-shortcuts.ts ~/.config/opencode/plugins/plannotator-shortcuts.ts
 a opencode/plugins/tui ~/.config/opencode/plugins/tui
 a opencode/agents ~/.config/opencode/agents
 a opencode/commands ~/.config/opencode/commands
