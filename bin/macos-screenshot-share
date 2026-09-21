@@ -3,7 +3,8 @@
 set -euo pipefail
 
 OUTPUT_DIR="${SCREENSHOT_DIR:-$HOME/Pictures/Screenshots}"
-REMOTE_TARGET="${SCREENSHOT_REMOTE_TARGET:-tsah-dev-frankfurt:/tmp/}"
+REMOTE_TARGET="${SCREENSHOT_REMOTE_TARGET:-}"
+DEVBOX_INVENTORY="${DEVBOX_INVENTORY_COMMAND:-$HOME/dotfiles/bin/devbox-inventory}"
 OUTPUT_FILE="$OUTPUT_DIR/screenshot-$(date +'%Y-%m-%d_%H-%M-%S').png"
 
 notify_user() {
@@ -23,6 +24,39 @@ format_copy_value() {
   printf '"%s"' "$value"
 }
 
+pick_remote_target() {
+  if [[ -n "$REMOTE_TARGET" ]]; then
+    printf '%s' "$REMOTE_TARGET"
+    return
+  fi
+
+  if [[ ! -x "$DEVBOX_INVENTORY" ]]; then
+    notify_user "Devbox inventory unavailable" "$DEVBOX_INVENTORY"
+    return 1
+  fi
+
+  local names=()
+  while IFS= read -r name; do
+    names+=("$name")
+  done < <("$DEVBOX_INVENTORY" names)
+  if (( ${#names[@]} == 0 )); then
+    notify_user "No screenshot targets" "Run setup-new-devbox first"
+    return 1
+  fi
+
+  local selected
+  selected=$(osascript - "${names[@]}" <<'APPLESCRIPT'
+on run choices
+  set picked to choose from list choices with prompt "Screenshot devbox"
+  if picked is false then return ""
+  return item 1 of picked
+end run
+APPLESCRIPT
+  )
+  [[ -n "$selected" ]] || return 1
+  "$DEVBOX_INVENTORY" target "$selected"
+}
+
 mkdir -p "$OUTPUT_DIR"
 
 if ! screencapture -i "$OUTPUT_FILE"; then
@@ -31,7 +65,7 @@ fi
 
 [[ -f "$OUTPUT_FILE" ]] || exit 0
 
-destination="$REMOTE_TARGET"
+destination=$(pick_remote_target) || exit 0
 if [[ "$destination" == */ ]]; then
   destination="${destination}$(basename "$OUTPUT_FILE")"
 fi

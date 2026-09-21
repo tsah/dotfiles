@@ -355,6 +355,18 @@ install_ai_clis() {
     install_npx_wrapper "codex" "@openai/codex" "codex"
 }
 
+install_bun() {
+    if [ -x "$HOME/.bun/bin/bun" ]; then
+        log "Bun is already installed."
+        export PATH="$HOME/.bun/bin:$PATH"
+        return
+    fi
+
+    log "Installing Bun..."
+    curl -fsSL https://bun.sh/install | bash
+    export PATH="$HOME/.bun/bin:$PATH"
+}
+
 install_plannotator() {
     log "Installing Plannotator..."
     curl -fsSL https://plannotator.ai/install.sh | bash -s -- --minimal
@@ -364,7 +376,7 @@ print_versions() {
     log ""
     log "Installed tool versions:"
 
-    for cmd in zsh tmux nvim rg fd delta lazygit starship zoxide atuin gh uv python opencode pi claude codex plannotator; do
+    for cmd in zsh tmux nvim rg fd delta lazygit starship zoxide atuin gh uv python bun opencode pi claude codex plannotator; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf '  - %s: %s\n' "$cmd" "$("$cmd" --version 2>/dev/null | head -1)"
         else
@@ -431,6 +443,7 @@ install_binary_from_tar "max-sixty/worktrunk" "$WORKTRUNK_SUFFIX" "wt"
 install_ghostty_terminfo
 
 install_ai_clis
+install_bun
 install_plannotator
 print_versions
 

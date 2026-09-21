@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+DOTFILES_DIR=${DOTFILES_DIR:-"$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"}
+INVENTORY="$DOTFILES_DIR/bin/devbox-inventory"
+AUTHORIZED_KEYS="$DOTFILES_DIR/ssh/authorized_keys"
+REPO_URL=${DOTFILES_REPO_URL:-https://github.com/tsah/dotfiles.git}
+REPO_BRANCH=${DOTFILES_BRANCH:-master}
+SCREENSHOT_DIRECTORY=/tmp/
+LAPTOP_HOST=
+BROWSER_HOST=
+SSH_TARGET=
+CONFIGURE_ONLY=false
+START_SERVICES=true
+
+usage() {
+  cat <<'EOF'
+Usage: setup-new-devbox [options] NAME [SSH_TARGET]
+
+Provision a Linux devbox, register it in devboxes.tsv, and enroll a dedicated
+restricted key so browser links opened on the devbox appear on this laptop.
+
+Options:
+  --configure-only          Skip package and dotfiles installation
+  --laptop-host HOST        Browser-opening SSH destination (auto-detected)
+  --browser-host HOST       Name used for devbox localhost URLs (default: NAME)
+  --screenshot-dir PATH     Remote screenshot directory (default: /tmp/)
+  --no-services             Do not enable Clankerhouse services
+  -h, --help                Show this help
+
+SSH_TARGET defaults to NAME and may be an SSH alias or user@host.
+EOF
+}
+
+fail() {
+  printf 'setup-new-devbox: %s\n' "$1" >&2
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --configure-only)
+      CONFIGURE_ONLY=true
+      shift
+      ;;
+    --laptop-host)
+      [[ $# -ge 2 ]] || fail "--laptop-host requires a value"
+      LAPTOP_HOST="$2"
+      shift 2
+      ;;
+    --browser-host)
+      [[ $# -ge 2 ]] || fail "--browser-host requires a value"
+      BROWSER_HOST="$2"
+      shift 2
+      ;;
+    --screenshot-dir)
+      [[ $# -ge 2 ]] || fail "--screenshot-dir requires a value"
+      SCREENSHOT_DIRECTORY="$2"
+      shift 2
+      ;;
+    --no-services)
+      START_SERVICES=false
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      fail "unknown option '$1'"
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+[[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+NAME="$1"
+SSH_TARGET=${2:-$NAME}
+BROWSER_HOST=${BROWSER_HOST:-$NAME}
+
+[[ "$NAME" =~ ^[A-Za-z0-9._-]+$ && ! "$NAME" =~ ^[0-9]+$ ]] || fail "invalid name '$NAME'"
+[[ "$SSH_TARGET" != *[[:space:]]* ]] || fail "SSH_TARGET must not contain whitespace"
+[[ "$BROWSER_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || fail "invalid browser host '$BROWSER_HOST'"
+[[ "$SCREENSHOT_DIRECTORY" == /* ]] || fail "--screenshot-dir must be absolute"
+[[ "$SCREENSHOT_DIRECTORY" != *[[:space:]]* ]] || fail "--screenshot-dir must not contain whitespace"
+[[ -x "$INVENTORY" ]] || fail "missing inventory helper: $INVENTORY"
+[[ -f "$AUTHORIZED_KEYS" ]] || fail "missing authorized_keys source: $AUTHORIZED_KEYS"
+command -v ssh >/dev/null 2>&1 || fail "ssh is required"
+
+if [[ -z "$LAPTOP_HOST" ]] && command -v tailscale >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  LAPTOP_HOST=$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)
+fi
+LAPTOP_HOST=${LAPTOP_HOST:-$(hostname)}
+[[ "$LAPTOP_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || fail "could not derive a safe laptop host; pass --laptop-host"
+
+printf 'Checking %s...\n' "$SSH_TARGET"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_TARGET" true
+
+if [[ "$CONFIGURE_ONLY" == false ]]; then
+  printf 'Installing dotfiles and development tools on %s...\n' "$NAME"
+  ssh "$SSH_TARGET" bash -s -- "$REPO_URL" "$REPO_BRANCH" "$START_SERVICES" <<'REMOTE'
+set -euo pipefail
+repo_url="$1"
+repo_branch="$2"
+start_services="$3"
+
+normalize_repo_url() {
+  local value="$1"
+  case "$value" in
+    git@github.com:*) value="https://github.com/${value#git@github.com:}" ;;
+  esac
+  value="${value%.git}"
+  value="${value%/}"
+  printf '%s\n' "$value"
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y git
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y git
+  else
+    echo "setup-new-devbox: install git before continuing" >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -d "$HOME/dotfiles/.git" ]]; then
+  if [[ -e "$HOME/dotfiles" ]]; then
+    echo "setup-new-devbox: $HOME/dotfiles exists but is not a Git checkout" >&2
+    exit 1
+  fi
+  git clone --branch "$repo_branch" "$repo_url" "$HOME/dotfiles"
+else
+  origin_url=$(git -C "$HOME/dotfiles" remote get-url origin 2>/dev/null || true)
+  if [[ -z "$origin_url" || "$(normalize_repo_url "$origin_url")" != "$(normalize_repo_url "$repo_url")" ]]; then
+    echo "setup-new-devbox: unexpected dotfiles origin: ${origin_url:-<none>}" >&2
+    exit 1
+  fi
+  current_branch=$(git -C "$HOME/dotfiles" symbolic-ref --quiet --short HEAD || true)
+  if [[ "$current_branch" != "$repo_branch" ]]; then
+    echo "setup-new-devbox: expected dotfiles branch '$repo_branch', found '${current_branch:-detached}'" >&2
+    exit 1
+  fi
+  if [[ -n "$(git -C "$HOME/dotfiles" status --porcelain)" ]]; then
+    echo "setup-new-devbox: $HOME/dotfiles has local changes; update it manually or use --configure-only" >&2
+    exit 1
+  fi
+  git -C "$HOME/dotfiles" fetch origin "$repo_branch"
+  git -C "$HOME/dotfiles" merge --ff-only "origin/$repo_branch"
+fi
+
+cd "$HOME/dotfiles"
+./install-server-packages.sh
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/dotfiles/bin:$PATH"
+START_CLANKERHOUSE_SERVICES="$start_services" ./install-server.sh
+REMOTE
+fi
+
+printf 'Configuring restricted browser forwarding...\n'
+remote_pub=$(ssh "$SSH_TARGET" bash -s -- "$LAPTOP_HOST" "$BROWSER_HOST" "$SCREENSHOT_DIRECTORY" <<'REMOTE'
+set -euo pipefail
+laptop_host="$1"
+browser_host="$2"
+screenshot_directory="$3"
+key="$HOME/.ssh/id_ed25519_remote_open"
+shim="$HOME/.local/bin/xdg-open"
+
+if [[ ! -x "$shim" ]] || ! grep -q 'id_ed25519_remote_open' "$shim"; then
+  echo "setup-new-devbox: remote xdg-open shim is missing or stale; update ~/dotfiles and run install-server.sh" >&2
+  exit 1
+fi
+
+install -d -m 700 "$HOME/.ssh"
+mkdir -p "$screenshot_directory"
+[[ -w "$screenshot_directory" ]] || {
+  echo "setup-new-devbox: screenshot directory is not writable: $screenshot_directory" >&2
+  exit 1
+}
+if [[ ! -f "$key" ]]; then
+  ssh-keygen -q -t ed25519 -N '' -C "remote-open@$(hostname)" -f "$key"
+fi
+chmod 600 "$key"
+chmod 644 "$key.pub"
+
+install -d -m 700 "$HOME/.config/dotfiles"
+printf '%s\n' "$laptop_host" >"$HOME/.config/dotfiles/remote-open-host"
+printf '%s\n' "$browser_host" >"$HOME/.config/dotfiles/devbox-host"
+chmod 600 "$HOME/.config/dotfiles/remote-open-host" "$HOME/.config/dotfiles/devbox-host"
+cat "$key.pub"
+REMOTE
+)
+
+read -r key_type key_blob _key_comment <<<"$remote_pub"
+[[ "$key_type" == ssh-* && -n "$key_blob" ]] || fail "devbox returned an invalid remote-open public key"
+
+forced_command="$DOTFILES_DIR/bin/xdg-open-from-ssh"
+[[ "$forced_command" != *'"'* && "$forced_command" != *$'\n'* ]] || fail "unsupported character in dotfiles path"
+auth_tmp=$(mktemp "${AUTHORIZED_KEYS}.XXXXXX")
+trap 'rm -f "$auth_tmp"' EXIT
+awk -v blob="$key_blob" -v comment="devbox:$NAME" '
+  $3 == blob || $NF == comment { next }
+  { print }
+' "$AUTHORIZED_KEYS" >"$auth_tmp"
+printf 'restrict,command="%s" %s %s devbox:%s\n' "$forced_command" "$key_type" "$key_blob" "$NAME" >>"$auth_tmp"
+mv "$auth_tmp" "$AUTHORIZED_KEYS"
+trap - EXIT
+chmod 600 "$AUTHORIZED_KEYS"
+
+"$INVENTORY" upsert "$NAME" "$SSH_TARGET" "$SCREENSHOT_DIRECTORY" >/dev/null
+
+printf 'Testing browser-forwarding trust...\n'
+ssh "$SSH_TARGET" '$HOME/.local/bin/xdg-open __DOTFILES_REMOTE_OPEN_PROBE__'
+
+printf '\nDevbox %s is ready.\n' "$NAME"
+printf '  SSH target:        %s\n' "$SSH_TARGET"
+printf '  Browser host:      %s\n' "$BROWSER_HOST"
+printf '  Screenshot target: %s:%s\n' "$SSH_TARGET" "$SCREENSHOT_DIRECTORY"
+printf 'Review and commit devboxes.tsv and ssh/authorized_keys.\n'

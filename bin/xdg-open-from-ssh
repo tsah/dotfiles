@@ -8,6 +8,12 @@ if [ -z "${SSH_ORIGINAL_COMMAND:-}" ]; then
     exit 2
 fi
 
+# setup-new-devbox uses this no-op to verify the restricted key without
+# opening a browser tab.
+if [ "$SSH_ORIGINAL_COMMAND" = "__DOTFILES_REMOTE_OPEN_PROBE__" ]; then
+    exit 0
+fi
+
 case "$(uname -s 2>/dev/null || printf unknown)" in
     Darwin)
         exec /usr/bin/open "$SSH_ORIGINAL_COMMAND"

@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+DOTFILES_DIR=${DOTFILES_DIR:-"$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"}
+INVENTORY_FILE=${DEVBOX_INVENTORY_FILE:-"$DOTFILES_DIR/devboxes.tsv"}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  devbox-inventory list
+  devbox-inventory names
+  devbox-inventory get NAME
+  devbox-inventory target NAME
+  devbox-inventory upsert NAME [SSH_TARGET] [SCREENSHOT_DIRECTORY]
+
+The inventory is a tab-separated file with three columns:
+  name  ssh_target  screenshot_directory
+EOF
+}
+
+fail() {
+  printf 'devbox-inventory: %s\n' "$1" >&2
+  exit 1
+}
+
+validate_field() {
+  local label="$1"
+  local value="$2"
+  [[ -n "$value" ]] || fail "$label must not be empty"
+  [[ "$value" != *$'\t'* && "$value" != *$'\n'* && "$value" != *$'\r'* ]] || fail "$label contains an unsupported character"
+}
+
+validate_name() {
+  [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || fail "invalid name '$1' (use letters, numbers, dots, underscores, or dashes)"
+  [[ ! "$1" =~ ^[0-9]+$ ]] || fail "name '$1' must not be entirely numeric"
+}
+
+ensure_inventory() {
+  if [[ ! -f "$INVENTORY_FILE" ]]; then
+    mkdir -p "$(dirname -- "$INVENTORY_FILE")"
+    printf '# name\tssh_target\tscreenshot_directory\n' >"$INVENTORY_FILE"
+  fi
+}
+
+list_entries() {
+  ensure_inventory
+  awk -F '\t' '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    NF != 3 || $1 !~ /^[A-Za-z0-9._-]+$/ || $1 ~ /^[0-9]+$/ || $2 == "" || $3 !~ /^\// {
+      printf "devbox-inventory: malformed row %d in %s\n", NR, FILENAME > "/dev/stderr"
+      bad=1
+      next
+    }
+    { print $1 "\t" $2 "\t" $3 }
+    END { exit bad ? 1 : 0 }
+  ' "$INVENTORY_FILE"
+}
+
+get_entry() {
+  local name="$1"
+  local entry
+  entry=$(list_entries | awk -F '\t' -v wanted="$name" '$1 == wanted { print; found=1; exit } END { exit found ? 0 : 1 }') || fail "unknown devbox '$name'"
+  printf '%s\n' "$entry"
+}
+
+command=${1:-}
+case "$command" in
+  list)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    list_entries
+    ;;
+  names)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    list_entries | cut -f1
+    ;;
+  get)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    get_entry "$2"
+    ;;
+  target)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    IFS=$'\t' read -r _name ssh_target screenshot_directory <<<"$(get_entry "$2")"
+    [[ "$screenshot_directory" == */ ]] || screenshot_directory="$screenshot_directory/"
+    printf '%s:%s\n' "$ssh_target" "$screenshot_directory"
+    ;;
+  upsert)
+    [[ $# -ge 2 && $# -le 4 ]] || { usage >&2; exit 2; }
+    name="$2"
+    ssh_target=${3:-$name}
+    screenshot_directory=${4:-/tmp/}
+    validate_name "$name"
+    validate_field ssh_target "$ssh_target"
+    validate_field screenshot_directory "$screenshot_directory"
+    [[ "$screenshot_directory" == /* ]] || fail "screenshot_directory must be an absolute path"
+    [[ "$screenshot_directory" == */ ]] || screenshot_directory="$screenshot_directory/"
+    ensure_inventory
+    tmp=$(mktemp "${INVENTORY_FILE}.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    awk -F '\t' -v OFS='\t' -v name="$name" -v target="$ssh_target" -v directory="$screenshot_directory" '
+      $0 !~ /^[[:space:]]*#/ && $0 !~ /^[[:space:]]*$/ && $1 == name {
+        if (!updated) print name, target, directory
+        updated=1
+        next
+      }
+      { print }
+      END { if (!updated) print name, target, directory }
+    ' "$INVENTORY_FILE" >"$tmp"
+    mv "$tmp" "$INVENTORY_FILE"
+    trap - EXIT
+    printf '%s\t%s\t%s\n' "$name" "$ssh_target" "$screenshot_directory"
+    ;;
+  -h|--help|help|'')
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

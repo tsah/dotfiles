@@ -5,8 +5,8 @@ set -euo pipefail
 [[ -f ~/.config/user-dirs.dirs ]] && source ~/.config/user-dirs.dirs
 
 OUTPUT_DIR="${OMARCHY_SCREENSHOT_DIR:-${XDG_PICTURES_DIR:-$HOME/Pictures}}"
-REMOTE_TARGET_DEFAULT="tsah-dev-ireland-spot:/tmp/"
-REMOTE_TARGET="${SCREENSHOT_REMOTE_TARGET:-$REMOTE_TARGET_DEFAULT}"
+REMOTE_TARGET="${SCREENSHOT_REMOTE_TARGET:-}"
+DEVBOX_INVENTORY="${DEVBOX_INVENTORY_COMMAND:-$HOME/dotfiles/bin/devbox-inventory}"
 NOTIFY_APP="screenshot-share"
 
 notify_user() {
@@ -73,21 +73,57 @@ smart|region|windows|fullscreen) ;;
   ;;
 esac
 
-pick_destination() {
+pick_menu_item() {
+  local title="$1"
+  shift
   local menu_items
-  menu_items=$(printf "clipboard\nlocal\nremote\n")
+  menu_items=$(printf '%s\n' "$@")
 
   if command -v omarchy-menu-select >/dev/null 2>&1; then
-    omarchy menu select "Screenshot destination" clipboard local remote -- --width 340 --maxheight 180
+    omarchy menu select "$title" "$@" -- --width 340 --maxheight 240
   elif command -v walker >/dev/null 2>&1; then
-    printf "%s" "$menu_items" | walker --dmenu --width 340 --minheight 180 --maxheight 180 --placeholder "Screenshot destination"
+    printf "%s" "$menu_items" | walker --dmenu --width 340 --minheight 180 --maxheight 240 --placeholder "$title"
   elif command -v fuzzel >/dev/null 2>&1; then
-    printf "%s" "$menu_items" | fuzzel --dmenu --prompt "Screenshot destination"
+    printf "%s" "$menu_items" | fuzzel --dmenu --prompt "$title"
   elif command -v wofi >/dev/null 2>&1; then
-    printf "%s" "$menu_items" | wofi --dmenu --prompt "Screenshot destination"
+    printf "%s" "$menu_items" | wofi --dmenu --prompt "$title"
   else
-    printf "%s" "clipboard"
+    printf '%s' "$1"
   fi
+}
+
+pick_destination() {
+  pick_menu_item "Screenshot destination" clipboard local remote
+}
+
+pick_remote_target() {
+  if [[ -n "$REMOTE_TARGET" ]]; then
+    printf '%s' "$REMOTE_TARGET"
+    return
+  fi
+
+  if [[ ! -x "$DEVBOX_INVENTORY" ]]; then
+    notify_user error "Devbox inventory unavailable" "$DEVBOX_INVENTORY"
+    return 1
+  fi
+
+  local names=()
+  mapfile -t names < <("$DEVBOX_INVENTORY" names)
+  if (( ${#names[@]} == 0 )); then
+    notify_user error "No screenshot targets" "Add a devbox with setup-new-devbox"
+    return 1
+  fi
+
+  local selected
+  selected=$(pick_menu_item "Screenshot devbox" "${names[@]}" || true)
+  selected=$(printf '%s' "$selected" | tr -d '\r' | xargs)
+  [[ -n "$selected" ]] || return 1
+
+  if [[ "$selected" =~ ^[0-9]+$ ]] && (( selected < ${#names[@]} )); then
+    selected="${names[$selected]}"
+  fi
+
+  "$DEVBOX_INVENTORY" target "$selected"
 }
 
 normalize_destination() {
@@ -134,10 +170,11 @@ format_copy_value() {
 
 upload_remote() {
   local file_path="$1"
-  local target="$REMOTE_TARGET"
+  local target
+  target=$(pick_remote_target) || return 1
 
   if [[ -z "$target" ]]; then
-    notify_user error "Remote target not configured" "Set SCREENSHOT_REMOTE_TARGET to user@host:/path/"
+    notify_user error "Remote target not configured" "Add an entry to devboxes.tsv"
     return 1
   fi
 

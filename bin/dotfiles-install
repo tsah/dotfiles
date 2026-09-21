@@ -17,7 +17,16 @@ done < "$manifest"
 if [ -f "$ledger" ]; then while IFS= read -r old; do
   grep -Fx "$old" "$next" >/dev/null && continue
   [ -L "$old" ] || continue
-  target=$(readlink "$old"); case "$target" in "$root"/*) rm -f "$old";; esac
+  target=$(readlink "$old"); case "$target" in "$root"/*)
+    if [ "$old" = "$HOME/.ssh/authorized_keys" ] && [ -r "$old" ]; then
+      saved=$(mktemp "$HOME/.ssh/.authorized_keys.XXXXXX")
+      cat "$old" > "$saved"
+      chmod 600 "$saved"
+      mv -f "$saved" "$old"
+    else
+      rm -f "$old"
+    fi
+  ;; esac
 done < "$ledger"; fi
 mv "$next" "$ledger"; trap - EXIT
 echo "Reconciled $scope manifest-owned links."

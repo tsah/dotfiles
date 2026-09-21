@@ -5,24 +5,39 @@
 # itself or it shadows the real xdg-open.
 set -eu
 
-# tmux run-shell does not source the interactive shell config, so load the
-# remote-open target and SSH agent info here as well.
+# Explicit configuration wins because SSH_CLIENT can be a jump host. The
+# setup-new-devbox command writes these files without embedding machine names
+# in this script. Environment variables remain available as overrides.
 if [ -f "$HOME/.env" ]; then
     set +u
     . "$HOME/.env"
     set -u
 fi
 
-if { [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; } && [ -f "$HOME/.ssh-agent-info" ]; then
-    set +u
-    . "$HOME/.ssh-agent-info" >/dev/null 2>&1 || true
-    set -u
-fi
+read_config_value() {
+    [ -r "$1" ] || return 1
+    IFS= read -r value < "$1"
+    [ -n "$value" ] || return 1
+    printf '%s\n' "$value"
+}
 
 CLIENT_HOST="${SSH_CLIENT:-}"
 CLIENT_HOST="${CLIENT_HOST%% *}"
-LAPTOP="${CLIENT_HOST:-${REMOTE_OPEN_HOST:-tsah-work-laptop}}"
-DEV_HOST="${REMOTE_OPEN_LOCALHOST_HOST:-$(hostname)}"
+LAPTOP="${REMOTE_OPEN_HOST:-}"
+if [ -z "$LAPTOP" ]; then
+    LAPTOP=$(read_config_value "$HOME/.config/dotfiles/remote-open-host" || true)
+fi
+LAPTOP="${LAPTOP:-$CLIENT_HOST}"
+[ -n "$LAPTOP" ] || {
+    echo "xdg-open: no laptop target; run setup-new-devbox or set REMOTE_OPEN_HOST" >&2
+    exit 1
+}
+
+DEV_HOST="${REMOTE_OPEN_LOCALHOST_HOST:-}"
+if [ -z "$DEV_HOST" ]; then
+    DEV_HOST=$(read_config_value "$HOME/.config/dotfiles/devbox-host" || true)
+fi
+DEV_HOST="${DEV_HOST:-$(hostname)}"
 
 if [ "$#" -eq 0 ]; then
     echo "usage: xdg-open <url|path>" >&2
@@ -42,6 +57,19 @@ case "$target" in
         ;;
 esac
 
+IDENTITY="${REMOTE_OPEN_IDENTITY:-$HOME/.ssh/id_ed25519_remote_open}"
+if [ -f "$IDENTITY" ]; then
+    exec ssh \
+        -i "$IDENTITY" \
+        -o IdentitiesOnly=yes \
+        -o BatchMode=yes \
+        -o ConnectTimeout=5 \
+        -o StrictHostKeyChecking=accept-new \
+        "$LAPTOP" "$@"
+fi
+
+# Backward compatibility for devboxes enrolled before the dedicated key was
+# introduced.
 exec ssh \
     -o BatchMode=yes \
     -o ConnectTimeout=5 \
