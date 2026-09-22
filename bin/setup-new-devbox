@@ -13,6 +13,7 @@ BROWSER_HOST=
 SSH_TARGET=
 CONFIGURE_ONLY=false
 START_SERVICES=true
+SETUP_GITHUB=true
 
 usage() {
   cat <<'EOF'
@@ -27,6 +28,7 @@ Options:
   --browser-host HOST       Name used for devbox localhost URLs (default: NAME)
   --screenshot-dir PATH     Remote screenshot directory (default: /tmp/)
   --no-services             Do not enable Clankerhouse services
+  --skip-github             Do not create and register a GitHub SSH key
   -h, --help                Show this help
 
 SSH_TARGET defaults to NAME and may be an SSH alias or user@host.
@@ -63,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       START_SERVICES=false
       shift
       ;;
+    --skip-github)
+      SETUP_GITHUB=false
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -93,6 +99,10 @@ BROWSER_HOST=${BROWSER_HOST:-$NAME}
 [[ -x "$INVENTORY" ]] || fail "missing inventory helper: $INVENTORY"
 [[ -f "$AUTHORIZED_KEYS" ]] || fail "missing authorized_keys source: $AUTHORIZED_KEYS"
 command -v ssh >/dev/null 2>&1 || fail "ssh is required"
+if [[ "$SETUP_GITHUB" == true ]]; then
+  command -v gh >/dev/null 2>&1 || fail "gh is required for GitHub key registration (or pass --skip-github)"
+  gh auth status --hostname github.com >/dev/null 2>&1 || fail "authenticate gh on this laptop before provisioning (or pass --skip-github)"
+fi
 
 if [[ -z "$LAPTOP_HOST" ]] && command -v tailscale >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   LAPTOP_HOST=$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)
@@ -215,6 +225,69 @@ mv "$auth_tmp" "$AUTHORIZED_KEYS"
 trap - EXIT
 chmod 600 "$AUTHORIZED_KEYS"
 
+if [[ "$SETUP_GITHUB" == true ]]; then
+  printf 'Configuring dedicated GitHub SSH authentication...\n'
+  github_pub=$(ssh "$SSH_TARGET" bash -s <<'REMOTE'
+set -euo pipefail
+key="$HOME/.ssh/id_ed25519_github"
+config="$HOME/.ssh/config"
+config_local="$HOME/.ssh/config.local"
+begin='# >>> dotfiles github key >>>'
+end='# <<< dotfiles github key <<<'
+
+if [[ ! -r "$config" ]] || ! grep -Eq '^[[:space:]]*Include[[:space:]]+.*config\.local' "$config"; then
+  echo "setup-new-devbox: remote ~/.ssh/config must include ~/.ssh/config.local; update dotfiles and run install-server.sh" >&2
+  exit 1
+fi
+
+install -d -m 700 "$HOME/.ssh"
+if [[ ! -f "$key" ]]; then
+  ssh-keygen -q -t ed25519 -N '' -C "github@$(hostname)" -f "$key"
+fi
+chmod 600 "$key"
+chmod 644 "$key.pub"
+
+tmp=$(mktemp "$HOME/.ssh/.config.local.XXXXXX")
+{
+  printf '%s\n' "$begin"
+  printf '%s\n' 'Host github.com'
+  printf '%s\n' '    User git'
+  printf '%s\n' '    IdentityFile ~/.ssh/id_ed25519_github'
+  printf '%s\n' '    IdentitiesOnly yes'
+  printf '%s\n' '    StrictHostKeyChecking accept-new'
+  printf '%s\n' "$end"
+  if [[ -f "$config_local" ]]; then
+    awk -v begin="$begin" -v end="$end" '
+      $0 == begin { managed=1; next }
+      $0 == end { managed=0; next }
+      !managed { print }
+    ' "$config_local"
+  fi
+} >"$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$config_local"
+cat "$key.pub"
+REMOTE
+  )
+
+  read -r github_key_type github_key_blob _github_key_comment <<<"$github_pub"
+  [[ "$github_key_type" == ssh-* && -n "$github_key_blob" ]] || fail "devbox returned an invalid GitHub public key"
+  github_key="$github_key_type $github_key_blob"
+  if ! gh api user/keys --paginate --jq '.[].key' | grep -Fqx "$github_key"; then
+    gh api --method POST user/keys -f title="devbox:$NAME" -f key="$github_key" >/dev/null
+  fi
+
+  if github_auth=$(ssh "$SSH_TARGET" 'ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com' 2>&1); then
+    github_rc=0
+  else
+    github_rc=$?
+  fi
+  if [[ "$github_rc" -ne 1 ]] || [[ "$github_auth" != *"successfully authenticated"* ]]; then
+    printf '%s\n' "$github_auth" >&2
+    fail "GitHub SSH authentication failed on $NAME"
+  fi
+fi
+
 "$INVENTORY" upsert "$NAME" "$SSH_TARGET" "$SCREENSHOT_DIRECTORY" >/dev/null
 
 printf 'Testing browser-forwarding trust...\n'
@@ -224,4 +297,5 @@ printf '\nDevbox %s is ready.\n' "$NAME"
 printf '  SSH target:        %s\n' "$SSH_TARGET"
 printf '  Browser host:      %s\n' "$BROWSER_HOST"
 printf '  Screenshot target: %s:%s\n' "$SSH_TARGET" "$SCREENSHOT_DIRECTORY"
+if [[ "$SETUP_GITHUB" == true ]]; then printf '  GitHub SSH:        authenticated\n'; fi
 printf 'Review and commit devboxes.tsv and ssh/authorized_keys.\n'

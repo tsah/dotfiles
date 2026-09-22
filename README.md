@@ -37,11 +37,13 @@ setup-new-devbox staging tsah@staging.tailnet-name
 ```
 
 The command clones this repository when necessary, runs the server package and
-configuration installers, creates a dedicated browser-forwarding key, and adds
-the machine to [`devboxes.tsv`](devboxes.tsv). The key is restricted on the
-laptop to `bin/xdg-open-from-ssh`; it cannot start a shell. Use
-`--configure-only` for an already-provisioned server and `--no-services` when
-Clankerhouse services should remain disabled.
+configuration installers, creates a dedicated browser-forwarding key, creates
+and registers a separate GitHub SSH key, and adds the machine to
+[`devboxes.tsv`](devboxes.tsv). The browser key is restricted on the laptop to
+`bin/xdg-open-from-ssh`; it cannot start a shell. The GitHub private key never
+leaves the devbox. Use `--configure-only` for an already-provisioned server,
+`--no-services` when Clankerhouse services should remain disabled, or
+`--skip-github` when GitHub access is intentionally unnecessary.
 
 `devboxes.tsv` is the committed inventory used by screenshot sharing. Its
 columns are a display name, an SSH/scp target, and the remote screenshot
