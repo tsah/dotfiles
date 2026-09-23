@@ -171,6 +171,32 @@ PY
 }
 
 
+install_yazi() {
+    local suffix="$1"
+    local url=""
+    local tmp_dir=""
+    local archive_path=""
+    local yazi_path=""
+    local ya_path=""
+
+    url="$(github_asset_url "sxyazi/yazi" "$suffix")"
+    tmp_dir="$(mktemp -d)"
+    archive_path="${tmp_dir}/yazi.zip"
+
+    log "Installing yazi and ya from sxyazi/yazi..."
+    curl -fsSL "$url" -o "$archive_path"
+    unzip -q "$archive_path" -d "$tmp_dir"
+
+    yazi_path="$(find "$tmp_dir" -type f -name yazi -print -quit)"
+    ya_path="$(find "$tmp_dir" -type f -name ya -print -quit)"
+    [ -n "$yazi_path" ] || fail "Could not locate yazi in downloaded archive."
+    [ -n "$ya_path" ] || fail "Could not locate ya in downloaded archive."
+
+    sudo install -m 755 "$yazi_path" /usr/local/bin/yazi
+    sudo install -m 755 "$ya_path" /usr/local/bin/ya
+    rm -rf "$tmp_dir"
+}
+
 install_zsh_autosuggestions() {
     local plugin_dir="${HOME}/.zsh/plugins/zsh-autosuggestions"
 
@@ -376,7 +402,7 @@ print_versions() {
     log ""
     log "Installed tool versions:"
 
-    for cmd in zsh tmux nvim rg fd delta lazygit starship zoxide atuin gh uv python bun opencode pi claude codex plannotator; do
+    for cmd in zsh tmux nvim rg fd delta lazygit yazi ya starship zoxide atuin gh uv python bun opencode pi claude codex plannotator; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf '  - %s: %s\n' "$cmd" "$("$cmd" --version 2>/dev/null | head -1)"
         else
@@ -403,6 +429,7 @@ case "$ARCH" in
         FD_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         DELTA_SUFFIX="aarch64-unknown-linux-gnu.tar.gz"
         LAZYGIT_SUFFIX="linux_arm64.tar.gz"
+        YAZI_SUFFIX="yazi-aarch64-unknown-linux-gnu.zip"
         STARSHIP_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-aarch64-unknown-linux-musl.tar.gz"
@@ -417,6 +444,7 @@ case "$ARCH" in
         FD_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         DELTA_SUFFIX="x86_64-unknown-linux-gnu.tar.gz"
         LAZYGIT_SUFFIX="linux_x86_64.tar.gz"
+        YAZI_SUFFIX="yazi-x86_64-unknown-linux-gnu.zip"
         STARSHIP_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ZOXIDE_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-x86_64-unknown-linux-musl.tar.gz"
@@ -434,6 +462,7 @@ install_binary_from_tar "BurntSushi/ripgrep" "$RIPGREP_SUFFIX" "rg"
 install_binary_from_tar "sharkdp/fd" "$FD_SUFFIX" "fd"
 install_binary_from_tar "dandavison/delta" "$DELTA_SUFFIX" "delta"
 install_binary_from_tar "jesseduffield/lazygit" "$LAZYGIT_SUFFIX" "lazygit"
+install_yazi "$YAZI_SUFFIX"
 install_binary_from_tar "starship/starship" "$STARSHIP_SUFFIX" "starship"
 install_binary_from_tar "ajeetdsouza/zoxide" "$ZOXIDE_SUFFIX" "zoxide"
 install_binary_from_tar "atuinsh/atuin" "$ATUIN_SUFFIX" "atuin"

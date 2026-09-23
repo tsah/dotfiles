@@ -63,7 +63,7 @@ Linux are supported):
 ./install-server.sh
 ```
 
-- `install-server-packages.sh` installs shell and CLI tooling, Bun, and an
+- `install-server-packages.sh` installs shell and CLI tooling, Bun, Yazi, and an
   `xterm-ghostty` terminfo shim.
 - Neovim installs from `stable` by default (`NEOVIM_CHANNEL=nightly ./install-server-packages.sh` opts into nightly).
 - `install-server.sh` creates symlinks, installs tmux plugins, and installs the

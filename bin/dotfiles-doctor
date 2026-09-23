@@ -181,6 +181,8 @@ check_cmd tmux critical
 check_cmd bun critical
 check_cmd wt critical
 check_cmd nvim
+check_cmd yazi
+check_cmd ya
 check_cmd opencode
 
 check_link "$HOME/.config/opencode/opencode.json" "$dotfiles_root"
