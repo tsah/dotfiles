@@ -243,6 +243,23 @@ require('diffview').setup({
     },
 })
 
+-- Diffview only lists untracked files when diffing the index against the
+-- working tree. Vd diffs a commit against the working tree, where new files
+-- matter just as much, so list them whenever the right side is the working tree.
+do
+    local GitAdapter = require('diffview.vcs.adapters.git').GitAdapter
+    local RevType = require('diffview.vcs.rev').RevType
+    local show_untracked = GitAdapter.show_untracked
+
+    function GitAdapter:show_untracked(opt)
+        local revs = opt and opt.revs
+        if revs and revs.right.type == RevType.LOCAL then
+            opt = vim.tbl_extend('force', opt, { revs = false })
+        end
+        return show_untracked(self, opt)
+    end
+end
+
 local function _vd_git(repo_root, git_args)
     local cmd = 'git -C ' .. vim.fn.shellescape(repo_root) .. ' ' .. git_args
     return vim.fn.system(cmd):gsub('%s+$', '')
