@@ -69,21 +69,16 @@ Linux are supported):
 - `install-server.sh` creates symlinks, installs tmux plugins, and installs the
   standalone Clankerhouse integration.
 
-## Linear skill
+## Linear access
 
-The shared `linear` skill gives Pi, Claude Code, and OpenCode the ability to
-search and inspect Linear data and, after explicit confirmation, create or
-update issues and add comments. It replaces OpenCode's remote Linear MCP.
-Create a least-privilege Linear personal API key in `~/.env`, then restart the
-harness:
+Dotfiles no longer installs a personal `linear` skill. Use the project's
+integration instead: Tweezr provides `AI/skills/linear`, which routes agents
+through `./task/agent/linear` using a pinned `schpet/linear-cli`.
+Keep `LINEAR_API_KEY` in `~/.env`; the Tweezr CLI still uses it:
 
 ```bash
 export LINEAR_API_KEY="..."
 ```
-
-The normal installers link the skill into each harness and install its pinned
-SDK dependency. Ask the harness to work with Linear; in Pi, it can also be
-invoked explicitly with `/skill:linear`.
 
 ## Notes
 

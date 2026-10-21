@@ -55,9 +55,6 @@ a skills/improve-codebase-architecture ~/.claude/skills/improve-codebase-archite
 a skills/improve-codebase-architecture ~/.pi/agent/skills/improve-codebase-architecture
 a skills/improve-codebase-architecture ~/.config/opencode/skills/improve-codebase-architecture
 a skills/improve-codebase-architecture ~/.codex/skills/improve-codebase-architecture
-a skills/linear ~/.claude/skills/linear
-a skills/linear ~/.pi/agent/skills/linear
-a skills/linear ~/.config/opencode/skills/linear
 a skills/self-destruct ~/.agents/skills/self-destruct
 a skills/self-destruct ~/.claude/skills/self-destruct
 a skills/self-destruct ~/.pi/agent/skills/self-destruct

@@ -268,10 +268,10 @@ dotfiles/
     └── subagents.json               # @tintinweb/pi-subagents limits and UI settings
 ```
 
-`bin/install-pi-packages` installs the pinned in-process subagent package and
-the shared Linear skill's pinned SDK dependency. Use its `Agent` tool for
-same-session delegation and the externally installed `workshop-pi` only for
-explicit handoffs that require a visible clanker in a Worktrunk-isolated workshop.
+`bin/install-pi-packages` installs the pinned in-process subagent and Plannotator
+packages. Use the subagent package's `Agent` tool for same-session delegation;
+use the externally installed `workshop-pi` only for explicit handoffs that require
+a visible clanker in a Worktrunk-isolated workshop.
 
 A request to run QA, tests, a shell, or an interactive command in a tmux window
 or pane means the current tmux session and current worktree unless the user
@@ -286,8 +286,7 @@ Ask when "separate" is ambiguous.
 
 Claude Code commands are in `~/dotfiles/claude/commands/` and symlinked to `~/.claude/commands/`.
 Shared skills live in `~/dotfiles/skills/` and are symlinked to each supported
-harness. The `linear` skill is available to Pi, Claude Code, and OpenCode and
-uses `LINEAR_API_KEY` from `~/.env`.
+harness.
 
 Workshop launchers:
 - Claude Code: `workshop-claude`
@@ -324,8 +323,9 @@ dotfiles/
 - Agent overrides (model, tools, permissions)
 - Global tool enable/disable
 
-Linear access is provided by the shared `skills/linear` skill rather than an
-MCP server. Keep its personal API key in `~/.env`, never in tracked config.
+Linear access is project-owned, not provided by a personal dotfiles skill.
+In Tweezr, use its `AI/skills/linear` skill and `./task/agent/linear` CLI.
+Keep `LINEAR_API_KEY` in `~/.env`, never in tracked config.
 
 ### Slash Commands
 
