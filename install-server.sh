@@ -6,7 +6,6 @@ START_CLANKERHOUSE_SERVICES=${START_CLANKERHOUSE_SERVICES:-true}
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$DOTFILES_DIR/bin:$PATH"
 "$DOTFILES_DIR/bin/dotfiles-install" server
 "$DOTFILES_DIR/bin/install-pi-packages"
-START_CLANKERHOUSE_SERVICES="$START_CLANKERHOUSE_SERVICES" "$DOTFILES_DIR/bin/install-tmux-plugins"
 REAL_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 if [ "$START_CLANKERHOUSE_SERVICES" = true ] && [ "$HOME" = "$REAL_HOME" ] && command -v loginctl >/dev/null 2>&1 && [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != "yes" ]; then
     echo "Warning: run 'sudo loginctl enable-linger $(id -un)' so the resource guard survives SSH logout." >&2

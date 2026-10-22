@@ -3,7 +3,6 @@ set -eu
 DOTFILES_DIR=${DOTFILES_DIR:-"$HOME/dotfiles"}
 "$DOTFILES_DIR/bin/dotfiles-install" desktop
 "$DOTFILES_DIR/bin/install-pi-packages"
-"$DOTFILES_DIR/bin/install-tmux-plugins"
 REAL_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 if [ "$HOME" = "$REAL_HOME" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload

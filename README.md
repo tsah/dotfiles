@@ -66,8 +66,8 @@ Linux are supported):
 - `install-server-packages.sh` installs shell and CLI tooling used by this repo, including Bun and Yazi.
 - `install-server-packages.sh` also installs an `xterm-ghostty` terminfo shim so tmux works when SSHing from Ghostty.
 - Neovim installs from `stable` by default (`NEOVIM_CHANNEL=nightly ./install-server-packages.sh` to opt into nightly).
-- `install-server.sh` creates symlinks for dotfiles and config files, installs tmux plugins, and installs the
-  standalone Clankerhouse integration (`START_CLANKERHOUSE_SERVICES=false` installs it without enabling its services).
+- `install-server.sh` creates symlinks for dotfiles and config files and installs the Pi packages. It does not
+  install tmux plugins or Clankerhouse; deploy Clankerhouse from its own repository.
 - Tools that are already installed are skipped; run `UPGRADE=1 ./install-server-packages.sh` to pull the latest releases.
 - The `opencode`/`pi`/`claude`/`codex` wrappers check npm for a new release at most once a day; `NPX_WRAPPER_REFRESH=1 <tool>` forces a check.
 - AWS CLI v2 is installed for IAM Identity Center (SSO) workflows.
