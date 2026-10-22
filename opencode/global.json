@@ -7,13 +7,13 @@
       "package": "./plugins/plannotator-shortcuts.ts"
     },
     {
-      "package": "@plannotator/opencode@latest",
+      "package": "@plannotator/opencode@0.27.8",
       "options": {
         "workflow": "manual"
       }
     },
     {
-      "package": "@ishaksebsib/opencode-tree",
+      "package": "@ishaksebsib/opencode-tree@0.4.2",
       "options": {
         "storageScope": "global"
       }

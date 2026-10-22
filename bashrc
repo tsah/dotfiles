@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 if [ -f "$HOME/.env" ]; then
     set -a
     # shellcheck disable=SC1090
@@ -16,13 +17,7 @@ prepend_path "$HOME/dotfiles/bin"
 prepend_path "$HOME/.opencode/bin"
 prepend_path "$HOME/.bun/bin"
 prepend_path "$HOME/.cargo/bin"
-prepend_path "/usr/local/opt/postgresql@15/bin"
-prepend_path "$HOME/nvim-linux-x86_64/bin"
-prepend_path "/Users/tsah/.local/bin"
-prepend_path "/Users/tsah/Library/Application Support/Coursier/bin"
-prepend_path "/Users/tsah/.opencode/bin"
 prepend_path "/usr/local/bin"
-
 prepend_path "$HOME/.local/bin"
 
 export PATH
@@ -38,7 +33,8 @@ export EDITOR=nvim
 export BROWSER=xdg-open
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
 export NVM_DIR="$HOME/.nvm"
-export SHELL="$(command -v bash)"
+SHELL="$(command -v bash)"
+export SHELL
 
 IS_INTERACTIVE_SHELL=false
 case $- in
@@ -48,11 +44,10 @@ esac
 alias v='nvim'
 alias l='ls -ls'
 alias lg='lazygit'
-alias ocu='brew install sst/tap/opencode'
 alias occ='oc -c'
 alias worktrunk='wt'
 alias wtd='wt destroy'
-alias cmd="$HOME/dotfiles/bin/cmd"
+alias cmd='"$HOME/dotfiles/bin/cmd"'
 alias cmdyolo='cmd --yolo'
 
 ve() {
@@ -109,4 +104,7 @@ if [ "$IS_INTERACTIVE_SHELL" = true ] && command -v wt >/dev/null 2>&1; then
         eval "$WT_SHELL_INIT"
     fi
 fi
-. "$HOME/.cargo/env"
+if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi

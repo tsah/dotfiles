@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 DOTFILES_DIR=$(dirname "$SCRIPT_DIR")
 
 if ! command -v pi >/dev/null 2>&1; then
@@ -9,7 +9,13 @@ if ! command -v pi >/dev/null 2>&1; then
     exit 1
 fi
 
+# Local Pi packages are loaded in place, so Pi does not install their runtime
+# dependencies as it does for npm and git packages.
+SLOPCHOP_DIR=${PI_SLOPCHOP_DIR:-"$HOME/dev/personal/pi-slopchop"}
+if [ -f "$SLOPCHOP_DIR/package-lock.json" ]; then
+    npm ci --omit=dev --prefix "$SLOPCHOP_DIR"
+fi
+
 pi install npm:@tintinweb/pi-subagents@0.14.0
-pi install npm:@plannotator/pi-extension@0.25.1
 
 npm ci --omit=dev --prefix "$DOTFILES_DIR/skills/linear/scripts"

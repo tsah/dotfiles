@@ -1,0 +1,19 @@
+#!/bin/sh
+# Install TPM, the tmux plugins, and the Clankerhouse commands they ship. Shared by the profile installers.
+set -eu
+START_CLANKERHOUSE_SERVICES=${START_CLANKERHOUSE_SERVICES:-true}
+mkdir -p "$HOME/.tmux/plugins"
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"; fi
+if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then "$HOME/.tmux/plugins/tpm/bin/install_plugins" >/dev/null 2>&1 || true; fi
+if [ -x "$HOME/.tmux/plugins/clankerhouse/scripts/install" ]; then
+    if [ "$START_CLANKERHOUSE_SERVICES" = true ]; then
+        "$HOME/.tmux/plugins/clankerhouse/scripts/install" --prefix "$HOME/.local" --integrations --systemd
+    else
+        "$HOME/.tmux/plugins/clankerhouse/scripts/install" --prefix "$HOME/.local" --integrations --systemd --no-enable
+        systemctl --user disable --now \
+            clankerhouse-recovery.service \
+            clankerhouse-resource-guard.service \
+            clankerhouse-spot-watch.service
+    fi
+fi
+if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then tmux source-file "$HOME/.tmux.conf"; fi

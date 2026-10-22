@@ -63,11 +63,38 @@ Linux are supported):
 ./install-server.sh
 ```
 
-- `install-server-packages.sh` installs shell and CLI tooling, Bun, Yazi, and an
-  `xterm-ghostty` terminfo shim.
-- Neovim installs from `stable` by default (`NEOVIM_CHANNEL=nightly ./install-server-packages.sh` opts into nightly).
-- `install-server.sh` creates symlinks, installs tmux plugins, and installs the
-  standalone Clankerhouse integration.
+- `install-server-packages.sh` installs shell and CLI tooling used by this repo, including Bun and Yazi.
+- `install-server-packages.sh` also installs an `xterm-ghostty` terminfo shim so tmux works when SSHing from Ghostty.
+- Neovim installs from `stable` by default (`NEOVIM_CHANNEL=nightly ./install-server-packages.sh` to opt into nightly).
+- `install-server.sh` creates symlinks for dotfiles and config files, installs tmux plugins, and installs the
+  standalone Clankerhouse integration (`START_CLANKERHOUSE_SERVICES=false` installs it without enabling its services).
+- Tools that are already installed are skipped; run `UPGRADE=1 ./install-server-packages.sh` to pull the latest releases.
+- The `opencode`/`pi`/`claude`/`codex` wrappers check npm for a new release at most once a day; `NPX_WRAPPER_REFRESH=1 <tool>` forces a check.
+- AWS CLI v2 is installed for IAM Identity Center (SSO) workflows.
+
+## AWS SSO on a dev machine
+
+Configure an SSO profile and select it only while working inside a project:
+
+```bash
+cd ~/dev/project
+aws-sso configure company-dev
+aws sts get-caller-identity
+```
+
+`aws-sso configure` runs `aws configure sso` with the device authorization
+flow and forces its browser launch through `~/.local/bin/xdg-open`, which the
+server profile links to the laptop-opening shim. The SSO profile and token
+cache remain under `~/.aws`; the project gets only an ignored
+`mise.local.toml` containing `AWS_PROFILE`, so no credentials are written into
+the repository. Mise activates the profile on entry and restores the previous
+environment on exit.
+
+Renew an expired SSO session with the directory-selected profile:
+
+```bash
+aws-sso login
+```
 
 ## Linear skill
 
@@ -85,10 +112,27 @@ The normal installers link the skill into each harness and install its pinned
 SDK dependency. Ask the harness to work with Linear; in Pi, it can also be
 invoked explicitly with `/skill:linear`.
 
+## Worktrunk
+
+`worktrunk/config.toml` is installed on desktop/server profiles. Bare repositories
+stored at `<repo>/.git` create worktrees at `<repo>/<branch>` instead of
+`<repo>/.git.<branch>`. Ordinary repositories retain Worktrunk's default sibling
+`<repo>.<branch>` layout; branch slashes are sanitized and existing checkouts are
+never moved. `bin/dotfiles-check` exercises both layouts in an isolated HOME when
+`wt` is available.
+
+## Symlinks
+
+Every symlink is a tab-separated row in `install-manifest.tsv`, reconciled by
+`bin/dotfiles-install [--dry-run] desktop|server|macos`. On macOS run
+`./install-macos.sh`. Put machine-specific git settings (for example a work
+identity via `includeIf`) in `~/.gitconfig.local`.
+
 ## Notes
 
+- Run `dotfiles-check` before committing; CI runs the same script.
 - Do not run `install-omarchy.sh` on EC2/dev servers.
-- Run `dotfiles-doctor` to check common local setup issues after installing or changing symlinks. It reports missing commands, broken config links, and suggests `./install-omarchy.sh` when local symlinks need refreshing.
+- Run `dotfiles-doctor` to check common local setup issues after installing or changing symlinks. It verifies every manifest link for the current profile, reports missing commands, and suggests `./install-omarchy.sh` when local symlinks need refreshing.
 - If Python LSP is missing on a machine, install it with:
 
 ```bash

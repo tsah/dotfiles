@@ -9,9 +9,9 @@
       "src": "https://github.com/max397574/better-escape.nvim"
     },
     "blink.cmp": {
-      "rev": "327fff9",
+      "rev": "78336bc89ee5365633bcf754d93df01678b5c08f",
       "src": "https://github.com/saghen/blink.cmp",
-      "version": "'v1.7.0'"
+      "version": "'v1.10.2'"
     },
     "codecompanion.nvim": {
       "rev": "4fb6e67d537d88d1a642c623efcbbee80d7d231c",
@@ -34,9 +34,9 @@
       "src": "https://github.com/ibhagwan/fzf-lua"
     },
     "gitsigns.nvim": {
-      "rev": "7010000",
+      "rev": "a462f416e2ce4744531c6256252dee99a7d34a83",
       "src": "https://github.com/lewis6991/gitsigns.nvim",
-      "version": "'v1.0.2'"
+      "version": "'v2.1.0'"
     },
     "hunk.nvim": {
       "rev": "c8a8e7b6973576f63e5bf39aa8338d7f37f4dc53",
@@ -51,8 +51,8 @@
       "src": "https://github.com/ravitemer/mcphub.nvim"
     },
     "mini.surround": {
-      "rev": "a2f644f3759edd3d3f8b6a6d55378408bfe6d290",
-      "src": "https://github.com/echasnovski/mini.surround"
+      "rev": "8d5d0c5aa92449368ac251e85451d79d8f69d296",
+      "src": "https://github.com/nvim-mini/mini.surround"
     },
     "miniharp.nvim": {
       "rev": "a8fd9dadba00119f1d610936ef694515c448a47c",

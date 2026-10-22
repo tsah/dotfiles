@@ -1,0 +1,114 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    cat >&2 <<'EOF'
+Usage:
+  aws-sso configure <profile> [directory]
+  aws-sso login [profile]
+
+Configure stores the SSO profile in ~/.aws, then selects it for the target
+project with an ignored mise.local.toml. Login uses the selected AWS_PROFILE
+when no profile is given.
+EOF
+    exit 2
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_aws_cli_v2() {
+    command -v aws >/dev/null 2>&1 || fail "AWS CLI v2 is not installed; run ./install-server-packages.sh"
+    [[ "$(aws --version 2>&1)" == aws-cli/2.* ]] || fail "AWS CLI v2 is required for SSO"
+}
+
+resolve_browser() {
+    local browser="${AWS_SSO_BROWSER:-$HOME/.local/bin/xdg-open}"
+
+    if [[ ! -x "$browser" ]]; then
+        browser="$(command -v xdg-open || true)"
+    fi
+    [[ -n "$browser" ]] || fail "xdg-open is unavailable; run ./install-server.sh"
+    printf '%s\n' "$browser"
+}
+
+ignore_local_mise_config() {
+    local directory="$1"
+    local config_file="$2"
+    local git_root relative exclude_file pattern
+
+    git -C "$directory" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    git_root="$(git -C "$directory" rev-parse --show-toplevel)"
+    relative="$(realpath --relative-to="$git_root" "$config_file")"
+
+    if git -C "$git_root" ls-files --error-unmatch -- "$relative" >/dev/null 2>&1; then
+        return 0
+    fi
+    if git -C "$git_root" check-ignore --no-index -q -- "$relative"; then
+        return 0
+    fi
+
+    exclude_file="$(cd "$directory" && realpath -m "$(git rev-parse --git-path info/exclude)")"
+    pattern="/${relative}"
+    mkdir -p "$(dirname "$exclude_file")"
+    touch "$exclude_file"
+    grep -Fx "$pattern" "$exclude_file" >/dev/null 2>&1 || printf '%s\n' "$pattern" >> "$exclude_file"
+}
+
+configure_profile() {
+    [[ "$#" -ge 1 && "$#" -le 2 ]] || usage
+
+    local profile="$1"
+    local directory="${2:-$PWD}"
+    local config_file browser
+
+    [[ "$profile" != -* ]] || usage
+    [[ -d "$directory" ]] || fail "directory does not exist: $directory"
+    directory="$(cd "$directory" && pwd -P)"
+    config_file="$directory/mise.local.toml"
+
+    command -v mise >/dev/null 2>&1 || fail "mise is required for directory-level profile selection"
+    if [[ -e "$config_file" ]] && ! mise -C "$directory" env -s bash >/dev/null; then
+        fail "mise config is not trusted; review it, then run: mise trust '$config_file'"
+    fi
+
+    browser="$(resolve_browser)"
+    BROWSER="$browser" aws configure sso --profile "$profile" --use-device-code
+
+    mise set --file "$config_file" "AWS_PROFILE=$profile" >/dev/null
+    mise trust "$config_file" >/dev/null
+    ignore_local_mise_config "$directory" "$config_file"
+
+    printf '\nConfigured AWS SSO profile %q for %s\n' "$profile" "$directory"
+    printf 'The profile is selected through %s (no credentials are stored there).\n' "$config_file"
+    printf 'Verify with: aws sts get-caller-identity\n'
+}
+
+login_profile() {
+    [[ "$#" -le 1 ]] || usage
+
+    local profile="${1:-${AWS_PROFILE:-}}"
+    local browser
+
+    [[ -n "$profile" ]] || fail "no profile given and AWS_PROFILE is not set"
+    browser="$(resolve_browser)"
+    BROWSER="$browser" exec aws sso login --profile "$profile" --use-device-code
+}
+
+require_aws_cli_v2
+
+case "${1:-}" in
+    configure)
+        shift
+        configure_profile "$@"
+        ;;
+    login)
+        shift
+        login_profile "$@"
+        ;;
+    *)
+        usage
+        ;;
+esac

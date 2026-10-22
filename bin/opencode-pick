@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Ensure common user-installed tools are available — tmux run-shell doesn't source zshrc.
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/lib/bootstrap-path.sh"
 
 OPENCODE_STATUS=${CLANKERHOUSE_OPENCODE_STATUS:-$HOME/.local/lib/clankerhouse/libexec/opencode-status}

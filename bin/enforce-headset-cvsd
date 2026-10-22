@@ -58,15 +58,12 @@ apply_audio_settings() {
 }
 
 main() {
-    local command_name
     local last_apply=0
 
-    for command_name in pactl; do
-        if ! command -v "$command_name" >/dev/null 2>&1; then
-            log_message "Missing required command: $command_name"
-            exit 1
-        fi
-    done
+    if ! command -v pactl >/dev/null 2>&1; then
+        log_message "Missing required command: pactl"
+        exit 1
+    fi
 
     log_message "Starting headset CVSD enforcer"
     apply_audio_settings

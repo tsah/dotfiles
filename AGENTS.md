@@ -2,8 +2,8 @@
 
 ## IMPORTANT: Edit Files in This Repository
 
-**All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/`, `~/.pi/`, or other live config directories directly.** The files here are symlinked to their destinations by `install-omarchy.sh`. For example:
-- Waybar config: edit `omarchy/waybar/config.jsonc` (NOT `~/.config/waybar/`)
+**All configuration edits should be made to files in THIS repository (`~/dotfiles/`), NOT in `~/.config/`, `~/.pi/`, or other live config directories directly.** The files here are symlinked to their destinations by `bin/dotfiles-install`, which reads `install-manifest.tsv`. For example:
+- Omarchy shell config: edit `omarchy/shell.json` (NOT `~/.config/omarchy/`)
 - Hyprland config: edit `omarchy/hypr/` (NOT `~/.config/hypr/`)
 - Neovim config: edit `nvim/` (NOT `~/.config/nvim/`)
 - Pi config: edit `pi/` (NOT `~/.pi/agent/`)
@@ -22,8 +22,19 @@ This is a dotfiles repository - no traditional build system exists.
 
 ### Installation & Verification
 ```bash
-# Install/update symlinks and configurations
+# Install/update symlinks and configurations (desktop / server / macOS)
 ./install-omarchy.sh
+./install-server.sh
+./install-macos.sh
+
+# Preview link changes without touching anything
+bin/dotfiles-install --dry-run desktop
+
+# Lint: shell syntax, shellcheck, manifest sources, JSON, extension tests
+bin/dotfiles-check
+
+# Verify every manifest link on this machine
+bin/dotfiles-doctor
 
 # Install required packages (Arch Linux)
 ./install-packages.sh
@@ -36,7 +47,8 @@ tmux source-file ~/.tmux.conf
 ```
 
 ### Testing Changes
-- **Shell scripts**: Run with `bash -n script.sh` for syntax check
+- **Everything**: Run `bin/dotfiles-check` before committing (CI runs the same script)
+- **Shell scripts**: Run with `bash -n script.sh` for syntax check; keep them shellcheck-clean at warning level
 - **Lua configs**: Open Neovim and check `:messages` for errors
 - **Hyprland**: Run `hyprctl reload` and check for errors
 - **tmux**: Source config and verify bindings work
@@ -197,44 +209,39 @@ path = "~/dev/project"
 }
 ```
 
-**KDL:**
-```kdl
-section {
-    key value
-    nested {
-        inner "string value"
-    }
-}
-```
+**Hyprland config (Lua, Omarchy Quattro):**
+```lua
+-- omarchy/hypr/hyprland.lua loads Omarchy defaults, then the personal modules
+require("hypr.bindings")
 
-**Hyprland config:**
-```conf
-# Source other configs
-source = ~/.config/hypr/monitors.conf
+-- Omarchy defaults load first, so unbind a chord before rebinding it
+hl.unbind("SUPER + E")
+o.bind("SUPER + E", "File manager", "uwsm-app -- nautilus --new-window")
 
-# Key bindings: bind = MODS, key, dispatcher, params
-bind = $mainMod, T, exec, ghostty
-
-# Window rules
-windowrule = workspace 5, class:qemu
+-- Window rules
+o.window({ class = "^zoom$" }, { float = true })
 ```
 
 ### Symlink Conventions
 
-All config files live in `~/dotfiles` and are symlinked by `install-omarchy.sh`:
+All config files live in `~/dotfiles`. `install-manifest.tsv` declares every
+symlink as a tab-separated `scope<TAB>source<TAB>destination` row, and
+`bin/dotfiles-install <profile>` reconciles them:
 
-```bash
-# Pattern: mkdir if needed, then symlink
-
-# For directories, remove existing first
-rm -rf ~/.config/hypr
-ln -sf ~/dotfiles/omarchy/hypr ~/.config/hypr
 ```
+# a = desktop and server, d = desktop, s = server, m = macos
+a	starship.toml	~/.config/starship.toml
+d	omarchy/hypr	~/.config/hypr
+```
+
+The installer refuses to replace a real file or directory (unless it is
+identical to the source), fails when a source is missing, and removes links
+whose rows were deleted. Never add `ln -s` commands to the install scripts.
 
 When adding new configs:
 1. Create the config file in `~/dotfiles/`
-2. Add symlink command to `install-omarchy.sh`
-3. Run `./install-omarchy.sh` to apply
+2. Add a row to `install-manifest.tsv` (use real tabs)
+3. Run `bin/dotfiles-install --dry-run <profile>`, then the profile installer
 
 ## File Organization
 
@@ -246,14 +253,18 @@ dotfiles/
 │   ├── plugin/            # Auto-loaded plugin configs
 │   └── lsp/               # LSP server configurations
 ├── omarchy/               # Hyprland/Omarchy configs
-│   ├── hypr/             # Hyprland config files
-│   └── waybar/           # Waybar config
+│   ├── hypr/             # Hyprland Lua config and helper scripts
+│   ├── extensions/       # Omarchy menu extensions
+│   └── shell.json        # Omarchy shell (bar) config
 ├── pi/                    # Pi agent extensions and agent definitions
 ├── *.toml                 # Tool configuration
 ├── *.json                 # JSON configs (opencode)
 ├── zshrc                  # Zsh configuration
 ├── .tmux.conf            # Tmux configuration
-├── install-omarchy.sh    # Symlink installer
+├── skills/               # Skills shared across agent harnesses
+├── install-manifest.tsv  # Declares every symlink per profile
+├── install-omarchy.sh    # Desktop installer (links + post-install steps)
+├── install-server.sh     # Server installer
 └── install-packages.sh   # Package installer (Arch)
 ```
 
@@ -307,15 +318,12 @@ OpenCode 2 configs are in `~/dotfiles/opencode/` and symlinked to `~/.config/ope
 dotfiles/
 └── opencode/
     ├── global.json            # Main config (symlinked to ~/.config/opencode/opencode.json)
-    ├── agents/                # Custom subagent definitions (markdown)
-    │   ├── code-review.md
-    │   ├── pr-ci-analyzer.md
-    │   └── pr-comments-gatherer.md
-    └── commands/              # Custom slash commands (markdown)
-        ├── pr.md
-        ├── prepare_pr.md
-        └── ...
+    ├── agents/                # Custom subagent definitions (markdown; currently empty)
+    ├── commands/              # Custom slash commands (markdown): handoff, lavish, plf, ship-pr
+    └── plugins/               # Local plugins (Plannotator shortcuts, TUI attention timeline)
 ```
+
+Plugin versions in `global.json` are pinned.
 
 ### Key Configuration
 
@@ -333,8 +341,8 @@ OpenCode 2 Markdown slash commands are prompt templates. Invoking one submits a
 durable user prompt in the current session and schedules normal model execution;
 they cannot register direct command handlers or bypass the model. TUI plugins
 can register direct slash handlers with `api.keymap.registerLayer`. `/plr` and
-`/pll` use that API in `opencode/plugins/plannotator-shortcuts.ts` to match Pi's
-direct Plannotator commands; do not replace them with Markdown command files.
+`/pll` use that API in `opencode/plugins/plannotator-shortcuts.ts` to run
+Plannotator directly; do not replace them with Markdown command files.
 
 The Plannotator plugin's direct `/plannotator-review`, `/plannotator-annotate`,
 and `/plannotator-last` handlers are OpenCode 1-only. Do not recommend those as
@@ -373,5 +381,5 @@ opencode2 --standalone                # Isolate shared-service problems
 
 **Adding a new tool config:**
 1. Create config file in dotfiles root
-2. Add symlink to `install-omarchy.sh`
-3. Run `./install-omarchy.sh`
+2. Add a tab-separated row to `install-manifest.tsv`
+3. Run `bin/dotfiles-install <profile>` (or the profile installer)

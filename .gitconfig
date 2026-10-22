@@ -4,9 +4,32 @@
 [user]
 	email = tsah.weiss@gmail.com
 	name = Tsah Weiss
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+[diff]
+	algorithm = histogram
+	colorMoved = default
+[merge]
+	conflictstyle = zdiff3
+[pull]
+	rebase = true
+[push]
+	autoSetupRemote = true
+[fetch]
+	prune = true
+[rerere]
+	enabled = true
+# gh lives in /usr/bin on Arch and /usr/local/bin on servers; resolve it via PATH.
 [credential "https://github.com"]
-	helper = 
-	helper = !/usr/bin/gh auth git-credential
+	helper =
+	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
-	helper = 
-	helper = !/usr/bin/gh auth git-credential
+	helper =
+	helper = !gh auth git-credential
+# Machine-local overrides (e.g. a work identity via includeIf). Missing file is ignored.
+[include]
+	path = ~/.gitconfig.local
