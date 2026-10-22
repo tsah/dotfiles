@@ -83,6 +83,7 @@ a	skills/to-prd	~/.pi/agent/skills/to-prd
 a	skills/to-prd	~/.config/opencode/skills/to-prd
 a	skills/to-prd	~/.codex/skills/to-prd
 a	claude/keybindings.json	~/.claude/keybindings.json
+a	claude/settings.json	~/.claude/settings.json
 a	claude/commands/ship-pr.md	~/.claude/commands/ship-pr.md
 a	claude/skills/customize-opencode	~/.claude/skills/customize-opencode
 a	claude/skills/tmux-interactive-control	~/.claude/skills/tmux-interactive-control
