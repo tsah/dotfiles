@@ -1,0 +1,40 @@
+#!/bin/bash
+# Clankerhouse labels-changed hook: closes a Workshop's open pull request when it is marked done.
+#
+# Marking done means the work is finished with, so whatever PR is still open for the Workshop's
+# branch is closed with a comment. It is never merged, and the branch is kept so the PR can be
+# reopened. A merged PR, or no PR, is left alone. Only PRs from the repository itself count, not a
+# fork's branch that happens to share the name.
+#
+# Install per project as ~/.config/clankerhouse/hooks/<project>/labels-changed, or call it from
+# that project's dispatcher. It runs in the Workshop (or its repository once the worktree is gone).
+set -euo pipefail
+
+[[ "${CLANKERHOUSE_LABEL_STATUS:-}" == "done" && "${CLANKERHOUSE_PREVIOUS_LABEL_STATUS:-}" != "done" ]] || exit 0
+
+project=${CLANKERHOUSE_PROJECT:?}
+state="${XDG_STATE_HOME:-$HOME/.local/state}/$project-close-pr"
+mkdir -p "$state"
+exec >>"$state/hook.log" 2>&1
+branch=${CLANKERHOUSE_WORKSHOP_BRANCH:-}
+log() { printf '%s %s %s\n' "$(date -u +%FT%TZ)" "$branch" "$*"; }
+
+[[ -n "$branch" ]] || { log "skipped: Workshop has no branch"; exit 0; }
+git remote get-url origin >/dev/null 2>&1 || { log "skipped: no origin remote"; exit 0; }
+default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+[[ "$branch" != "${default#origin/}" ]] || { log "skipped: default branch"; exit 0; }
+
+prs=$(gh pr list --head "$branch" --state open --json number,isCrossRepository \
+    --jq '.[] | select(.isCrossRepository | not) | .number') || { log "lookup failed: $prs"; exit 1; }
+[[ -n "$prs" ]] || { log "no open PR"; exit 0; }
+
+status=0
+for pr in $prs; do
+    if result=$(gh pr close "$pr" --comment "Closed: workshop marked done" 2>&1); then
+        log "closed #$pr"
+    else
+        log "close #$pr failed: $result"
+        status=1
+    fi
+done
+exit $status

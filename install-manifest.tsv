@@ -9,6 +9,9 @@ a	.gitconfig	~/.gitconfig
 a	.tmux.conf	~/.tmux.conf
 a	herdr/config.toml	~/.config/herdr/config.toml
 a	worktrunk/config.toml	~/.config/worktrunk/config.toml
+a	clankerhouse/close-pr/on-labels-changed	~/.config/clankerhouse/close-pr/on-labels-changed
+a	clankerhouse/close-pr/on-labels-changed	~/.config/clankerhouse/hooks/clankerhouse/labels-changed
+a	clankerhouse/close-pr/on-labels-changed	~/.config/clankerhouse/hooks/dotfiles/labels-changed
 a	systemd/user/plannotator-session-cleanup.service	~/.config/systemd/user/plannotator-session-cleanup.service
 a	systemd/user/plannotator-session-cleanup.timer	~/.config/systemd/user/plannotator-session-cleanup.timer
 a	ssh/config	~/.ssh/config
