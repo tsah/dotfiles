@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-DOTFILES_DIR=${DOTFILES_DIR:-"$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"}
+DOTFILES_DIR=${DOTFILES_DIR:-"$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"}
 INVENTORY="$DOTFILES_DIR/bin/devbox-inventory"
 AUTHORIZED_KEYS="$DOTFILES_DIR/ssh/authorized_keys"
 REPO_URL=${DOTFILES_REPO_URL:-https://github.com/tsah/dotfiles.git}

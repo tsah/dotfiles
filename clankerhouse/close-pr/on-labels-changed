@@ -10,7 +10,7 @@
 # that project's dispatcher. It runs in the Workshop (or its repository once the worktree is gone).
 set -euo pipefail
 
-[[ "${CLANKERHOUSE_LABEL_STATUS:-}" == done && "${CLANKERHOUSE_PREVIOUS_LABEL_STATUS:-}" != done ]] || exit 0
+[[ "${CLANKERHOUSE_LABEL_STATUS:-}" == "done" && "${CLANKERHOUSE_PREVIOUS_LABEL_STATUS:-}" != "done" ]] || exit 0
 
 project=${CLANKERHOUSE_PROJECT:?}
 state="${XDG_STATE_HOME:-$HOME/.local/state}/$project-close-pr"

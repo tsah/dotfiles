@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-DOTFILES_DIR=${DOTFILES_DIR:-"$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"}
+DOTFILES_DIR=${DOTFILES_DIR:-"$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"}
 INVENTORY_FILE=${DEVBOX_INVENTORY_FILE:-"$DOTFILES_DIR/devboxes.tsv"}
 
 usage() {
