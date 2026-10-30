@@ -142,6 +142,11 @@ install_binary_from_tar() {
     local archive_path=""
     local binary_path=""
 
+    if [ -z "${UPGRADE:-}" ] && command -v "$binary_name" >/dev/null 2>&1; then
+        log "${binary_name} is already installed (UPGRADE=1 to reinstall the latest release)."
+        return
+    fi
+
     url="$(github_asset_url "$repo" "$suffix")"
     tmp_dir="$(mktemp -d)"
     archive_path="${tmp_dir}/archive"
@@ -223,6 +228,11 @@ install_neovim() {
     local archive_path=""
     local extracted_dir=""
 
+    if [ -z "${UPGRADE:-}" ] && [ -x /opt/nvim/bin/nvim ]; then
+        log "neovim is already installed (UPGRADE=1 to reinstall the latest ${channel} release)."
+        return
+    fi
+
     case "$channel" in
         nightly)
             url="$(github_tag_asset_url "neovim/neovim" "nightly" "$suffix")"
@@ -297,6 +307,33 @@ EOF
     rm -f "$src_file"
 }
 
+install_aws_cli() {
+    local aws_arch="$1"
+    local tmp_dir=""
+    local archive_path=""
+    local install_args=(
+        --bin-dir /usr/local/bin
+        --install-dir /usr/local/aws-cli
+    )
+
+    if [ -z "${UPGRADE:-}" ] && [[ "$(aws --version 2>&1 || true)" == aws-cli/2.* ]]; then
+        log "AWS CLI v2 is already installed (UPGRADE=1 to reinstall the latest release)."
+        return
+    fi
+
+    tmp_dir="$(mktemp -d)"
+    archive_path="${tmp_dir}/awscliv2.zip"
+
+    log "Installing AWS CLI v2..."
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "$archive_path"
+    unzip -q "$archive_path" -d "$tmp_dir"
+    if [ -d /usr/local/aws-cli ]; then
+        install_args+=(--update)
+    fi
+    sudo "${tmp_dir}/aws/install" "${install_args[@]}"
+    rm -rf "$tmp_dir"
+}
+
 install_mise() {
     if command -v mise >/dev/null 2>&1; then
         log "mise is already installed."
@@ -313,7 +350,9 @@ install_node_runtime() {
 
     log "Installing latest Node.js with mise..."
     "$HOME/.local/bin/mise" use -g node@latest >/dev/null
-    export PATH="$($HOME/.local/bin/mise where node@latest)/bin:$HOME/.local/bin:$PATH"
+    local node_root
+    node_root="$("$HOME/.local/bin/mise" where node@latest)"
+    export PATH="$node_root/bin:$HOME/.local/bin:$PATH"
 }
 
 install_python_runtime() {
@@ -321,7 +360,9 @@ install_python_runtime() {
 
     log "Installing Python 3.12 with mise and setting it as the global default..."
     "$HOME/.local/bin/mise" use -g python@3.12 >/dev/null
-    export PATH="$($HOME/.local/bin/mise where python@3.12)/bin:$HOME/.local/bin:$PATH"
+    local python_root
+    python_root="$("$HOME/.local/bin/mise" where python@3.12)"
+    export PATH="$python_root/bin:$HOME/.local/bin:$PATH"
 }
 
 install_npx_wrapper() {
@@ -351,20 +392,24 @@ fi
 
 node_bin="\$node_root/bin/node"
 npx_bin="\$node_root/bin/npx"
+self="\$(realpath "\$0")"
+stamp="\${XDG_CACHE_HOME:-\$HOME/.cache}/dotfiles-npx/$binary_name.refreshed"
 
-exec_package_bin() {
-  local package_bin_path="\$1"
-  shift
-  if [[ -n "\$package_bin_path" ]]; then
+# Check npm for a newer release at most once a day (NPX_WRAPPER_REFRESH=1 forces it);
+# every other launch resolves from the npx cache without touching the network.
+if [[ -n "\${NPX_WRAPPER_REFRESH:-}" || -z "\$(find "\$stamp" -mtime -1 2>/dev/null)" ]]; then
+  if "\$node_bin" "\$npx_bin" --yes --prefer-online --package "\$package" -- true; then
+    mkdir -p "\$(dirname "\$stamp")"
+    touch "\$stamp"
+  fi
+fi
+
+for bin_name in "\$command" "\$package"; do
+  package_bin_path="\$("\$node_bin" "\$npx_bin" --yes --prefer-offline --package "\$package" -- which "\$bin_name" 2>/dev/null || true)"
+  if [[ -n "\$package_bin_path" && "\$(realpath "\$package_bin_path")" != "\$self" ]]; then
     PATH="\$node_root/bin:\$PATH" exec "\$package_bin_path" "\$@"
   fi
-}
-
-"\$node_bin" "\$npx_bin" --yes --prefer-online --package "\$package" -- true
-package_bin_path="\$("\$node_bin" "\$npx_bin" --yes --package "\$package" -- which "\$package" 2>/dev/null || true)"
-exec_package_bin "\$package_bin_path" "\$@"
-package_bin_path="\$("\$node_bin" "\$npx_bin" --yes --package "\$package" -- which "\$command" 2>/dev/null || true)"
-exec_package_bin "\$package_bin_path" "\$@"
+done
 
 echo "Could not resolve npm bin for \$package / \$command" >&2
 exit 127
@@ -402,7 +447,7 @@ print_versions() {
     log ""
     log "Installed tool versions:"
 
-    for cmd in zsh tmux nvim rg fd delta lazygit yazi ya starship zoxide atuin gh uv python bun opencode pi claude codex plannotator; do
+    for cmd in zsh tmux nvim rg fd delta shellcheck lazygit yazi ya starship zoxide atuin gh aws uv python bun opencode pi claude codex plannotator; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf '  - %s: %s\n' "$cmd" "$("$cmd" --version 2>/dev/null | head -1)"
         else
@@ -434,6 +479,8 @@ case "$ARCH" in
         ZOXIDE_SUFFIX="aarch64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-aarch64-unknown-linux-musl.tar.gz"
         WORKTRUNK_SUFFIX="worktrunk-aarch64-unknown-linux-musl.tar.xz"
+        SHELLCHECK_SUFFIX="linux.aarch64.tar.xz"
+        AWS_CLI_ARCH="aarch64"
         ;;
     x86_64|amd64)
         GH_SUFFIX="linux_amd64.tar.gz"
@@ -449,6 +496,8 @@ case "$ARCH" in
         ZOXIDE_SUFFIX="x86_64-unknown-linux-musl.tar.gz"
         ATUIN_SUFFIX="atuin-x86_64-unknown-linux-musl.tar.gz"
         WORKTRUNK_SUFFIX="worktrunk-x86_64-unknown-linux-musl.tar.xz"
+        SHELLCHECK_SUFFIX="linux.x86_64.tar.xz"
+        AWS_CLI_ARCH="x86_64"
         ;;
     *)
         fail "Unsupported architecture: ${ARCH}"
@@ -469,7 +518,9 @@ install_binary_from_tar "atuinsh/atuin" "$ATUIN_SUFFIX" "atuin"
 install_binary_from_tar "cli/cli" "$GH_SUFFIX" "gh"
 install_binary_from_tar "astral-sh/uv" "$UV_SUFFIX" "uv"
 install_binary_from_tar "max-sixty/worktrunk" "$WORKTRUNK_SUFFIX" "wt"
+install_binary_from_tar "koalaman/shellcheck" "$SHELLCHECK_SUFFIX" "shellcheck"
 install_ghostty_terminfo
+install_aws_cli "$AWS_CLI_ARCH"
 
 install_ai_clis
 install_bun

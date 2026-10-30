@@ -1,0 +1,70 @@
+#!/bin/bash
+# Lint the repository: shell syntax, shellcheck (when installed), manifest sources, and extension tests.
+set -u
+
+cd "$(dirname "$0")/.." || exit 1
+failures=0
+
+fail() {
+    printf 'FAIL %s\n' "$1" >&2
+    failures=$((failures + 1))
+}
+
+shell_scripts=(bashrc)
+while IFS= read -r file; do
+    [[ -f "$file" ]] || continue
+    if head -n 1 "$file" | grep -qE '^#!.*[/ ](ba)?sh( |$)'; then
+        shell_scripts+=("$file")
+    fi
+done < <(git ls-files -co --exclude-standard)
+
+for file in "${shell_scripts[@]}"; do
+    case "$(head -n 1 "$file")" in
+        *bash*) bash -n "$file" || fail "bash syntax: $file" ;;
+        '#!'*) sh -n "$file" || fail "sh syntax: $file" ;;
+        *) bash -n "$file" || fail "bash syntax: $file" ;;
+    esac
+done
+printf 'Checked syntax of %d shell scripts\n' "${#shell_scripts[@]}"
+
+zsh -n zshrc 2>/dev/null || { command -v zsh >/dev/null 2>&1 && fail "zsh syntax: zshrc"; }
+
+if command -v shellcheck >/dev/null 2>&1; then
+    shellcheck -S warning "${shell_scripts[@]}" || fail "shellcheck"
+else
+    printf 'SKIP shellcheck (not installed)\n'
+fi
+
+line_no=0
+while IFS=$'\t' read -r scopes source destination; do
+    line_no=$((line_no + 1))
+    [[ -z "$scopes" || "$scopes" == \#* ]] && continue
+    [[ -n "$source" && -n "$destination" ]] || { fail "manifest line $line_no is not tab-separated"; continue; }
+    [[ "$scopes" == [adsm] ]] || fail "manifest line $line_no: unknown scope '$scopes'"
+    # Untracked sources exist locally but vanish on a fresh clone.
+    [[ -n "$(git ls-files -- "$source" | head -n 1)" ]] || fail "manifest line $line_no: source not tracked by git: $source"
+done < install-manifest.tsv
+
+if command -v jq >/dev/null 2>&1; then
+    for file in opencode/global.json pi/subagents.json omarchy/shell.json nvim/nvim-pack-lock.json; do
+        jq empty "$file" 2>/dev/null || fail "invalid JSON: $file"
+    done
+fi
+
+if command -v bun >/dev/null 2>&1; then
+    bun test pi/extensions/reading-diff >/dev/null 2>&1 || fail "bun test pi/extensions/reading-diff"
+else
+    printf 'SKIP bun tests (bun not installed)\n'
+fi
+
+if command -v wt >/dev/null 2>&1; then
+    python3 bin/check-worktrunk-config || fail "Worktrunk config layouts"
+else
+    printf 'SKIP Worktrunk config tests (wt not installed)\n'
+fi
+
+if ((failures > 0)); then
+    printf '%d check(s) failed\n' "$failures" >&2
+    exit 1
+fi
+printf 'All checks passed\n'

@@ -39,7 +39,11 @@ vim.cmd.filetype("plugin indent on")
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
 
-local has_extui, extui = pcall(require, 'vim._extui')
-if has_extui then
-    extui.enable({})
+-- Experimental message/cmdline UI: vim._core.ui2 on Neovim 0.12+, vim._extui on earlier nightlies
+for _, mod in ipairs({ 'vim._core.ui2', 'vim._extui' }) do
+    local has_ui, ui = pcall(require, mod)
+    if has_ui then
+        ui.enable({})
+        break
+    end
 end

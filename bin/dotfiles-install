@@ -1,32 +1,125 @@
 #!/bin/sh
+# Reconcile the symlinks declared in install-manifest.tsv for one machine profile.
 set -eu
-scope=${1:-desktop}
-case "$scope" in desktop|server) ;; *) echo "Usage: dotfiles-install [desktop|server]" >&2; exit 2;; esac
-root=${DOTFILES_DIR:-"$HOME/dotfiles"}; manifest="$root/install-manifest.tsv"
-state=${XDG_STATE_HOME:-"$HOME/.local/state"}/dotfiles-install; ledger="$state/$scope.links"
-mkdir -p "$state"; next=$(mktemp); trap 'rm -f "$next"' EXIT
-while IFS=' ' read -r scopes source destination; do
-  case "$scopes" in ''|'#'*) continue;; esac
-  short=d; [ "$scope" = server ] && short=s
-  [ "$scopes" = a ] || [ "$scopes" = "$short" ] || continue
-  destination=$(printf '%s' "$destination" | sed "s|^~|$HOME|")
-  source="$root/$source"; mkdir -p "$(dirname "$destination")"
-  if [ -e "$destination" ] && [ ! -L "$destination" ]; then echo "Refusing to replace unmanaged path: $destination" >&2; exit 1; fi
-  ln -sfn "$source" "$destination"; printf '%s\n' "$destination" >> "$next"
-done < "$manifest"
-if [ -f "$ledger" ]; then while IFS= read -r old; do
-  grep -Fx "$old" "$next" >/dev/null && continue
-  [ -L "$old" ] || continue
-  target=$(readlink "$old"); case "$target" in "$root"/*)
-    if [ "$old" = "$HOME/.ssh/authorized_keys" ] && [ -r "$old" ]; then
-      saved=$(mktemp "$HOME/.ssh/.authorized_keys.XXXXXX")
-      cat "$old" > "$saved"
-      chmod 600 "$saved"
-      mv -f "$saved" "$old"
-    else
-      rm -f "$old"
+
+usage() {
+    echo "Usage: dotfiles-install [--dry-run] [desktop|server|macos]" >&2
+    exit 2
+}
+
+dry_run=false
+scope=desktop
+for arg in "$@"; do
+    case "$arg" in
+        -n|--dry-run) dry_run=true ;;
+        desktop|server|macos) scope=$arg ;;
+        *) usage ;;
+    esac
+done
+
+# Manifest scope codes: a = desktop and server, d = desktop, s = server, m = macos.
+case "$scope" in
+    desktop) codes="a d" ;;
+    server) codes="a s" ;;
+    macos) codes="m" ;;
+esac
+
+root=${DOTFILES_DIR:-"$HOME/dotfiles"}
+manifest="$root/install-manifest.tsv"
+state=${XDG_STATE_HOME:-"$HOME/.local/state"}/dotfiles-install
+ledger="$state/$scope.links"
+tab=$(printf '\t')
+
+in_scope() {
+    for code in $codes; do
+        [ "$1" = "$code" ] && return 0
+    done
+    return 1
+}
+
+expand_home() {
+    # shellcheck disable=SC2088 # literal manifest tilde, expanded here
+    case "$1" in
+        "~/"*) printf '%s\n' "$HOME/${1#"~/"}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# Validate every in-scope row before touching anything.
+errors=0
+line_no=0
+while IFS="$tab" read -r scopes source destination; do
+    line_no=$((line_no + 1))
+    case "$scopes" in ''|'#'*) continue ;; esac
+    if [ -z "$source" ] || [ -z "$destination" ]; then
+        echo "Manifest line $line_no is not scope<TAB>source<TAB>destination: $scopes" >&2
+        errors=$((errors + 1))
+        continue
     fi
-  ;; esac
-done < "$ledger"; fi
-mv "$next" "$ledger"; trap - EXIT
+    in_scope "$scopes" || continue
+    destination=$(expand_home "$destination")
+    if [ ! -e "$root/$source" ]; then
+        echo "Manifest line $line_no: missing source: $root/$source" >&2
+        errors=$((errors + 1))
+    fi
+    # A regular file identical to its source is adopted; tools that rewrite their
+    # config in place (herdr) otherwise turn the link back into an unmanaged file.
+    if [ -e "$destination" ] && [ ! -L "$destination" ] && ! { [ -f "$destination" ] && cmp -s "$destination" "$root/$source"; }; then
+        echo "Manifest line $line_no: refusing to replace unmanaged path: $destination" >&2
+        errors=$((errors + 1))
+    fi
+done < "$manifest"
+[ "$errors" -eq 0 ] || exit 1
+
+mkdir -p "$state"
+next=$(mktemp)
+trap 'rm -f "$next"' EXIT
+
+while IFS="$tab" read -r scopes source destination; do
+    case "$scopes" in ''|'#'*) continue ;; esac
+    in_scope "$scopes" || continue
+    destination=$(expand_home "$destination")
+    source="$root/$source"
+    printf '%s\n' "$destination" >> "$next"
+    # Keep correct link inodes stable: refreshing one config must not trigger
+    # watchers/reloads for every other manifest-owned harness integration.
+    [ "$(readlink "$destination" 2>/dev/null || true)" != "$source" ] || continue
+    if [ "$dry_run" = true ]; then
+        echo "Would link $destination -> $source"
+        continue
+    fi
+    mkdir -p "$(dirname "$destination")"
+    ln -sfn "$source" "$destination"
+done < "$manifest"
+
+# Remove links this profile created earlier that the manifest no longer declares.
+if [ -f "$ledger" ]; then
+    while IFS= read -r old; do
+        grep -Fx "$old" "$next" >/dev/null && continue
+        [ -L "$old" ] || continue
+        case "$(readlink "$old")" in
+            "$root"/*)
+                if [ "$dry_run" = true ]; then
+                    echo "Would remove stale link $old"
+                elif [ "$old" = "$HOME/.ssh/authorized_keys" ] && [ -r "$old" ]; then
+                    # Keep the keys as a real file so dropping the row never locks out SSH.
+                    saved=$(mktemp "$HOME/.ssh/.authorized_keys.XXXXXX")
+                    cat "$old" > "$saved"
+                    chmod 600 "$saved"
+                    mv -f "$saved" "$old"
+                else
+                    rm -f "$old"
+                fi
+                ;;
+        esac
+    done < "$ledger"
+fi
+
+if [ "$dry_run" = true ]; then
+    echo "Dry run complete for $scope; nothing changed."
+    exit 0
+fi
+
+mv "$next" "$ledger"
+trap - EXIT
 echo "Reconciled $scope manifest-owned links."

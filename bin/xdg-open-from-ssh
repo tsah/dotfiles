@@ -24,6 +24,7 @@ if env_dump=$(systemctl --user show-environment 2>/dev/null); then
     while IFS= read -r line; do
         case "$line" in
             DISPLAY=*|WAYLAND_DISPLAY=*|XDG_RUNTIME_DIR=*|XDG_SESSION_TYPE=*|XDG_CURRENT_DESKTOP=*|XDG_DATA_DIRS=*|XDG_CONFIG_DIRS=*|DBUS_SESSION_BUS_ADDRESS=*)
+                # shellcheck disable=SC2163 # line is NAME=value
                 export "$line"
                 ;;
         esac

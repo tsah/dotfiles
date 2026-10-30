@@ -2,6 +2,9 @@ font-size = 14
 font-family = Adwaita Mono
 confirm-close-surface = false
 
+# Pass Ctrl+Enter through to terminal applications instead of toggling fullscreen.
+keybind = ctrl+enter=unbind
+
 # Alt key bindings for tmux (send Alt sequences directly to tmux)
 keybind = alt+t=text:\x1bt
 keybind = alt+w=text:\x1bw

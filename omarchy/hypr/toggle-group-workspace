@@ -17,7 +17,7 @@ if [[ "$grouped_count" -gt 0 ]]; then
 fi
 
 hyprctl dispatch 'hl.dsp.group.toggle()'
-for pass in 1 2 3; do
+for _ in 1 2 3; do
     for address in "${windows[@]:1}"; do
         is_grouped=$(hyprctl clients -j | jq "[.[] | select(.address == \"$address\")] | .[0].grouped | length")
         [[ "$is_grouped" -gt 0 ]] && continue

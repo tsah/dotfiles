@@ -45,6 +45,8 @@ sudo pacman -S --needed \
     xclip \
     wtype \
     lazygit \
+    git-delta \
+    shellcheck \
     sqlite \
     fuzzel \
     nautilus \
@@ -104,6 +106,8 @@ echo "   • wl-clipboard - Wayland clipboard tools (wl-copy/wl-paste)"
 echo "   • xclip - X11 clipboard tools"
 echo "   • wtype - Keyboard input simulation"
 echo "   • lazygit - Git TUI"
+echo "   • git-delta - Git pager configured in .gitconfig"
+echo "   • shellcheck - Shell linter used by dotfiles-check"
 echo "   • sqlite - SQLite CLI"
 echo "   • ghostty - Terminal emulator"
 echo "   • bun - JavaScript runtime"

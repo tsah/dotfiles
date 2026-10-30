@@ -34,7 +34,6 @@ path=(
   "$HOME/dotfiles/bin"
   "$HOME/.cargo/bin"
   "$BUN_INSTALL/bin"
-  "$HOME/.local/node/node-v22.19.0-linux-arm64/bin"
   $path
 )
 
@@ -43,8 +42,12 @@ if command -v mise >/dev/null 2>&1; then
   eval "$(mise activate zsh)"
 fi
 
-# Load private env (if present)
-[[ -f "$HOME/.env" ]] && source "$HOME/.env"
+# Load private env (if present); auto-export to match bashrc
+if [[ -f "$HOME/.env" ]]; then
+  set -a
+  source "$HOME/.env"
+  set +a
+fi
 
 # ---- history ----
 HISTFILE="$HOME/.zsh_history"
@@ -107,8 +110,6 @@ fi
 # ---- bun completions ----
 if [[ -s "$BUN_INSTALL/_bun" ]]; then
   source "$BUN_INSTALL/_bun"
-elif [[ -s "$HOME/.bun/_bun" ]]; then
-  source "$HOME/.bun/_bun"
 fi
 
 # ---- gcloud ----
@@ -190,7 +191,6 @@ alias v=nvim
 alias ve="source .venv/bin/activate"
 alias l="ls -ls"
 alias lg=lazygit
-alias ocu="brew install sst/tap/opencode"
 alias occ="oc -c"  # Continue most recent session for current directory
 alias worktrunk="wt"
 alias wtd="wt destroy"
@@ -204,6 +204,14 @@ ssht() {
 
 # Clankerhouse: unified session/worktree/directory navigator
 s() { clankerhouse; }
+
+# ---- worktrunk shell integration (lets wt switch directories) ----
+if command -v wt >/dev/null 2>&1; then
+  if WT_SHELL_INIT=$(command wt config shell init zsh 2>/dev/null); then
+    eval "$WT_SHELL_INIT"
+  fi
+  unset WT_SHELL_INIT
+fi
 
 # ---- prompt ----
 if command -v starship >/dev/null 2>&1; then
@@ -227,6 +235,3 @@ fi
 if command -v islo >/dev/null 2>&1; then
   source <(COMPLETE=zsh islo)
 fi
-
-# bun completions
-[ -s "/home/tsah/.bun/_bun" ] && source "/home/tsah/.bun/_bun"

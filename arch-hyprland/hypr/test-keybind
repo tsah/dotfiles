@@ -1,2 +1,0 @@
-#!/bin/bash
-echo "TEST: Super+T pressed at $(date)" >> /tmp/terminal-test.log

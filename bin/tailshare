@@ -1,0 +1,21 @@
+#!/bin/bash
+# Move files shared to this machine with Taildrop into ~/phone and print their paths.
+# Needs `sudo tailscale set --operator=$USER` once so the inbox is readable without root.
+set -e
+
+DEST="$HOME/phone"
+mkdir -p "$DEST"
+
+before=$(ls -A "$DEST")
+tailscale file get --conflict=rename "$DEST"
+after=$(ls -A "$DEST")
+
+new_files=$(comm -13 <(echo "$before" | sort) <(echo "$after" | sort))
+if [[ -z "$new_files" ]]; then
+    echo "No files waiting in the Taildrop inbox." >&2
+    exit 1
+fi
+
+while IFS= read -r name; do
+    echo "$DEST/$name"
+done <<< "$new_files"

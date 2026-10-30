@@ -8,7 +8,6 @@ set -euo pipefail
 mode=${1:-region}
 screenshot_dir=${SCREENSHOT_DIR:-"$HOME/Pictures/Screenshots"}
 timestamp=$(date +%Y%m%d-%H%M%S)
-temp_file="/tmp/screenshot-$timestamp.png"
 final_file="$screenshot_dir/screenshot-$timestamp.png"
 
 # Ensure screenshot directory exists

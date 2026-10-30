@@ -1,0 +1,108 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh workflow run:*)",
+      "Bash(clankers *)",
+      "Bash(/home/tsah/clankerhouse/scripts/restart-herdr-daemon)",
+      "Bash(scripts/restart-herdr-daemon)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(clankers report:*)",
+      "Bash(clankers spawn:*)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "opus[1m]",
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude blocked; fi",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude working; fi",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude working; fi",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude done; fi",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude unknown; fi",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude idle; fi",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "schlop@schlop": true
+  },
+  "extraKnownMarketplaces": {
+    "schlop": {
+      "source": {
+        "source": "directory",
+        "path": "/home/tsah/dev/personal/schlop"
+      }
+    }
+  },
+  "tui": "fullscreen",
+  "theme": "dark",
+  "editorMode": "vim",
+  "agentPushNotifEnabled": true,
+  "skipDangerousModePermissionPrompt": true
+}

@@ -52,40 +52,43 @@ check_cmd() {
     fi
 }
 
-check_link() {
-    local link="$1"
-    local expected_prefix="$2"
-    local target
-    local resolved
+check_manifest_links() {
+    local manifest="$1"
+    local codes="$2"
+    local scopes source destination target
 
-    if [[ ! -e "$link" && ! -L "$link" ]]; then
-        fail "missing link: $link"
+    if [[ ! -f "$manifest" ]]; then
+        fail "missing manifest: $manifest"
         return
     fi
 
-    if [[ ! -L "$link" ]]; then
-        fail "not a symlink: $link"
-        return
-    fi
+    while IFS=$'\t' read -r scopes source destination; do
+        [[ -z "$scopes" || "$scopes" == \#* ]] && continue
+        [[ " $codes " == *" $scopes "* ]] || continue
+        destination="${destination/#\~/$HOME}"
 
-    target=$(readlink "$link")
-    if [[ "$target" == /* ]]; then
-        resolved="$target"
-    else
-        resolved="$(dirname "$link")/$target"
-    fi
-    resolved=$(realpath -m "$resolved")
-
-    if [[ "$resolved" == "$expected_prefix" || "$resolved" == "$expected_prefix"/* ]]; then
-        ok "link target valid: $link -> $target"
-    else
-        fail "wrong target: $link -> $target (expected under $expected_prefix)"
-    fi
+        if [[ ! -e "$dotfiles_root/$source" ]]; then
+            fail "manifest source missing: $source"
+        elif [[ ! -L "$destination" ]]; then
+            if [[ -e "$destination" ]]; then
+                fail "not a symlink: $destination"
+            else
+                fail "missing link: $destination"
+            fi
+        else
+            target=$(realpath -m "$destination")
+            if [[ "$target" == "$(realpath -m "$dotfiles_root/$source")" ]]; then
+                ok "link valid: $destination"
+            else
+                fail "wrong target: $destination -> $(readlink "$destination") (expected $dotfiles_root/$source)"
+            fi
+        fi
+    done < "$manifest"
 }
 
 check_skill_links() {
     local dir="$1"
-    local link target resolved
+    local link target
 
     if [[ -L "$dir" && ! -e "$dir" ]]; then
         fail "broken skills directory link: $dir -> $(readlink "$dir")"
@@ -148,14 +151,15 @@ check_opencode_plugins() {
         return
     fi
 
+    # Local plugins are "package" paths relative to the config directory.
     while IFS= read -r plugin; do
-        path="${plugin#file://}"
+        path="$(dirname "$config")/$plugin"
         if [[ -e "$path" ]]; then
             ok "opencode plugin exists: $path"
         else
             fail "missing opencode plugin: $path"
         fi
-    done < <(grep -o 'file://[^"]*' "$config")
+    done < <(grep -o '"package": *"\./[^"]*"' "$config" | sed 's/.*"\(\.\/[^"]*\)"/\1/')
 }
 
 is_desktop_profile() {
@@ -183,16 +187,22 @@ check_cmd wt critical
 check_cmd nvim
 check_cmd yazi
 check_cmd ya
-check_cmd opencode
-
-check_link "$HOME/.config/opencode/opencode.json" "$dotfiles_root"
-check_link "$HOME/.config/nvim" "$dotfiles_root"
-if is_desktop_profile; then
-    check_link "$HOME/.config/hypr" "$dotfiles_root"
+if command -v opencode2 >/dev/null 2>&1 || command -v opencode >/dev/null 2>&1; then
+    ok "command available: opencode"
 else
-    warn "skipping Hyprland link check on server/headless profile"
+    warn "missing optional command: opencode2"
 fi
-check_link "$HOME/.tmux.conf" "$dotfiles_root"
+check_cmd delta
+check_cmd gh
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    manifest_codes="m"
+elif is_desktop_profile; then
+    manifest_codes="a d"
+else
+    manifest_codes="a s"
+fi
+check_manifest_links "$dotfiles_root/install-manifest.tsv" "$manifest_codes"
 
 check_skill_links "$HOME/.claude/skills"
 check_skill_links "$HOME/.agents/skills"

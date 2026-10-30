@@ -1,0 +1,4 @@
+# Bare repos stored at <repo>/.git keep checkouts at <repo>/<branch>.
+# Otherwise preserve Worktrunk's default sibling <repo>.<branch> layout.
+# This only selects paths for new worktrees; existing checkouts are not moved.
+worktree-path = "{{ repo_path }}/../{% if repo != '.git' %}{{ repo }}.{% endif %}{{ branch | sanitize }}"
