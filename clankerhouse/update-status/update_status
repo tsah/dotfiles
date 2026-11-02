@@ -1,0 +1,16 @@
+#!/bin/bash
+# Usage: update_status <stage>|done
+# Sets this Workshop's stage label, or retires the Workshop (status=done).
+# Outside a clankerhouse Workshop it does nothing.
+set -euo pipefail
+
+[[ $# -eq 1 ]] || { echo "Usage: update_status <stage>|done" >&2; exit 2; }
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[[ -f "$root/.clankerhouse/workshop.json" ]] || exit 0
+
+if [[ "$1" == "done" ]]; then
+    clankers workshop label unset stage >/dev/null
+    clankers workshop label set status=done >/dev/null
+else
+    clankers workshop label set "stage=$1" >/dev/null
+fi
