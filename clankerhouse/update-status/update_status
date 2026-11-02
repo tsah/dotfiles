@@ -8,7 +8,7 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [[ -f "$root/.clankerhouse/workshop.json" ]] || exit 0
 
-if [[ "$1" == done ]]; then
+if [[ "$1" == "done" ]]; then
     clankers workshop label unset stage >/dev/null
     clankers workshop label set status=done >/dev/null
 else
