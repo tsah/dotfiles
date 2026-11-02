@@ -1,0 +1,4 @@
+#!/bin/sh
+# Default: Workshop status labels only matter on a dev box, where the server
+# install links clankerhouse/update-status/update_status over this.
+exit 0
