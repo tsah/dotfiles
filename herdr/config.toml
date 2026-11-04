@@ -97,4 +97,12 @@ command = "/home/tsah/.local/bin/clankerhouse-herdr --delete"
 description = "Clankerhouse delete current session"
 width = "90%"
 height = "80%"
+
+[[keys.command]]
+key = "alt+n"
+type = "popup"
+command = "/home/tsah/.local/bin/clankerhouse-herdr --scratch"
+description = "Clankerhouse scratch workshop"
+width = "90%"
+height = "80%"
 # <<< clankerhouse herdr keybindings (managed) <<<

@@ -86,6 +86,9 @@ a	skills/to-prd	~/.codex/skills/to-prd
 a	claude/keybindings.json	~/.claude/keybindings.json
 a	claude/settings.json	~/.claude/settings.json
 a	claude/commands/ship-pr.md	~/.claude/commands/ship-pr.md
+a	claude/commands/slt.md	~/.claude/commands/slt.md
+a	schlop/sources.json	~/.config/schlop/sources.json
+a	bin/linear-ticket	~/.local/bin/linear-ticket
 a	claude/skills/customize-opencode	~/.claude/skills/customize-opencode
 a	claude/skills/tmux-interactive-control	~/.claude/skills/tmux-interactive-control
 m	hammerspoon/init.lua	~/.hammerspoon/init.lua

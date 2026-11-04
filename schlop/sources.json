@@ -1,0 +1,3 @@
+{
+  "slt": { "command": "linear-ticket \"$@\"", "title": "Linear ticket" }
+}

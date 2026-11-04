@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Print a Linear issue as markdown: the one named, else the one for this checkout's branch.
+
+  linear-ticket [TWE-1234]
+
+Without an id, Linear is asked which issue the current git branch belongs to (it records the
+branches it generates and the ones linked to an issue); failing that, a leading `twe-1234-`
+in the branch name is the id. Needs LINEAR_API_KEY, from the environment or ~/.env (which only
+interactive shells load, so agents started elsewhere lack it). Schlop's /slt runs this.
+"""
+import json, os, re, subprocess, sys, urllib.error, urllib.request
+
+FIELDS = """
+  identifier title url priorityLabel description
+  state { name } assignee { name } team { key }
+  parent { identifier title }
+  labels { nodes { name } }
+  comments(first: 100) { nodes { body createdAt user { name } } }
+"""
+
+
+def fail(message):
+    print(f"linear-ticket: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def api_key():
+    key = os.environ.get("LINEAR_API_KEY")
+    if key:
+        return key
+    try:
+        with open(os.path.expanduser("~/.env")) as env:
+            for line in env:
+                match = re.match(r"\s*(?:export\s+)?LINEAR_API_KEY=(.*)", line)
+                if match:
+                    return match.group(1).strip().strip("'\"")
+    except OSError:
+        pass
+    fail("LINEAR_API_KEY is not set, here or in ~/.env")
+
+
+def query(text, variables):
+    key = api_key()
+    request = urllib.request.Request(
+        "https://api.linear.app/graphql",
+        data=json.dumps({"query": text, "variables": variables}).encode(),
+        headers={"Authorization": key, "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = json.load(response)
+    except urllib.error.HTTPError as error:
+        body = json.loads(error.read() or b"{}")
+    except OSError as error:
+        fail(f"cannot reach Linear: {error}")
+    errors = body.get("errors") or []
+    # A missing issue comes back as an error for `issue`, which is not a failure here.
+    if errors and not body.get("data"):
+        fail("; ".join(error.get("message", "Linear error") for error in errors))
+    return body.get("data") or {}
+
+
+def branch():
+    result = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def find(argument):
+    if argument:
+        issue = query(f"query($id: String!) {{ issue(id: $id) {{ {FIELDS} }} }}", {"id": argument.upper()}).get("issue")
+        return issue or fail(f"no Linear issue {argument.upper()}")
+    name = branch()
+    if not name:
+        fail("not on a git branch; pass an issue id: /slt TWE-1234")
+    issue = query(f"query($branch: String!) {{ issueVcsBranchSearch(branchName: $branch) {{ {FIELDS} }} }}", {"branch": name}).get("issueVcsBranchSearch")
+    if issue:
+        return issue
+    match = re.match(r"(?:[^/]+/)?([a-z]+-\d+)(?:-|$)", name, re.IGNORECASE)
+    if match:
+        issue = query(f"query($id: String!) {{ issue(id: $id) {{ {FIELDS} }} }}", {"id": match.group(1).upper()}).get("issue")
+        if issue:
+            return issue
+    fail(f"no Linear issue for branch {name}; pass one: /slt TWE-1234")
+
+
+def markdown(issue):
+    facts = [issue["state"]["name"] if issue.get("state") else None, issue.get("priorityLabel"),
+             issue["assignee"]["name"] if issue.get("assignee") else "unassigned"]
+    labels = ", ".join(label["name"] for label in issue["labels"]["nodes"])
+    lines = [f"# {issue['identifier']}: {issue['title']}", "", " · ".join(fact for fact in facts if fact)]
+    if labels:
+        lines.append(f"Labels: {labels}")
+    if issue.get("parent"):
+        lines.append(f"Parent: {issue['parent']['identifier']} {issue['parent']['title']}")
+    lines += [issue["url"], "", "## Description", "", (issue.get("description") or "_No description._").strip()]
+    comments = sorted(issue["comments"]["nodes"], key=lambda comment: comment["createdAt"])
+    if comments:
+        lines += ["", "## Comments"]
+        for comment in comments:
+            author = comment["user"]["name"] if comment.get("user") else "Linear"
+            lines += ["", f"### {author}, {comment['createdAt'][:10]}", "", comment["body"].strip()]
+    return "\n".join(lines) + "\n"
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
+        print(__doc__.strip(), file=sys.stderr)
+        sys.exit(2)
+    sys.stdout.write(markdown(find(sys.argv[1] if len(sys.argv) == 2 else "")))
