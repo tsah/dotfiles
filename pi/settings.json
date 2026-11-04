@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "1.3.0",
+  "lastChangelogVersion": "1.4.0",
   "theme": "dark",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6-astra",
@@ -11,5 +11,6 @@
     "../../dev/personal/schlop/integrations/pi"
   ],
   "hideThinkingBlock": false,
-  "tuiMode": "fullscreen"
+  "tuiMode": "fullscreen",
+  "deviceId": "931e7521-d131-412b-8395-a1cf1916e125"
 }

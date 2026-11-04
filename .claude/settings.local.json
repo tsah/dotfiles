@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(systemctl status *)",
+      "Bash(sudo ss *)",
+      "Bash(journalctl -u sshd --no-pager -n 30)",
+      "Bash(tailscale ip *)",
+      "Read(//etc/ssh/sshd_config.d/**)",
+      "Bash(tmux list-sessions *)",
+      "Bash(tmux list-panes *)",
+      "Bash(tmux list-windows *)",
+      "Bash(tmux capture-pane *)",
+      "Bash(tmux send-keys *)",
+      "Bash(ssh tsah-dev-frankfurt *)"
+    ]
+  }
+}
