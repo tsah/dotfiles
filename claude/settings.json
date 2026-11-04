@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude blocked; fi",
+            "command": "if { [ -n \"${HERDR_PANE_ID:-}\" ] || [ -n \"${HC_TERMINAL_ID:-}\" ]; } && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude blocked; fi",
             "timeout": 2
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude working; fi",
+            "command": "if { [ -n \"${HERDR_PANE_ID:-}\" ] || [ -n \"${HC_TERMINAL_ID:-}\" ]; } && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude working; fi",
             "timeout": 2
           }
         ]
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude working; fi",
+            "command": "if { [ -n \"${HERDR_PANE_ID:-}\" ] || [ -n \"${HC_TERMINAL_ID:-}\" ]; } && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude working; fi",
             "timeout": 2
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude done; fi",
+            "command": "if { [ -n \"${HERDR_PANE_ID:-}\" ] || [ -n \"${HC_TERMINAL_ID:-}\" ]; } && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude done; fi",
             "timeout": 2
           }
         ]
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude unknown; fi",
+            "command": "if { [ -n \"${HERDR_PANE_ID:-}\" ] || [ -n \"${HC_TERMINAL_ID:-}\" ]; } && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude unknown; fi",
             "timeout": 2
           }
         ]
@@ -82,8 +82,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -n \"${HERDR_PANE_ID:-}\" ] && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude idle; fi",
+            "command": "if { [ -n \"${HERDR_PANE_ID:-}\" ] || [ -n \"${HC_TERMINAL_ID:-}\" ]; } && [ -x /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook ]; then exec /home/tsah/.local/lib/clankerhouse/native-client/target/release/clankerhouse-hook claude idle; fi",
             "timeout": 2
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f \"$HOME/.env\" ] && [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then { echo \"set -a\"; cat \"$HOME/.env\"; echo; echo \"set +a\"; } >> \"$CLAUDE_ENV_FILE\"; fi",
+            "timeout": 5
           }
         ]
       }
