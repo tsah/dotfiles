@@ -2,3 +2,4 @@ restrict,command="/home/tsah/dotfiles/bin/xdg-open-from-ssh" ssh-ed25519 AAAAC3N
 restrict,command="/home/tsah/dotfiles/bin/xdg-open-from-ssh" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP/83Oh77bpejyn+LCO7OJvXnAMUHbXQWulAFPkfzhkD tsah@tsah-dev-ireland
 restrict,command="/home/tsah/dotfiles/bin/xdg-open-from-ssh" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDZ81TSuUM6qfhrCcsd62v8paIH7U+lJ/2I+ANAZv2wk devbox:puffin
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFYNDbN2Js6FnaRaB4HrYwa7iRr47UmVn7DZg4xqPH6y tsah.weiss@gmail.com
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8HHDCIDJknNNV4dFkHqi9hZW0tR7gQIKb2bpgBUMxW groky@grokbot
