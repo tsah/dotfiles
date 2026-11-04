@@ -26,6 +26,8 @@ read_config_value() {
 # owner-only files under ~/.config/dotfiles/. Nothing is hardcoded.
 case "${1:-}" in
     https://*user_code=*)
+        # Off switch: touch ~/.config/dotfiles/ntfy-off to send AWS links to the laptop instead.
+        [ -e "$HOME/.config/dotfiles/ntfy-off" ] && { :; } || {
         target=$1
         NTFY_URL="${REMOTE_OPEN_NTFY_URL:-$(read_config_value "$HOME/.config/dotfiles/ntfy-url" || true)}"
         NTFY_URL="${NTFY_URL:-https://ntfy.sh}"
@@ -49,6 +51,7 @@ case "${1:-}" in
             set -- -H "@$HOME/.config/dotfiles/ntfy-auth-header" "$@"
         fi
         exec curl "$@" >/dev/null
+        }
         ;;
 esac
 
