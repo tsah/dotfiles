@@ -100,5 +100,8 @@ rebind("SUPER + BACKSLASH", "Toggle workspace layout", "omarchy-hyprland-workspa
 rebind("SUPER + GRAVE", "Cycle monitor scaling", "~/dotfiles/omarchy/hypr/cycle-monitor-scaling")
 
 -- Dictation and cloud agents.
+-- Alt + Space and Right Alt are left to applications (Herdr uses Alt chords).
+hl.unbind("ALT + SPACE")
+hl.unbind("ALT + Alt_R")
 rebind("SUPER + D", "Toggle dictation", "voxtype record toggle")
 rebind("SUPER + ALT + A", "Launch cloud agent", "uwsm-app -- ghostty -e ~/dotfiles/bin/cloud-agent-launcher")
