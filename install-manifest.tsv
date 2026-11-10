@@ -35,7 +35,6 @@ d	voxtype-config.toml	~/.config/voxtype/config.toml
 d	systemd/user/headset-cvsd-enforcer.service	~/.config/systemd/user/headset-cvsd-enforcer.service
 d	wireplumber/bluetooth-stable-headset.conf	~/.config/wireplumber/wireplumber.conf.d/bluetooth-stable-headset.conf
 s	bin/xdg-open-via-laptop	~/.local/bin/xdg-open
-s	clankerhouse/update-status/update_status	~/.local/bin/update_status
 a	skills/batch-grill-me	~/.pi/agent/skills/batch-grill-me
 a	skills/batch-grill-me	~/.config/opencode/skills/batch-grill-me
 a	skills/bro	~/.agents/skills/bro

@@ -1,4 +1,17 @@
-#!/bin/sh
-# Default: Workshop status labels only matter on a dev box, where the server
-# install links clankerhouse/update-status/update_status over this.
-exit 0
+#!/bin/bash
+# Usage: update_status <stage>|done
+# Sets this Workshop's stage label, or retires the Workshop (status=done).
+# Outside a clankerhouse Workshop, or where clankers is not installed, it does nothing.
+set -euo pipefail
+
+[[ $# -eq 1 ]] || { echo "Usage: update_status <stage>|done" >&2; exit 2; }
+command -v clankers >/dev/null 2>&1 || exit 0
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[[ -f "$root/.clankerhouse/workshop.json" ]] || exit 0
+
+if [[ "$1" == "done" ]]; then
+    clankers workshop label unset stage >/dev/null
+    clankers workshop label set status=done >/dev/null
+else
+    clankers workshop label set "stage=$1" >/dev/null
+fi
