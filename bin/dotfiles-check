@@ -27,7 +27,9 @@ for file in "${shell_scripts[@]}"; do
 done
 printf 'Checked syntax of %d shell scripts\n' "${#shell_scripts[@]}"
 
-zsh -n zshrc 2>/dev/null || { command -v zsh >/dev/null 2>&1 && fail "zsh syntax: zshrc"; }
+for file in zshrc .zprofile zsh/*.zsh; do
+    zsh -n "$file" 2>/dev/null || { command -v zsh >/dev/null 2>&1 && fail "zsh syntax: $file"; }
+done
 
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck -S warning "${shell_scripts[@]}" || fail "shellcheck"
@@ -40,7 +42,7 @@ while IFS=$'\t' read -r scopes source destination; do
     line_no=$((line_no + 1))
     [[ -z "$scopes" || "$scopes" == \#* ]] && continue
     [[ -n "$source" && -n "$destination" ]] || { fail "manifest line $line_no is not tab-separated"; continue; }
-    [[ "$scopes" == [adsm] ]] || fail "manifest line $line_no: unknown scope '$scopes'"
+    [[ "$scopes" == a || "$scopes" =~ ^[dsm]+$ ]] || fail "manifest line $line_no: unknown scope '$scopes'"
     # Untracked sources exist locally but vanish on a fresh clone.
     [[ -n "$(git ls-files -- "$source" | head -n 1)" ]] || fail "manifest line $line_no: source not tracked by git: $source"
 done < install-manifest.tsv

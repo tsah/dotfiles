@@ -39,6 +39,11 @@ fail() {
     printf '%sFAIL%s %s\n' "$red" "$reset" "$1"
 }
 
+# GNU realpath -m tolerates missing paths; macOS realpath has no -m.
+resolve_path() {
+    realpath -m "$1" 2>/dev/null || realpath "$1" 2>/dev/null || printf '%s\n' "$1"
+}
+
 check_cmd() {
     local cmd="$1"
     local level="${2:-warn}"
@@ -64,7 +69,11 @@ check_manifest_links() {
 
     while IFS=$'\t' read -r scopes source destination; do
         [[ -z "$scopes" || "$scopes" == \#* ]] && continue
-        [[ " $codes " == *" $scopes "* ]] || continue
+        local code matched=false
+        for code in $codes; do
+            [[ "$scopes" == *"$code"* ]] && matched=true
+        done
+        [[ "$matched" == true ]] || continue
         destination="${destination/#\~/$HOME}"
 
         if [[ ! -e "$dotfiles_root/$source" ]]; then
@@ -76,8 +85,8 @@ check_manifest_links() {
                 fail "missing link: $destination"
             fi
         else
-            target=$(realpath -m "$destination")
-            if [[ "$target" == "$(realpath -m "$dotfiles_root/$source")" ]]; then
+            target=$(resolve_path "$destination")
+            if [[ "$target" == "$(resolve_path "$dotfiles_root/$source")" ]]; then
                 ok "link valid: $destination"
             else
                 fail "wrong target: $destination -> $(readlink "$destination") (expected $dotfiles_root/$source)"
@@ -175,7 +184,7 @@ is_desktop_profile() {
     command -v hyprctl >/dev/null 2>&1
 }
 
-dotfiles_root="$(realpath -m "$HOME/dotfiles")"
+dotfiles_root="$(resolve_path "$HOME/dotfiles")"
 
 printf 'Dotfiles doctor\n'
 printf 'Repository: %s\n\n' "$dotfiles_root"
@@ -216,7 +225,9 @@ check_opencode_plugins "$dotfiles_root/opencode/global.json"
 printf '\nSummary: %d checks, %d warnings, %d failures\n' "$checks" "$warnings" "$failures"
 
 if ((failures > 0)); then
-    if is_desktop_profile; then
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        printf 'Run ./install-macos.sh from %s to refresh macOS symlinks.\n' "$dotfiles_root"
+    elif is_desktop_profile; then
         printf 'Run ./install-omarchy.sh from %s to refresh desktop symlinks.\n' "$dotfiles_root"
     else
         printf 'Run ./install-server.sh from %s to refresh server symlinks.\n' "$dotfiles_root"
