@@ -9,6 +9,10 @@ set -eu
 # Free Cmd+Space for Raycast: turn off "Show Spotlight search" (symbolic hotkey 64).
 defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 \
   '<dict><key>enabled</key><false/><key>value</key><dict><key>parameters</key><array><integer>32</integer><integer>49</integer><integer>1048576</integer></array><key>type</key><string>standard</string></dict></dict>'
+# Ctrl+Space switches input source (English <-> Hebrew): "Select the previous input
+# source" (symbolic hotkey 60), Ctrl = 262144, Space = 49.
+defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 60 \
+  '<dict><key>enabled</key><true/><key>value</key><dict><key>parameters</key><array><integer>32</integer><integer>49</integer><integer>262144</integer></array><key>type</key><string>standard</string></dict></dict>'
 /System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u
 
 # ---- power (pmset needs root) ----

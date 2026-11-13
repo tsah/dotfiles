@@ -96,9 +96,21 @@ end
 
 -- ANSI key codes, so the bindings work whatever input source (Hebrew too)
 -- is active when Hammerspoon loads; hs.keycodes.map follows the current layout.
-local key = { b = 11, m = 46, p = 35, s = 1, t = 17, u = 32, w = 13 }
+local key = { b = 11, m = 46, p = 35, s = 1, t = 17, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20 }
+
+local function focus_app(app_name)
+  return function()
+    launch_or_focus(app_name, function(window)
+      window:focus()
+    end)
+  end
+end
 
 local key_actions = {
+  -- Numbers match the Omarchy workspaces: 1 terminal, 2 browser, 3 Slack.
+  [key["1"]] = focus_app(terminal_app),
+  [key["2"]] = focus_app(browser_app),
+  [key["3"]] = focus_app(slack_app),
   [key.p] = function()
     open_browser_profile(browser_personal_profile)
   end,
