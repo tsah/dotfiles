@@ -15,6 +15,16 @@ defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 60 \
   '<dict><key>enabled</key><true/><key>value</key><dict><key>parameters</key><array><integer>32</integer><integer>49</integer><integer>262144</integer></array><key>type</key><string>standard</string></dict></dict>'
 /System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u
 
+# ---- input sources ----
+# Only U.S. and Hebrew, so Ctrl+Space toggles between exactly those two.
+swift - <<'SWIFT'
+import Carbon
+let filter = [kTISPropertyInputSourceID as String: "com.apple.keylayout.ABC"] as CFDictionary
+if let sources = TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource] {
+    for source in sources { TISDisableInputSource(source) }
+}
+SWIFT
+
 # ---- power (pmset needs root) ----
 # Turn the display off after 10 minutes, on battery and on the charger.
 sudo pmset -b displaysleep 10
