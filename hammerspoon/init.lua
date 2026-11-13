@@ -1,11 +1,18 @@
 local hyper = { "ctrl", "alt" }
 
 hs.ipc.cliInstall()
+hs.autoLaunch(true)
+
+-- Maccy (clipboard history, Shift+Cmd+C) has no config file; starting it from
+-- here keeps "launch at login" in dotfiles instead of its settings window.
+if not hs.application.get("Maccy") then
+  hs.execute("open -g -a Maccy")
+end
 
 local browser_app = "Google Chrome"
 local browser_personal_profile = "Default"
 local browser_work_profile = "Profile 1"
-local terminal_app = "Ghostty"
+local terminal_app = "Herdr"
 local slack_app = "Slack"
 local whatsapp_app = "WhatsApp"
 local screenshot_share_script = os.getenv("HOME") .. "/dotfiles/bin/macos-screenshot-share"
@@ -87,40 +94,44 @@ function start_screenshot_share()
   task:start()
 end
 
+-- ANSI key codes, so the bindings work whatever input source (Hebrew too)
+-- is active when Hammerspoon loads; hs.keycodes.map follows the current layout.
+local key = { b = 11, m = 46, p = 35, s = 1, t = 17, u = 32, w = 13 }
+
 local key_actions = {
-  [hs.keycodes.map.p] = function()
+  [key.p] = function()
     open_browser_profile(browser_personal_profile)
   end,
-  [hs.keycodes.map.w] = function()
+  [key.w] = function()
     open_browser_profile(browser_work_profile)
   end,
-  [hs.keycodes.map.b] = function()
+  [key.b] = function()
     launch_or_focus(browser_app, function(window)
       window:focus()
     end)
   end,
-  [hs.keycodes.map.t] = function()
+  [key.t] = function()
     launch_or_focus(terminal_app, function(window)
       window:focus()
     end)
   end,
-  [hs.keycodes.map.s] = function()
+  [key.s] = function()
     launch_or_focus(slack_app, function(window)
       window:focus()
     end)
   end,
-  [hs.keycodes.map.m] = function()
+  [key.m] = function()
     launch_or_focus(whatsapp_app, function(window)
       window:focus()
     end)
   end,
-  [hs.keycodes.map.u] = function()
+  [key.u] = function()
     start_screenshot_share()
   end,
 }
 
 local shift_key_actions = {
-  [hs.keycodes.map.s] = function()
+  [key.s] = function()
     start_screenshot_share()
   end,
 }
@@ -144,5 +155,23 @@ app_shortcuts_tap = hs.eventtap
     return true
   end)
 app_shortcuts_tap:start()
+
+-- Window snapping on Ctrl+Option+Cmd: Herdr owns Option chords and
+-- Ctrl+Option+arrows (pane focus), so snapping stays off both.
+local snap = { "ctrl", "alt", "cmd" }
+hs.window.animationDuration = 0
+
+local function move_focused(unit)
+  local window = hs.window.focusedWindow()
+  if window then
+    window:moveToUnit(unit)
+  end
+end
+
+hs.hotkey.bind(snap, "left", function() move_focused(hs.layout.left50) end)
+hs.hotkey.bind(snap, "right", function() move_focused(hs.layout.right50) end)
+hs.hotkey.bind(snap, "up", function() move_focused(hs.layout.maximized) end)
+hs.hotkey.bind(snap, "return", function() move_focused(hs.layout.maximized) end)
+hs.hotkey.bind(snap, "down", function() move_focused({ x = 1 / 6, y = 1 / 8, w = 2 / 3, h = 3 / 4 }) end)
 
 hs.alert.show("Hammerspoon config loaded")
