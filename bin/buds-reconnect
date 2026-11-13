@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Reconnects the Bluetooth buds. Their microphone channel can only be opened
+# once per connection, so a reconnect is needed before a call uses the mic.
+
+set -u
+
+DEVICE="${BUDS_DEVICE:-C0:DA:5E:BA:D5:58}"
+
+LOG_FILE="${BUDS_RECONNECT_LOG:-/tmp/buds-reconnect.log}"
+
+log_message() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE"
+}
+
+notify() {
+  notify-send -a "buds-reconnect" "$1" -t "${2:-3000}" >> "$LOG_FILE" 2>&1 || log_message "notify-send failed"
+}
+
+log_message "Started"
+
+notify "Reconnecting buds..." 8000
+
+bluetoothctl disconnect "$DEVICE" >/dev/null 2>&1
+sleep 4
+
+for _ in 1 2 3 4 5; do
+  if timeout 15 bluetoothctl connect "$DEVICE" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+for _ in $(seq 1 15); do
+  if pactl list cards short 2>/dev/null | grep -q "bluez_card.${DEVICE//:/_}"; then
+    notify "Buds reconnected"
+    log_message "Reconnected"
+    exit 0
+  fi
+  sleep 1
+done
+
+notify-send -a "buds-reconnect" "Buds did not reconnect" -u critical -t 5000 >> "$LOG_FILE" 2>&1 || true
+log_message "Failed to reconnect"
+exit 1
