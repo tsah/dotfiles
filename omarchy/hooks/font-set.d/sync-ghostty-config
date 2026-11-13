@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+# Omarchy edits Ghostty with `sed -i`, which replaces the managed symlink.
+# Ghostty has no explicit font here so it follows Omarchy's fontconfig choice;
+# restore the symlink after every font change.
+script_path=$(readlink -f "$0")
+dotfiles_root=$(cd "$(dirname "$script_path")/../../.." && pwd)
+ghostty_config="$dotfiles_root/ghostty-config"
+
+mkdir -p "$HOME/.config/ghostty"
+ln -sfn "$ghostty_config" "$HOME/.config/ghostty/config"
