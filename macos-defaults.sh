@@ -5,6 +5,12 @@ set -eu
 
 [ "$(uname -s)" = Darwin ] || { echo "macos-defaults.sh: macOS only" >&2; exit 1; }
 
+# ---- keyboard shortcuts ----
+# Free Cmd+Space for Raycast: turn off "Show Spotlight search" (symbolic hotkey 64).
+defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 \
+  '<dict><key>enabled</key><false/><key>value</key><dict><key>parameters</key><array><integer>32</integer><integer>49</integer><integer>1048576</integer></array><key>type</key><string>standard</string></dict></dict>'
+/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u
+
 # ---- power (pmset needs root) ----
 # Turn the display off after 10 minutes, on battery and on the charger.
 sudo pmset -b displaysleep 10
