@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Render the retro desk's always-current report page from its state files.
 
-Usage: render_report.py [STATE_DIR] [OUT_HTML]
-  STATE_DIR defaults to ~/.local/state/tweezr-retro
-  OUT_HTML  defaults to ~/reports/retro-desk/index.html (served on the tailnet)
+Usage: render_report.py [--artifact] [STATE_DIR] [OUT_HTML]
+  --artifact  write the Claude artifact page (no document skeleton, no links to
+              the puffin pages); OUT_HTML defaults to STATE_DIR/report/retro-desk.html.
+              This is the primary report; publish it with the Artifact tool.
+  STATE_DIR   defaults to ~/.local/state/tweezr-retro
+  OUT_HTML    without --artifact: ~/reports/retro-desk/index.html (puffin fallback)
 
 Reads findings/*.md (front matter: finding, kind, status), runs/*.md and
 cursors/*.md, plus ~/reports/retro-desk/runs.json (the per-run pages written by
@@ -250,14 +253,14 @@ if (location.hash) { const t = document.querySelector(location.hash); if (t && t
 """
 
 
-def render(state: Path) -> str:
+def render(state: Path, artifact: bool = False) -> str:
     findings = [parse_finding(p) for p in sorted((state / "findings").glob("*.md"))]
     runs = [run_summary(p) for p in sorted((state / "runs").glob("*.md"), reverse=True)]
     by_branch = branch_prs({b for f in findings for b in handoff_branches(f["body"])})
     prs = pr_states({n for f in findings for n in linked_numbers(f["body"], by_branch)})
     workshops = len(list((state / "cursors").glob("*.md")))
     pages_file = Path.home() / "reports" / "retro-desk" / "runs.json"
-    pages = json.loads(pages_file.read_text()) if pages_file.exists() else []
+    pages = json.loads(pages_file.read_text()) if pages_file.exists() and not artifact else []
     counts = {s: sum(f.get("status") == s for f in findings) for s in STATUS_ORDER}
     findings.sort(key=lambda f: (STATUS_ORDER.index(f.get("status", "open")) if f.get("status") in STATUS_ORDER else 9, f["slug"]))
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -298,14 +301,17 @@ def render(state: Path) -> str:
         for p in reversed(pages)
     )
 
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Retro Desk</title>
+    head = "" if artifact else '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n'
+    open_body = "" if artifact else "</head><body>"
+    close_body = "" if artifact else "</body></html>"
+    back = "" if artifact else '<div class="meta"><a href="../">All reports</a></div>'
+    return f"""{head}<title>Retro Desk</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
-<style>{CSS}</style></head><body>
+<style>{CSS}</style>{open_body}
 <div class="wrap">
 <header style="display:grid;gap:6px">
-  <div class="meta"><a href="../">All reports</a></div>
+  {back}
   <h1>Retro Desk</h1>
   <div class="meta">Lessons from finished tweezr Workshops · {workshops} Workshops read · last run {last_run} · page built {now}</div>
   {f'<div class="meta">Latest run: <a href="runs/{html.escape(pages[-1]["file"])}">{html.escape(pages[-1]["title"])}</a> · <a href="#h-runs">all runs</a></div>' if pages else ''}
@@ -323,17 +329,24 @@ def render(state: Path) -> str:
   <div class="list">{''.join(run_cards)}</div>
 </section>
 </div>
-<script>{SCRIPT}</script></body></html>
+<script>{SCRIPT}</script>{close_body}
 """
 
 
 def main() -> None:
-    state = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else Path.home() / ".local/state/tweezr-retro"
-    out = Path(sys.argv[2]).expanduser() if len(sys.argv) > 2 else Path.home() / "reports" / "retro-desk" / "index.html"
+    args = sys.argv[1:]
+    artifact = "--artifact" in args
+    args = [a for a in args if a != "--artifact"]
+    state = Path(args[0]).expanduser() if args else Path.home() / ".local/state/tweezr-retro"
+    if len(args) > 1:
+        out = Path(args[1]).expanduser()
+    elif artifact:
+        out = state / "report" / "retro-desk.html"
+    else:
+        out = Path.home() / "reports" / "retro-desk" / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(state))
+    out.write_text(render(state, artifact))
     print(out)
-
 
 if __name__ == "__main__":
     main()
