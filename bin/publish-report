@@ -2,6 +2,7 @@
 """Publish a markdown report as a self-contained page under ~/reports, served on the tailnet.
 
 Usage: publish-report DESK TITLE MARKDOWN_FILE
+       publish-report --root     (rebuild only ~/reports/index.html, for desks that render their own pages)
   Writes ~/reports/DESK/runs/<stamp>.html, rebuilds ~/reports/DESK/index.html (every run,
   newest first) and ~/reports/index.html (every desk), and prints the run page's URL.
 
@@ -137,6 +138,14 @@ def page(title, crumbs, meta, body):
 """
 
 
+def rebuild_root():
+    desks = sorted(d for d in ROOT.iterdir() if (d / "index.html").exists())
+    items = "".join(f'<li><a href="{d.name}/">{html.escape(d.name)}</a></li>' for d in desks)
+    (ROOT / "index.html").write_text(page(
+        "Reports", "puffin", f"{len(desks)} desks", f'<section class="card"><ul class="runs">{items}</ul></section>',
+    ))
+
+
 def rebuild_indexes(desk_dir):
     runs = json.loads((desk_dir / "runs.json").read_text())
     items = "".join(
@@ -147,14 +156,13 @@ def rebuild_indexes(desk_dir):
         desk_dir.name, '<a href="../">All reports</a>', f"{len(runs)} reports",
         f'<section class="card"><ul class="runs">{items}</ul></section>',
     ))
-    desks = sorted(d for d in ROOT.iterdir() if (d / "index.html").exists())
-    items = "".join(f'<li><a href="{d.name}/">{html.escape(d.name)}</a></li>' for d in desks)
-    (ROOT / "index.html").write_text(page(
-        "Reports", "puffin", f"{len(desks)} desks", f'<section class="card"><ul class="runs">{items}</ul></section>',
-    ))
+    rebuild_root()
 
 
 def main():
+    if sys.argv[1:] == ["--root"]:
+        rebuild_root()
+        return
     desk, title, md_path = sys.argv[1], sys.argv[2], Path(sys.argv[3])
     now = datetime.now(TZ)
     desk_dir = ROOT / desk
