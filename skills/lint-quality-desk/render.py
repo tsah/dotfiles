@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Render the lint-quality desk's state into a self-contained, phone-friendly HTML report.
+"""Render the lint-quality desk's state into one self-contained Claude artifact page.
 
-Usage: render.py OUT_DIR [--state DIR] [--no-gh]
+Usage: render.py OUT_FILE [--state DIR] [--no-gh]
 
-Reads findings/*.md and runs/*.md from the desk state directory and writes
-OUT_DIR/index.html (findings by status, linked PRs with live state, run index)
-and OUT_DIR/runs/<date>.html (one page per run log). Live PR state comes from
-`gh pr view` (read-only); --no-gh skips it.
+Reads findings/*.md and runs/*.md from the desk state directory and writes one
+HTML file (no <html>/<head>/<body>: the Artifact tool wraps it) holding the
+findings by status, the desk's PRs with live state, and every run log, newest
+first. The desk republishes this file to the same artifact URL each run, so the
+history lives inside the one artifact. Live PR state comes from `gh pr view`
+(read-only); --no-gh skips it.
 """
 
 import argparse
@@ -143,51 +145,49 @@ def markdown(text: str, slugs: set[str], heading_shift: int = 0) -> str:
     return "\n".join(out)
 
 
+
 CSS = """
-:root{--bg:#faf9f5;--surface:#ffffff;--text:#1f1e1d;--muted:#6b6a65;--line:#e6e3da;
---accent:#c96442;--ok:#2f7d4f;--warn:#a86b00;--info:#2d5fa8;--bad:#9b3b3b;--chip:#f0eee6;--code:#f3f1ea}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1b19;--surface:#262522;
---text:#ecebe6;--muted:#a3a19a;--line:#3a3935;--accent:#e08a68;--ok:#6cc08f;--warn:#e0b050;--info:#7fa8e8;
---bad:#e08a8a;--chip:#33322e;--code:#2f2e2a}}
-:root[data-theme="dark"]{--bg:#1c1b19;--surface:#262522;--text:#ecebe6;--muted:#a3a19a;--line:#3a3935;
---accent:#e08a68;--ok:#6cc08f;--warn:#e0b050;--info:#7fa8e8;--bad:#e08a8a;--chip:#33322e;--code:#2f2e2a}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,
-"Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere}
-main{max-width:860px;margin:0 auto;padding:28px 16px 64px}
-header h1{font:600 1.7rem/1.2 ui-serif,Georgia,serif;margin:0 0 4px}
+/* Layout: one reading column; summary tiles, then findings grouped by status, then PRs and run history. */
+:root{--bg:#f5f7f8;--surface:#ffffff;--text:#16212b;--muted:#5b6873;--line:#dde3e8;--accent:#1d6f8f;
+--ok:#2c7a4b;--warn:#9a6400;--info:#2557a7;--bad:#a23a3a;--chip:#e9eef2;--code:#eef2f5;
+--sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+--mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#11171c;--surface:#192229;--text:#e4eaef;
+--muted:#93a1ad;--line:#2a3640;--accent:#5fb3d3;--ok:#6cc08f;--warn:#e0b050;--info:#86a9ec;--bad:#e59393;
+--chip:#22303a;--code:#1f2a33;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#11171c;--surface:#192229;--text:#e4eaef;--muted:#93a1ad;--line:#2a3640;
+--accent:#5fb3d3;--ok:#6cc08f;--warn:#e0b050;--info:#86a9ec;--bad:#e59393;--chip:#22303a;--code:#1f2a33;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:15px/1.55 var(--sans);overflow-wrap:anywhere;
+padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:860px;margin:0 auto;padding-block:28px 64px}
+h1{font:600 1.65rem/1.2 var(--sans);margin:0 0 4px;text-wrap:balance}
 .sub{color:var(--muted);font-size:.9rem;margin:0}
-nav.top{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 0;font-size:.9rem}
+nav.top{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:.9rem}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-h2{font:600 1.15rem/1.3 ui-serif,Georgia,serif;margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:22px 0 0}
-.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-.stat b{display:block;font-size:1.5rem;line-height:1.1}.stat span{color:var(--muted);font-size:.8rem}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;overflow:hidden}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+h2{font:600 1.1rem/1.3 var(--sans);margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line);text-wrap:balance}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:22px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.stat b{display:block;font:600 1.5rem/1.1 var(--mono);font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:.8rem}
+.group{display:grid;gap:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
 .card>summary{list-style:none;cursor:pointer;padding:14px 16px}.card>summary::-webkit-details-marker{display:none}
-.card>summary .slug{font-weight:600}.card>summary p{margin:6px 0 0;color:var(--muted);font-size:.92rem}
+.card>summary .slug{font:600 .92rem/1.4 var(--mono)}.card>summary p{margin:6px 0 0;color:var(--muted);font-size:.92rem}
 .card[open]>summary{border-bottom:1px solid var(--line)}
-.body{padding:4px 16px 14px;font-size:.93rem}.body h3,.body h4{font-size:1rem;margin:18px 0 6px}
+.body{padding:4px 16px 14px;font-size:.93rem;min-width:0}.body h3,.body h4{font-size:.98rem;margin:18px 0 6px}
 .body ul,.body ol{padding-left:20px}.body li{margin:3px 0}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.chip{display:inline-block;font-size:.75rem;padding:2px 9px;border-radius:999px;background:var(--chip);color:var(--muted);white-space:nowrap}
-.chip.proposed{color:var(--info)}.chip.accepted{color:var(--ok)}.chip.open{color:var(--warn)}.chip.rejected{color:var(--bad)}
-.chip.merged{color:var(--ok)}.chip.draft{color:var(--muted)}.chip.closed{color:var(--bad)}.chip.ready{color:var(--info)}
-code{font:.85em ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);padding:1px 5px;border-radius:5px}
+.chip{display:inline-block;font:500 .74rem/1.6 var(--sans);padding:1px 9px;border-radius:999px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.chip.proposed,.chip.ready{color:var(--info)}.chip.accepted,.chip.merged{color:var(--ok)}
+.chip.open{color:var(--warn)}.chip.rejected,.chip.closed{color:var(--bad)}
+code{font:.85em var(--mono);background:var(--code);padding:1px 5px;border-radius:4px}
 pre{background:var(--code);padding:12px;border-radius:8px;overflow-x:auto}pre code{padding:0;background:none}
-.list{list-style:none;padding:0;margin:0}.list li{background:var(--surface);border:1px solid var(--line);
-border-radius:10px;padding:10px 14px;margin:8px 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.list{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.list li{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:0}
 .muted{color:var(--muted)}footer{margin-top:40px;color:var(--muted);font-size:.8rem}
-article h1{font:600 1.5rem/1.25 ui-serif,Georgia,serif}article ul,article ol{padding-left:20px}
-"""
-
-
-def page(title: str, body: str, generated: str) -> str:
-    return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)}</title><style>{CSS}</style></head>
-<body><main>{body}<footer>Generated {generated} from ~/.local/state/tweezr-lint-quality on puffin.</footer></main></body></html>
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 """
 
 
@@ -209,7 +209,7 @@ def pr_chip(number: int, states: dict[int, dict]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("out_dir", type=Path)
+    parser.add_argument("out_file", type=Path)
     parser.add_argument("--state", type=Path, default=Path.home() / ".local/state/tweezr-lint-quality")
     parser.add_argument("--no-gh", action="store_true")
     args = parser.parse_args()
@@ -241,34 +241,48 @@ def main() -> None:
                 f'<p>{inline(f["finding"], slugs)}</p><div class="chips">{"".join(chips)}</div></summary>'
                 f'<div class="body">{markdown(f["body"], slugs, heading_shift=1)}</div></details>'
             )
-        sections.append(f'<h2 id="s-{status}">{STATUS_LABEL[status]} ({len(group)})</h2>' + "".join(cards))
+        sections.append(
+            f'<h2 id="s-{status}">{STATUS_LABEL[status]} ({len(group)})</h2><div class="group">{"".join(cards)}</div>'
+        )
 
     pr_rows = []
     for number in sorted(all_prs, reverse=True):
         owners = ", ".join(f'<a href="#{f["slug"]}">{f["slug"]}</a>' for f in findings if number in f["prs"])
         title = html.escape(states[number]["title"]) if number in states else ""
-        pr_rows.append(f"<li><span>{pr_chip(number, states)} {title}<br><span class=\"muted\">{owners}</span></span></li>")
+        pr_rows.append(f'<li>{pr_chip(number, states)} {title}<br><span class="muted">{owners}</span></li>')
 
-    (args.out_dir / "runs").mkdir(parents=True, exist_ok=True)
-    run_rows = []
-    for run in runs:
+    run_cards = []
+    for index, run in enumerate(runs):
         text = run.read_text()
         first = text.splitlines()[0].lstrip("# ").strip() if text else run.stem
-        run_rows.append(f'<li><a href="runs/{run.stem}.html">{html.escape(first)}</a><span class="muted">{run.stem}</span></li>')
-        article = f'<nav class="top"><a href="../index.html">← All findings</a></nav><article>{markdown(text, set())}</article>'
-        article = re.sub(r'href="#([a-z0-9-]+)"', r'href="../index.html#\1"', article)
-        (args.out_dir / "runs" / f"{run.stem}.html").write_text(page(f"Lint desk {run.stem}", article, generated))
+        rest = "\n".join(text.splitlines()[1:])
+        opened = " open" if index == 0 else ""
+        run_cards.append(
+            f'<details class="card" id="run-{run.stem}"{opened}><summary><span class="slug">{run.stem}</span>'
+            f"<p>{html.escape(first)}</p></summary>"
+            f'<div class="body">{markdown(rest, slugs, heading_shift=1)}</div></details>'
+        )
 
     latest = runs[0].stem if runs else "none"
-    body = f"""<header><h1>Lint-quality desk</h1>
+    page = f"""<title>Lint Quality Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>{CSS}</style>
+<main>
+<header><h1>Lint-quality desk</h1>
 <p class="sub">Lint that catches real bugs with less noise and load · {len(findings)} findings · last sweep {latest}</p>
-<nav class="top"><a href="../">All reports</a><a href="#s-proposed">Approved</a><a href="#s-open">Open</a><a href="#prs">PRs</a><a href="#runs">Runs</a></nav></header>
+<nav class="top"><a href="#s-proposed">Approved</a><a href="#s-open">Waiting on you</a><a href="#prs">PRs</a><a href="#runs">Run history</a></nav></header>
 <div class="stats">{stats}</div>
 {"".join(sections)}
 <h2 id="prs">Pull requests ({len(all_prs)})</h2><ul class="list">{"".join(pr_rows) or "<li>None yet</li>"}</ul>
-<h2 id="runs">Runs ({len(runs)})</h2><ul class="list">{"".join(run_rows) or "<li>None yet</li>"}</ul>"""
-    (args.out_dir / "index.html").write_text(page("Lint Quality Desk", body, generated))
-    print(f"wrote {args.out_dir / 'index.html'} ({len(findings)} findings, {len(runs)} runs, {len(all_prs)} PRs)")
+<h2 id="runs">Run history ({len(runs)})</h2><div class="group">{"".join(run_cards) or "<p>No runs yet.</p>"}</div>
+<footer>Updated {generated} from ~/.local/state/tweezr-lint-quality on puffin. Comment on any finding and the desk reads it at the start of its next run.</footer>
+</main>
+"""
+    args.out_file.parent.mkdir(parents=True, exist_ok=True)
+    args.out_file.write_text(page)
+    print(f"wrote {args.out_file} ({len(findings)} findings, {len(runs)} runs, {len(all_prs)} PRs)")
 
 
 if __name__ == "__main__":
