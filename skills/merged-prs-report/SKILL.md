@@ -20,11 +20,21 @@ description: Weekday-morning report to Tsah of the PRs merged in Legacy-AI-Ltd/t
      bare PR numbers.
    - If nothing merged, the whole report is one sentence:
      `Nothing merged in tweezr since <weekday> 08:00.`
-3. Post it: `python3 ~/.claude/skills/merged-prs-report/post.py "Merged since <weekday> 08:00" "$tmp/report.md"`.
+3. Publish the page: `url=$(publish-report merged-prs "Merged since <weekday> 08:00" "$tmp/report.md")`.
+   This writes a self-contained, mobile-friendly page under `~/reports/merged-prs/`
+   and adds it to that desk's index and to `~/reports/index.html`. Tsah opens
+   them on the tailnet at `https://puffin.tail685506.ts.net/reports/`.
+   `publish-report` is in `~/dotfiles/bin`; its docstring lists the
+   markdown it supports. Each `##` section becomes a card.
+4. Write `"$tmp/post.md"` for the webhook:
+   - The first line is `[Open the full report](<url>)`.
+   - Under it, a short text summary of 2–5 lines: how many merged, yours
+     versus others, and the one or two changes most worth his attention.
+   Post it: `python3 ~/.claude/skills/merged-prs-report/post.py "Merged since <weekday> 08:00" "$tmp/post.md"`.
    The script reads the "groky" sink from `~/.config/clankerhouse/hooks.toml`
    and prints only the HTTP status. Never print the URL or the
    Authorization header.
-4. If the post fails, retry once. If it fails again, report it in your
+5. If the post fails, retry once. If it fails again, report it in your
    session, and keep the report file.
 
 Never put secrets in the report (LINEAR_API_KEY, tokens, URLs with

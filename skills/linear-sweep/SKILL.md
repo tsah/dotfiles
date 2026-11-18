@@ -40,7 +40,16 @@ comment writes. Only Tsah applies a fix.
      wrong, and the fix offered, such as "move to In Review",
      "close the clanker" or "check whether this is still being worked on".
      Make no fixes yourself.
-   - Post it: `python3 ~/.claude/skills/linear-sweep/post.py "Linear: <n> new, <m> out of sync" "$tmp/report.md"`.
+   - Publish the page: `url=$(publish-report linear-sweep "Linear: <n> new, <m> out of sync" "$tmp/report.md")`.
+     This writes a self-contained, mobile-friendly page under `~/reports/linear-sweep/`
+     and adds it to that desk's index and to `~/reports/index.html`. They're
+     on the tailnet at `https://puffin.tail685506.ts.net/reports/`.
+     `publish-report` is in `~/dotfiles/bin`. Each `##` section becomes a card.
+   - Write `"$tmp/post.md"`:
+     - The first line is `[Open the full report](<url>)`.
+     - Under it, a short summary of 2–5 lines: counts, and the items most
+       worth acting on today, such as anything due or overdue.
+   - Post it: `python3 ~/.claude/skills/linear-sweep/post.py "Linear: <n> new, <m> out of sync" "$tmp/post.md"`.
      It prints only the HTTP status. Never print the webhook URL or the
      Authorization header.
 4. `python3 ~/.claude/skills/linear-sweep/collect.py --commit`. This makes
