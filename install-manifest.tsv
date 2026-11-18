@@ -119,3 +119,8 @@ a	prompts/tailshare.md	~/.claude/commands/tailshare.md
 a	prompts/tailshare.md	~/.claude/commands/ts.md
 a	prompts/tailshare.md	~/.pi/agent/prompts/tailshare.md
 a	prompts/tailshare.md	~/.pi/agent/prompts/ts.md
+a	skills/prompts-instructions-desk	~/.agents/skills/prompts-instructions-desk
+a	skills/prompts-instructions-desk	~/.claude/skills/prompts-instructions-desk
+a	skills/prompts-instructions-desk	~/.pi/agent/skills/prompts-instructions-desk
+a	skills/prompts-instructions-desk	~/.config/opencode/skills/prompts-instructions-desk
+a	skills/prompts-instructions-desk	~/.codex/skills/prompts-instructions-desk
