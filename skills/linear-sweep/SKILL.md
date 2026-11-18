@@ -45,11 +45,9 @@ comment writes. Only Tsah applies a fix.
      and adds it to that desk's index and to `~/reports/index.html`. They're
      on the tailnet at `https://puffin.tail685506.ts.net/reports/`.
      `publish-report` is in `~/dotfiles/bin`. Each `##` section becomes a card.
-   - Write `"$tmp/post.md"`:
-     - The first line is `[Open the full report](<url>)`.
-     - Under it, a short summary of 2–5 lines: counts, and the items most
-       worth acting on today, such as anything due or overdue.
-   - Post it: `python3 ~/.claude/skills/linear-sweep/post.py "Linear: <n> new, <m> out of sync" "$tmp/post.md"`.
+   - Post the link: `python3 ~/.claude/skills/linear-sweep/post.py "Linear: <n> new, <m> out of sync" "$url"`.
+     It sends `{"kind":"slop-master-report","title":...,"url":...}`, and Grokus
+     sends Tsah just the title and the link.
      It prints only the HTTP status. Never print the webhook URL or the
      Authorization header.
 4. `python3 ~/.claude/skills/linear-sweep/collect.py --commit`. This makes

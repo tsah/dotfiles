@@ -1,6 +1,6 @@
 ---
 name: merged-prs-report
-description: Weekday-morning report to Tsah of the PRs merged in Legacy-AI-Ltd/tweezr since 08:00 Europe/Amsterdam on the previous weekday, his own first, then everyone else's by author, bots last, each with a one-sentence plain description. Posted through Grokus's webhook. Use when a routine says "Run your merged-prs-report skill now", or when asked for the merged-PRs report.
+description: Weekday-morning report page for Tsah of the PRs merged in Legacy-AI-Ltd/tweezr since 08:00 Europe/Amsterdam on the previous weekday, his own first, then everyone else's by author, bots last, each with a one-sentence plain description. Posted through Grokus's webhook. Use when a routine says "Run your merged-prs-report skill now", or when asked for the merged-PRs report.
 ---
 
 # merged-prs-report
@@ -26,14 +26,9 @@ description: Weekday-morning report to Tsah of the PRs merged in Legacy-AI-Ltd/t
    them on the tailnet at `https://puffin.tail685506.ts.net/reports/`.
    `publish-report` is in `~/dotfiles/bin`; its docstring lists the
    markdown it supports. Each `##` section becomes a card.
-4. Write `"$tmp/post.md"` for the webhook:
-   - The first line is `[Open the full report](<url>)`.
-   - Under it, a short text summary of 2–5 lines: how many merged, yours
-     versus others, and the one or two changes most worth his attention.
-   Post it: `python3 ~/.claude/skills/merged-prs-report/post.py "Merged since <weekday> 08:00" "$tmp/post.md"`.
-   The script reads the "groky" sink from `~/.config/clankerhouse/hooks.toml`
-   and prints only the HTTP status. Never print the URL or the
-   Authorization header.
+4. Post the link: `python3 ~/.claude/skills/merged-prs-report/post.py "Merged since <weekday> 08:00" "$url"`.
+   It sends `{"kind":"slop-master-report","title":...,"url":...}`, and Grokus
+   sends Tsah just the title and the link, so the page carries all the content.
 5. If the post fails, retry once. If it fails again, report it in your
    session, and keep the report file.
 
