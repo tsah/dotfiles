@@ -92,6 +92,11 @@ a	skills/design-integrity-desk	~/.claude/skills/design-integrity-desk
 a	skills/design-integrity-desk	~/.pi/agent/skills/design-integrity-desk
 a	skills/design-integrity-desk	~/.config/opencode/skills/design-integrity-desk
 a	skills/design-integrity-desk	~/.codex/skills/design-integrity-desk
+a	skills/test-quality-desk	~/.agents/skills/test-quality-desk
+a	skills/test-quality-desk	~/.claude/skills/test-quality-desk
+a	skills/test-quality-desk	~/.pi/agent/skills/test-quality-desk
+a	skills/test-quality-desk	~/.config/opencode/skills/test-quality-desk
+a	skills/test-quality-desk	~/.codex/skills/test-quality-desk
 a	claude/keybindings.json	~/.claude/keybindings.json
 a	claude/settings.json	~/.claude/settings.json
 a	claude/commands/ship-pr.md	~/.claude/commands/ship-pr.md
