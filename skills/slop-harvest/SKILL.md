@@ -55,6 +55,11 @@ Nested bullets, no tables. Each item has:
 
 - **Header:** `Item k of n · <group> · <workshop>`
 - **What it is:** one or two lines on the problem and why the work started.
+- **Wider context, whenever there is one:** the workstream it belongs to. Name
+  its parent orchestrator (the clanker's `parentWorkshopId`), the sibling
+  workshops and their state, the plan or milestone it serves, and related PRs
+  that touch the same code. Check the parent on every item; Tsah wants this
+  context named, not inferred.
 - **Where it stands:** what is proven, with the evidence named, and what is
   not proven or still open.
 - **The ask:** the exact question. Show each option concretely (an example
