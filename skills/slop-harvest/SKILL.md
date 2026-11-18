@@ -66,6 +66,10 @@ first message gives the item's background and only decision 1. After Tsah
 answers, show decision 2 alone (`Decision 2 of 4`), and so on. Never stack
 several questions in one message.
 
+**Keep the walk moving.** Once Tsah's answer settles an item, act on it and
+show the next item in the same reply. Never end with "Next item?" or wait
+for him to ask. Stop only when the queue is empty or he says "stop".
+
 If Tsah asks for more context, dig in (worktree, transcript, PR diff) and
 answer before moving on. "skip" moves the item to the end. "stop" ends the walk.
 
