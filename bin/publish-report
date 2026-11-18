@@ -8,6 +8,8 @@ Usage: publish-report DESK TITLE MARKDOWN_FILE
 
 Serving: user systemd unit `reports-server` (python http.server on 127.0.0.1:8790) behind
 `tailscale serve --set-path /reports`, so pages open at https://puffin.tail685506.ts.net/reports/.
+Consumers: retro-desk's render_report.py reads ~/reports/retro-desk/runs.json ([{file,title,when}])
+and re-renders that desk's index.html; keep runs.json's shape and the runs/ path stable.
 Markdown support: #/##/### headings, - and nested bullets, **bold**, *italic*, `code`, [links](url),
 > quotes, and paragraphs.
 """
