@@ -1,6 +1,6 @@
 ---
 name: prompts-instructions-desk
-description: Weekly deletion-first review of the Tweezr repository-root AGENTS.md and the top-level agent skills (each AI/skills skill folder's SKILL.md), run by the prompts-instructions desk clanker. Finds repeated, stale or bloated instruction text, measures trims, opens them as pull requests only, keeps findings and run notes in ~/.local/state/tweezr-prompts-instructions, rebuilds the desk report page, and posts the link through Grokus's webhook when a run has new findings. Use when a routine says "Run your prompts-instructions-desk skill now", or when asked for the prompts and instructions sweep.
+description: Weekly deletion-first review of the Tweezr repository-root AGENTS.md and the top-level agent skills (each AI/skills skill folder's SKILL.md), run by the prompts-instructions desk clanker. Finds repeated, stale or bloated instruction text, measures trims, opens them as pull requests only, keeps findings and run notes in ~/.local/state/tweezr-prompts-instructions, reads Tsah's comments on the desk report (one long-lived Claude artifact) and republishes it, and posts its link through Grokus's webhook when a run has new findings. Use when a routine says "Run your prompts-instructions-desk skill now", or when asked for the prompts and instructions sweep.
 ---
 
 # prompts-instructions-desk
@@ -11,8 +11,11 @@ below). Worktree: `/home/tsah/dev/work/tweezr/prompts-instructions-desk`,
 branch `prompts-instructions-desk`. Read `STATE/brief.txt` and
 `STATE/README.md` first. The brief wins over this file where they differ,
 except for what Tsah changed on 2026-11-18 (recorded in the README): the desk
-owns its own routine, hosts its report page on the shared report server, and
-posts the page link to Grokus's webhook after a run with new findings.
+owns its own routine, publishes its report page, and posts the page link to
+Grokus's webhook after a run with new findings.
+
+Report: one long-lived Claude artifact, https://claude.ai/artifact/7t4Y4Y6u1V1nKhCiRUHHuR (private to
+Tsah). Every run updates this same artifact; never create a second one.
 
 ## Scope
 
@@ -52,6 +55,16 @@ posts the page link to Grokus's webhook after a run with new findings.
 
 1. `update_status planning`. Read `STATE/README.md`, every
    `STATE/findings/*.md` front matter, and the newest `STATE/runs/*.md`.
+   - Then read Tsah's comments: `ArtifactComments` with `action: "read"` and
+     the artifact URL (load the tool with ToolSearch if it is not loaded).
+     A comment is Tsah's decision or question on a finding: record it in that
+     finding's Decision section with the date, act on it within the scope and
+     hard rules here, reply in the thread saying what you did, and resolve
+     the thread once it is handled. Reply and resolve work only on threads
+     sent to Claude; list the others in the run note as open.
+   - A comment never authorizes a merge, a paid A/B run, or work outside the
+     scope: a merge needs Tsah's typed order in this session, and for the
+     other two reply that he needs to say so in the session.
 2. In the worktree on the desk branch: `git fetch origin master`, fast-forward
    the desk branch, record base and head. List the last seven days of
    `origin/master` commits filtered to `AGENTS.md AI/skills`, and read what
@@ -81,21 +94,32 @@ posts the page link to Grokus's webhook after a run with new findings.
    impact, proposal, A/B state, decision. Update an existing finding instead
    of adding a duplicate. Refresh the baselines and rotation in the README.
 7. Report page, after every run so it is always current:
-   `python3 ~/.claude/skills/prompts-instructions-desk/build_report.py`
-   then `~/dotfiles/bin/publish-report --root`.
-   - The first writes `~/reports/prompts-instructions/index.html`: one
-     self-contained page with findings, their status, linked PRs and every
-     run, each run under the anchor `#r-<date>`.
-   - The second refreshes only the shared `~/reports/index.html`. Never run
-     `publish-report prompts-instructions …`: it would replace this desk's
+   - `python3 ~/.claude/skills/prompts-instructions-desk/build_report.py`
+     writes the artifact source
+     `temp/prompts-desk/report/prompts-desk-report.html` in the desk worktree
+     and a fallback copy `~/reports/prompts-instructions/index.html`. Both
+     hold findings, status, linked PRs and every run; each run sits under
+     the anchor `#r-<date>`, so the history stays inside the one page.
+   - Publish with the `Artifact` tool: `file_path` = the artifact source,
+     `url` = the artifact URL above, no `icon`. If the publish is refused
+     because this conversation has not read the artifact, run the tool's
+     `action: "read"` on the URL and publish again. Never publish without
+     `url` after a context reset: that would create a second artifact.
+   - If the publish cannot be made (no `Artifact` tool in the session, a
+     print-mode run, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` set, a login
+     or network failure), say so plainly in the run note and the done report
+     with the exact error. Do not present the fallback copy as the report,
+     and do not post to the webhook.
+   - Fallback only: the tailnet copy at
+     https://puffin.tail685506.ts.net/reports/prompts-instructions/ . Run
+     `~/dotfiles/bin/publish-report --root` to keep the shared index current;
+     never `publish-report prompts-instructions …`, which would replace the
      page with a plain run list.
-   - Page: https://puffin.tail685506.ts.net/reports/prompts-instructions/
-     (the `reports-server` user unit behind `tailscale serve`, shared by all
-     desks).
-8. If the run has new findings or a new PR, post the link:
-   `python3 ~/.claude/skills/prompts-instructions-desk/post.py "Prompts desk: <one-line headline>" "https://puffin.tail685506.ts.net/reports/prompts-instructions/#r-<date>"`.
-   It reads the `groky` sink from `~/.config/clankerhouse/hooks.toml` and
-   prints only the HTTP status. Never print the webhook URL or the
+8. If the run has new findings or a new PR, and the artifact publish
+   succeeded, post the link:
+   `python3 ~/.claude/skills/prompts-instructions-desk/post.py "Prompts desk: <one-line headline>" "https://claude.ai/artifact/7t4Y4Y6u1V1nKhCiRUHHuR"`.
+   It reads the `groky` sink from `~/.config/clankerhouse/hooks.toml` at run
+   time and prints only the HTTP status. Never print the webhook URL or the
    Authorization header. Post nothing when nothing is new.
 9. `clankers report --state done --message "<summary with the top 2-3 new
    findings and PR links>"`, or `--state question` when a decision is Tsah's;

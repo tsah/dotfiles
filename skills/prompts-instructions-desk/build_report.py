@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Build the prompts-instructions desk report page from the desk state.
 
-Usage: build_report.py [STATE_DIR] [OUT_HTML]
-Reads findings/*.md (front matter + body) and runs/*.md; writes one
-self-contained HTML file (no external assets), by default
-~/reports/prompts-instructions/index.html, served on the tailnet at
-https://puffin.tail685506.ts.net/reports/prompts-instructions/. Each run has
-the anchor #r-<run file name without .md>. Prints the output path.
+Usage: build_report.py [STATE_DIR]
+Reads findings/*.md (front matter + body) and runs/*.md and writes the same
+page twice, printing both paths:
+- the Claude artifact source (a fragment, no doctype/html/head/body; the
+  Artifact publish adds the skeleton) under the desk worktree's temp/;
+- a full-document fallback copy at ~/reports/prompts-instructions/index.html.
+Each run sits under the anchor #r-<run file name without .md>.
 """
 import html
 import re
@@ -15,7 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 STATE = Path(sys.argv[1] if len(sys.argv) > 1 else Path.home() / ".local/state/tweezr-prompts-instructions")
-OUT = Path(sys.argv[2] if len(sys.argv) > 2 else Path.home() / "reports/prompts-instructions/index.html")
+ARTIFACT = Path("/home/tsah/dev/work/tweezr/prompts-instructions-desk/temp/prompts-desk/report/prompts-desk-report.html")
+FALLBACK = Path.home() / "reports/prompts-instructions/index.html"
 PR_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/(\d+)")
 
 
@@ -129,49 +131,55 @@ def main() -> None:
 
     all_prs = sorted({u for f in findings for u in f["prs"]} | {m.group(0) for p in runs for m in PR_RE.finditer(p.read_text())})
     built = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    page = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Prompts and instructions desk</title>
+    head = """<title>Prompts Desk Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@500;600&display=swap">
 <style>
-:root{{--bg:#faf9f5;--card:#fff;--ink:#1f1e1d;--muted:#6b6a65;--line:#e6e3da;--accent:#c96442;
---open:#b7791f;--proposed:#2b6cb0;--closed:#2f855a;--excluded:#8a8880;--code:#f1efe8}}
-@media (prefers-color-scheme: dark){{:root{{--bg:#1f1e1d;--card:#2a2927;--ink:#f1efe8;--muted:#a8a69e;
---line:#3b3a37;--accent:#e08a6a;--open:#ecc16b;--proposed:#7fb3ea;--closed:#7fcf9f;--excluded:#8a8880;--code:#35332f}}}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}}
-main{{max-width:880px;margin:0 auto;padding:24px 16px 64px}}
-h1{{font:600 1.7rem/1.2 ui-serif,Georgia,serif;margin:0 0 4px}}
-h2{{font:600 1.2rem/1.3 ui-serif,Georgia,serif;margin:36px 0 12px}}
-h3,h4,h5{{font-size:1rem;margin:16px 0 6px}}
-.sub{{color:var(--muted);margin:0 0 20px;font-size:.92rem}}
-.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}}
-.stat{{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}}
-.stat b{{display:block;font-size:1.6rem;line-height:1.1}}
-.stat span{{color:var(--muted);font-size:.85rem}}
-.card{{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:10px 0;overflow:hidden}}
-.card summary{{cursor:pointer;padding:14px 16px;list-style:none;display:grid;gap:4px}}
-.card summary::-webkit-details-marker{{display:none}}
-.card[open] summary{{border-bottom:1px solid var(--line)}}
-.title{{font-weight:600;overflow-wrap:anywhere}}
-.meta,.status{{color:var(--muted);font-size:.86rem;overflow-wrap:anywhere}}
-.status{{color:var(--ink)}}
-.badge{{justify-self:start;font-size:.72rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
-padding:2px 8px;border-radius:999px;border:1px solid currentColor}}
-.badge.open{{color:var(--open)}}.badge.proposed{{color:var(--proposed)}}
-.badge.closed{{color:var(--closed)}}.badge.excluded{{color:var(--excluded)}}
-.body{{padding:6px 16px 16px;font-size:.94rem;overflow-wrap:anywhere}}
-.body ul{{padding-left:20px}}
-code{{background:var(--code);border-radius:4px;padding:1px 4px;font:.86em ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}}
-a{{color:var(--accent)}}
-a.pr{{display:inline-block;font-size:.82rem;border:1px solid var(--line);border-radius:999px;padding:1px 8px;text-decoration:none;margin-right:4px}}
-ul.index{{padding-left:20px}}ul.index li{{margin:6px 0;overflow-wrap:anywhere}}
-footer{{color:var(--muted);font-size:.82rem;margin-top:40px}}
-</style></head><body><main>
-<p class="sub"><a href="../">All reports</a></p>
+/* Layout: one reading column; status tiles, then finding cards that open in place, then the run history. */
+:root{--bg:#f4f6f7;--card:#ffffff;--ink:#16202a;--muted:#5b6875;--line:#dbe1e6;--accent:#0f6e84;--code:#e9eef1;
+--open:#9a5b00;--proposed:#2456a6;--closed:#1f7a4d;--excluded:#6f7780;
+--display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;--text:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#11171c;--card:#1a2229;--ink:#e6ecf0;--muted:#98a5b0;
+--line:#2b3740;--accent:#5cc3d8;--code:#232e37;--open:#e8b45a;--proposed:#86b0f2;--closed:#6fd19c;--excluded:#8d98a2;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#11171c;--card:#1a2229;--ink:#e6ecf0;--muted:#98a5b0;
+--line:#2b3740;--accent:#5cc3d8;--code:#232e37;--open:#e8b45a;--proposed:#86b0f2;--closed:#6fd19c;--excluded:#8d98a2;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--text)}
+main{max-width:860px;margin:0 auto;padding-block:24px 64px;
+padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+h1{font:600 1.7rem/1.2 var(--display);margin:0 0 4px;text-wrap:balance}
+h2{font:600 1.2rem/1.3 var(--display);margin:36px 0 12px}
+h3,h4,h5{font-size:1rem;margin:16px 0 6px}
+.sub{color:var(--muted);margin:0 0 20px;font-size:.92rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.stat b{display:block;font:600 1.6rem/1.1 var(--display);font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:.85rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:10px 0;overflow:hidden}
+.card summary{cursor:pointer;padding:14px 16px;list-style:none;display:grid;gap:4px}
+.card summary::-webkit-details-marker{display:none}
+.card summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.card[open] summary{border-bottom:1px solid var(--line)}
+.title{font-weight:600;overflow-wrap:anywhere}
+.meta{color:var(--muted);font-size:.86rem;overflow-wrap:anywhere}
+.status{font-size:.86rem;overflow-wrap:anywhere}
+.badge{justify-self:start;font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+padding:2px 8px;border-radius:999px;border:1px solid currentColor}
+.badge.open{color:var(--open)}.badge.proposed{color:var(--proposed)}
+.badge.closed{color:var(--closed)}.badge.excluded{color:var(--excluded)}
+.body{padding:6px 16px 16px;font-size:.94rem;overflow-wrap:anywhere}
+.body ul{padding-left:20px}
+code{background:var(--code);border-radius:4px;padding:1px 4px;font:.86em var(--mono);overflow-wrap:anywhere}
+a{color:var(--accent)}
+a.pr{display:inline-block;font-size:.82rem;border:1px solid var(--line);border-radius:999px;padding:1px 8px;text-decoration:none;margin-right:4px}
+ul.index{padding-left:20px}ul.index li{margin:6px 0;overflow-wrap:anywhere}
+footer{color:var(--muted);font-size:.82rem;margin-top:40px}
+</style>"""
+    body = f"""<main>
 <h1>Prompts and instructions desk</h1>
 <p class="sub">Deletion-first review of the root <code>AGENTS.md</code> and the top-level agent skills in
-<code>AI/skills</code>. Trims go out as pull requests only. Built {built}.</p>
+<code>AI/skills</code>. Trims go out as pull requests only. Comment on any finding to decide it. Built {built}.</p>
 <div class="stats">
 <div class="stat"><b>{counts['open']}</b><span>open findings</span></div>
 <div class="stat"><b>{counts['proposed']}</b><span>with a PR or partly done</span></div>
@@ -186,11 +194,17 @@ footer{{color:var(--muted);font-size:.82rem;margin-top:40px}}
 <ul class="index">{''.join(run_index)}</ul>
 {''.join(run_blocks)}
 <footer>Source: <code>~/.local/state/tweezr-prompts-instructions</code> (findings and runs). Tap a card to open it.</footer>
-</main></body></html>
-"""
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(page)
-    print(OUT)
+</main>"""
+    # The artifact file is a fragment: the publish step wraps it in the document skeleton.
+    ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
+    ARTIFACT.write_text(head + "\n" + body + "\n")
+    # Fallback copy on the tailnet report server: the same page as a full document.
+    FALLBACK.parent.mkdir(parents=True, exist_ok=True)
+    FALLBACK.write_text('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n'
+                        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+                        + head + "\n</head><body>\n" + body + "\n</body></html>\n")
+    print(ARTIFACT)
+    print(FALLBACK)
 
 
 if __name__ == "__main__":
