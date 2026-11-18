@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""POST a report link to Grokus's webhook (the "groky" sink in ~/.config/clankerhouse/hooks.toml).
+
+Usage: post.py TITLE URL
+Prints only the HTTP status. Never prints the webhook URL or the Authorization header.
+"""
+
+import json
+import sys
+import tomllib
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+title, page_url = sys.argv[1], sys.argv[2]
+sinks = tomllib.loads(Path.home().joinpath(".config/clankerhouse/hooks.toml").read_text())["sinks"]
+sink = next(s for s in sinks if s["name"] == "groky")
+body = json.dumps({"kind": "slop-master-report", "title": title, "url": page_url}).encode()
+headers = {**sink.get("headers", {}), "content-type": "application/json"}
+request = urllib.request.Request(sink["url"], data=body, headers=headers, method="POST")
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        print(f"posted: HTTP {response.status}")
+except urllib.error.HTTPError as error:
+    print(f"post failed: HTTP {error.code}")
+    sys.exit(1)

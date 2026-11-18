@@ -82,6 +82,11 @@ a	skills/to-prd	~/.claude/skills/to-prd
 a	skills/to-prd	~/.pi/agent/skills/to-prd
 a	skills/to-prd	~/.config/opencode/skills/to-prd
 a	skills/to-prd	~/.codex/skills/to-prd
+a	skills/lint-quality-desk	~/.agents/skills/lint-quality-desk
+a	skills/lint-quality-desk	~/.claude/skills/lint-quality-desk
+a	skills/lint-quality-desk	~/.pi/agent/skills/lint-quality-desk
+a	skills/lint-quality-desk	~/.config/opencode/skills/lint-quality-desk
+a	skills/lint-quality-desk	~/.codex/skills/lint-quality-desk
 a	claude/keybindings.json	~/.claude/keybindings.json
 a	claude/settings.json	~/.claude/settings.json
 a	claude/commands/ship-pr.md	~/.claude/commands/ship-pr.md
