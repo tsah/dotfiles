@@ -249,11 +249,12 @@ def main() -> None:
     ap.add_argument("--state", default=str(Path.home() / ".local/state/tweezr-design-integrity"))
     ap.add_argument("--out", default=None)
     ap.add_argument("--refresh-prs", action="store_true")
+    ap.add_argument("--artifact", default=None, help="write the single-page Claude artifact HTML to this file instead of the puffin site")
     a = ap.parse_args()
     state = Path(a.state)
     desk_path = state / "desk.json"
     desk = json.loads(desk_path.read_text())
-    out = Path(a.out or desk.get("report", {}).get("dir") or state / "site")
+    out = Path(a.out or desk.get("report", {}).get("fallbackDir") or state / "site")
     (out / "runs").mkdir(parents=True, exist_ok=True)
     (out / "findings").mkdir(parents=True, exist_ok=True)
 
@@ -327,10 +328,73 @@ def main() -> None:
             + (f'<h2>Desk PRs</h2><p>{tracked}</p>' if tracked else "")
             + f'<h2>Findings by candidate</h2>{filters}{"".join(gh)}'
             f'<h2 id="runs">Runs</h2><ul class="runs">{"".join(run_rows)}</ul>')
+    if a.artifact:
+        Path(a.artifact).write_text(artifact_page(findings, groups, gkey, prs, desk, stats, filters, tracked, last, runs, cand))
+        print(a.artifact)
+        return
     (out / "index.html").write_text(page("Design Integrity Desk", body, 0, FILTER_JS))
     if out.parent == REPORTS_ROOT:
         rebuild_root_index()
     print(out)
+
+
+def artifact_css() -> str:
+    """The site CSS adapted to the Claude artifact page contract (safe-area gutter, color-scheme in dark)."""
+    css = CSS.replace("main{max-width:920px;margin:0 auto;padding:20px 16px 64px}",
+                      "main{max-width:920px;margin:0 auto;padding-block:20px 64px;"
+                      "padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}")
+    css = css.replace("--rejected:#8f8d87;--chip:#34332f;--code:#33322e}}", "--rejected:#8f8d87;--chip:#34332f;--code:#33322e;color-scheme:dark}}", 1)
+    css = css.replace("--rejected:#8f8d87;--chip:#34332f;--code:#33322e}\n", "--rejected:#8f8d87;--chip:#34332f;--code:#33322e;color-scheme:dark}\n", 1)
+    return css + "details.full>summary{cursor:pointer;color:var(--accent);font-size:.86rem;margin-top:6px}.prose,.card{min-width:0}\n"
+
+
+def artifact_page(findings, groups, gkey, prs, desk, stats, filters, tracked, last, runs, cand) -> str:
+    """One self-contained page holding everything: findings (full text inline), candidates and every run log.
+
+    Authored for the Claude artifact publish (the skeleton is added at publish time), so it has no
+    doctype/html/head/body of its own. Anchors are plain #names: #findings, #candidates, #runs, #f-<slug>, #run-<stem>.
+    """
+    gh = []
+    for i, (name, fs) in enumerate(sorted(groups.items(), key=gkey)):
+        cards = []
+        for f in sorted(fs, key=lambda f: (STATUS_ORDER.index(f["status"]) if f["status"] in STATUS_ORDER else 9, f["slug"])):
+            chips = "".join(pr_chip(n, prs) for n in f["prs"])
+            dec = f["decisions"].splitlines()[-1] if f["decisions"] else ""
+            cards.append(
+                f'<div class="card" id="f-{esc(f["slug"])}" data-finding data-status="{esc(f["status"])}" data-scope="{esc(f["scope"])}">'
+                f'<h3>{esc(f["slug"])}</h3>'
+                f'<div><span class="chip st-{esc(f["status"])}"><span class="dot"></span>{esc(f["status"])}</span>'
+                f'<span class="chip">{esc(f["strength"] or "—")}</span><span class="chip">{esc(f["scope"])}</span>'
+                f'<span class="chip">{esc(f["kind"])}</span><span class="chip">{f["occurrences"]} occurrence lines</span>{chips}</div>'
+                f'<p>{inline(f["finding"])}</p>'
+                + (f'<p class="small muted">Latest decision: {inline(dec.lstrip("- "))}</p>' if dec else "")
+                + f'<details class="full"><summary>Evidence, proposal and decisions</summary><div class="prose">{md(f["text"])}</div></details>'
+                + "</div>")
+        gh.append(f'<details class="group"{" open" if i < 3 else ""}><summary>{esc(name)} <span class="muted small">(<span class="count">{len(fs)}</span>)</span></summary>{"".join(cards)}</details>')
+    run_items = []
+    for r in runs:
+        t, s = run_title(r)
+        run_items.append(f'<details class="group" id="run-{esc(r.stem)}"><summary>{esc(r.stem)} <span class="muted small">{inline(s or t)}</span></summary>'
+                         f'<div class="prose">{md(r.read_text())}</div></details>')
+    cand_html = f'<div class="prose">{md(cand.read_text())}</div>' if cand.exists() else ""
+    rendered = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"""<title>Design Integrity Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>{artifact_css()}</style>
+<main>
+<header class="top"><h1>Design Integrity Desk</h1><button class="theme" type="button">Theme</button></header>
+<nav><a href="#findings">Findings</a><a href="#candidates">Candidates</a><a href="#runs">Runs</a></nav>
+<p class="muted">Deep modules, locality and seams in Tweezr, not a bug list. Last run {esc(last.get("date", "—"))} on
+<code>{esc(last.get("base", "—"))}</code>: {esc(last.get("kind", ""))}. Comment inline on any finding or candidate; the desk reads and answers comments at the start of each run.</p>
+<div class="stats">{stats}</div>
+{f'<h2>Desk and implementation PRs</h2><p>{tracked}</p>' if tracked else ""}
+<h2 id="findings">Findings by candidate</h2>{filters}{"".join(gh)}
+<h2 id="candidates">Deepening candidates</h2><details class="group"><summary>Ranked candidates, changes per run and bugs to route</summary>{cand_html}</details>
+<h2 id="runs">Run history</h2>{"".join(run_items)}
+<footer>Design Integrity Desk · rendered {rendered}</footer>
+</main>
+<script>{THEME_JS}{FILTER_JS}</script>
+"""
 
 
 REPORTS_ROOT = Path.home() / "reports"
