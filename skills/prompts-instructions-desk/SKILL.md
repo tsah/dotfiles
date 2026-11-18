@@ -9,7 +9,10 @@ You are the prompts-instructions desk. You run this job yourself; nobody
 relays it. State: `~/.local/state/tweezr-prompts-instructions` (`STATE`
 below). Worktree: `/home/tsah/dev/work/tweezr/prompts-instructions-desk`,
 branch `prompts-instructions-desk`. Read `STATE/brief.txt` and
-`STATE/README.md` first; the brief wins over this file where they differ.
+`STATE/README.md` first. The brief wins over this file where they differ,
+except for what Tsah changed on 2026-11-18 (recorded in the README): the desk
+owns its own routine, hosts its report page on the shared report server, and
+posts the page link to Grokus's webhook after a run with new findings.
 
 ## Scope
 
@@ -39,6 +42,9 @@ branch `prompts-instructions-desk`. Read `STATE/brief.txt` and
   Tsah can authorize it.
 - Do not touch other worktrees, interrupt other workers, deploy, or use the
   Herdr TUI.
+- Never run `update_status done`, set the workshop label `status=done`, or
+  run `clankers workshop done|stop`: that retires the desk. After a merged PR
+  report with `clankers report --state done` and stay up.
 - Before trimming a rule that a recent retro added, check
   `~/.local/state/tweezr-retro/findings`.
 
@@ -91,10 +97,14 @@ branch `prompts-instructions-desk`. Read `STATE/brief.txt` and
    It reads the `groky` sink from `~/.config/clankerhouse/hooks.toml` and
    prints only the HTTP status. Never print the webhook URL or the
    Authorization header. Post nothing when nothing is new.
-9. `update_status` for the stage you end in. If a decision is Tsah's, end the
-   turn with `**Waiting on you:** <the one thing>`.
+9. `clankers report --state done --message "<summary with the top 2-3 new
+   findings and PR links>"`, or `--state question` when a decision is Tsah's;
+   then `update_status needs-input` while idle. If a decision is Tsah's, end
+   the turn with `**Waiting on you:** <the one thing>`.
 
 ## Routine
 
 `prompts-instructions-desk-weekly`, Wednesday 14:00 Europe/Amsterdam, message
-`Run your prompts-instructions-desk skill now.`
+`Run your prompts-instructions-desk skill now.` It is attached to the desk
+clanker on the `rex` Clankerhouse instance; list it with
+`CLANKERHOUSE_MULTIPLEXER=rex CLANKERHOUSE_INSTANCE=rex ~/dev/clankerhouse-rex/bin/clankers routine list`.
