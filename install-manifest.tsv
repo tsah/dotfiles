@@ -97,6 +97,11 @@ a	skills/test-quality-desk	~/.claude/skills/test-quality-desk
 a	skills/test-quality-desk	~/.pi/agent/skills/test-quality-desk
 a	skills/test-quality-desk	~/.config/opencode/skills/test-quality-desk
 a	skills/test-quality-desk	~/.codex/skills/test-quality-desk
+a	skills/retro-desk	~/.agents/skills/retro-desk
+a	skills/retro-desk	~/.claude/skills/retro-desk
+a	skills/retro-desk	~/.pi/agent/skills/retro-desk
+a	skills/retro-desk	~/.config/opencode/skills/retro-desk
+a	skills/retro-desk	~/.codex/skills/retro-desk
 a	claude/keybindings.json	~/.claude/keybindings.json
 a	claude/settings.json	~/.claude/settings.json
 a	claude/commands/ship-pr.md	~/.claude/commands/ship-pr.md
