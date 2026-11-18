@@ -17,7 +17,8 @@ for arg in "$@"; do
     esac
 done
 
-# Manifest scope codes: a = desktop and server, d = desktop, s = server, m = macos.
+# A manifest scope is one or more profile letters (d = desktop, s = server, m = macos,
+# so "dsm" is every profile); a is shorthand for desktop and server.
 case "$scope" in
     desktop) codes="a d" ;;
     server) codes="a s" ;;
@@ -32,7 +33,7 @@ tab=$(printf '\t')
 
 in_scope() {
     for code in $codes; do
-        [ "$1" = "$code" ] && return 0
+        case "$1" in *"$code"*) return 0 ;; esac
     done
     return 1
 }

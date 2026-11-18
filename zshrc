@@ -12,16 +12,19 @@ fi
 export EDITOR="nvim"
 export VISUAL="nvim"
 export PAGER="less"
-export BROWSER="xdg-open"
-export PLANNOTATOR_BROWSER="${PLANNOTATOR_BROWSER:-$HOME/.local/bin/xdg-open}"
-export PLANNOTATOR_REMOTE="${PLANNOTATOR_REMOTE:-1}"
-# Migrate the old fixed remote port while preserving intentional overrides.
-if [[ -z "${PLANNOTATOR_PORT-}" || "${PLANNOTATOR_PORT}" == "19432" ]]; then
-  export PLANNOTATOR_PORT="19432-19439"
-fi
 
 # Configure word boundaries (exclude / and . from word characters)
 export WORDCHARS='*?_-[]~=&;!#$%^(){}<>'
+
+# ---- platform ----
+# This file is shared by every profile. Platform-only settings live in
+# zsh/<os>.zsh next to it, found through the symlink.
+DOTFILES_DIR="${DOTFILES_DIR:-${${(%):-%x}:A:h}}"
+case "$OSTYPE" in
+  darwin*) DOTFILES_OS=darwin ;;
+  *) DOTFILES_OS=linux ;;
+esac
+[[ -r "$DOTFILES_DIR/zsh/$DOTFILES_OS.zsh" ]] && source "$DOTFILES_DIR/zsh/$DOTFILES_OS.zsh"
 
 # ---- path ----
 typeset -U path PATH
@@ -120,11 +123,6 @@ if [[ -f "$HOME/google-cloud-sdk/completion.zsh.inc" ]]; then
   source "$HOME/google-cloud-sdk/completion.zsh.inc"
 fi
 
-# Source SSH agent info from Hyprland (if present)
-if [[ -f "$HOME/.ssh-agent-info" ]]; then
-  source "$HOME/.ssh-agent-info" >/dev/null
-fi
-
 # ---- vi mode ----
 bindkey -v
 export VI_MODE_SET_CURSOR=true
@@ -151,14 +149,15 @@ zle-line-init() {
 zle -N zle-line-init
 printf '\e[6 q'
 
-if command -v wl-copy >/dev/null 2>&1; then
-  vi-yank-wlcopy() {
+# Vi yank also copies to the system clipboard; the platform file picks the tool.
+if (( ${#DOTFILES_CLIPBOARD_COPY} )) && command -v "${DOTFILES_CLIPBOARD_COPY[1]}" >/dev/null 2>&1; then
+  vi-yank-clipboard() {
     zle vi-yank
-    print -rn -- "$CUTBUFFER" | wl-copy
+    print -rn -- "$CUTBUFFER" | "${DOTFILES_CLIPBOARD_COPY[@]}"
   }
 
-  zle -N vi-yank-wlcopy
-  bindkey -M vicmd 'y' vi-yank-wlcopy
+  zle -N vi-yank-clipboard
+  bindkey -M vicmd 'y' vi-yank-clipboard
 fi
 
 autoload -Uz edit-command-line

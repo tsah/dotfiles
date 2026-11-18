@@ -1,11 +1,11 @@
 # Tab-separated: scope<TAB>source<TAB>destination
-# Scopes: a = desktop and server, d = desktop, s = server, m = macos
+# Scope: profile letters d = desktop, s = server, m = macos (e.g. dsm = all); a = desktop and server
 a	nvim	~/.config/nvim
-a	zshrc	~/.zshrc
+dsm	zshrc	~/.zshrc
 a	bashrc	~/.bashrc
-a	inputrc	~/.inputrc
-a	.zprofile	~/.zprofile
-a	.gitconfig	~/.gitconfig
+dsm	inputrc	~/.inputrc
+dsm	.zprofile	~/.zprofile
+dsm	.gitconfig	~/.gitconfig
 a	.tmux.conf	~/.tmux.conf
 a	herdr/config.toml	~/.config/herdr/config.toml
 a	worktrunk/config.toml	~/.config/worktrunk/config.toml
@@ -25,8 +25,8 @@ a	pi/extensions/reading-diff	~/.pi/agent/extensions/reading-diff
 a	pi/prompts/ship-pr.md	~/.pi/agent/prompts/ship-pr.md
 a	pi/settings.json	~/.pi/agent/settings.json
 a	pi/subagents.json	~/.pi/agent/subagents.json
-a	starship.toml	~/.config/starship.toml
-a	atuin-config.toml	~/.config/atuin/config.toml
+dsm	starship.toml	~/.config/starship.toml
+dsm	atuin-config.toml	~/.config/atuin/config.toml
 d	ghostty-config	~/.config/ghostty/config
 d	omarchy/hypr	~/.config/hypr
 d	omarchy/extensions/omarchy-menu.jsonc	~/.config/omarchy/extensions/omarchy-menu.jsonc
