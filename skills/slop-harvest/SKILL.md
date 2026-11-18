@@ -32,6 +32,14 @@ For each candidate, read enough to explain it:
   The body's change-risk section is the merge context. Check whether it already merged.
 - For a stuck clanker: `clankers status ID`. Read `state`, `blockedMessage` and `health`.
 
+Filter out items that aren't Tsah's to decide. Before you queue a question, ask
+whether its answer changes anything Tsah sees, owns or pays for: product
+behaviour, a customer, money, the merge of risky code, his own settings. An
+internal wording choice, a doc's state name or a tool's own bookkeeping isn't
+his call, even when a worker asks him. Tell the worker to decide it, record
+the decision in its PR, and carry on (he said: "why was this issue brought up?
+I don't see the relevance to me").
+
 Drop items that are already resolved: the PR merged, a later reply supersedes
 the ask, or the worker is mid-turn on it. Write the list to the scratchpad so
 it survives a long session.
