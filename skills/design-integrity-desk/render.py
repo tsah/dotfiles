@@ -337,14 +337,8 @@ REPORTS_ROOT = Path.home() / "reports"
 
 
 def rebuild_root_index() -> None:
-    """Refresh ~/reports/index.html the way ~/dotfiles/bin/publish-report does (it lists every desk folder)."""
-    src = (Path.home() / "dotfiles/bin/publish-report").read_text()
-    ns: dict = {"__name__": "publish_report"}
-    exec(compile(src.rsplit("\nmain()", 1)[0], "publish-report", "exec"), ns)
-    desks = sorted(d for d in REPORTS_ROOT.iterdir() if (d / "index.html").exists())
-    items = "".join(f'<li><a href="{d.name}/">{html.escape(d.name)}</a></li>' for d in desks)
-    (REPORTS_ROOT / "index.html").write_text(ns["page"](
-        "Reports", "puffin", f"{len(desks)} desks", f'<section class="card"><ul class="runs">{items}</ul></section>'))
+    """Refresh ~/reports/index.html (the list of every desk) with the shared publish-report tool."""
+    subprocess.run([str(Path.home() / "dotfiles/bin/publish-report"), "--root"], check=True, stdout=subprocess.DEVNULL)
 
 
 if __name__ == "__main__":
