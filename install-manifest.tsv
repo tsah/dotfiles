@@ -87,6 +87,11 @@ a	skills/lint-quality-desk	~/.claude/skills/lint-quality-desk
 a	skills/lint-quality-desk	~/.pi/agent/skills/lint-quality-desk
 a	skills/lint-quality-desk	~/.config/opencode/skills/lint-quality-desk
 a	skills/lint-quality-desk	~/.codex/skills/lint-quality-desk
+a	skills/design-integrity-desk	~/.agents/skills/design-integrity-desk
+a	skills/design-integrity-desk	~/.claude/skills/design-integrity-desk
+a	skills/design-integrity-desk	~/.pi/agent/skills/design-integrity-desk
+a	skills/design-integrity-desk	~/.config/opencode/skills/design-integrity-desk
+a	skills/design-integrity-desk	~/.codex/skills/design-integrity-desk
 a	claude/keybindings.json	~/.claude/keybindings.json
 a	claude/settings.json	~/.claude/settings.json
 a	claude/commands/ship-pr.md	~/.claude/commands/ship-pr.md
