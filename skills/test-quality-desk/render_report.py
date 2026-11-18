@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""Render the test-quality desk's report page from its state files.
+"""Render the test-quality desk's report as the page of its Claude artifact.
 
-Usage: render_report.py [STATE_DIR] [REPORTS_ROOT]
-  STATE_DIR    defaults to ~/.local/state/tweezr-test-quality
-  REPORTS_ROOT defaults to ~/reports (the shared report server's root)
+Usage: render_report.py [STATE_DIR]
+  STATE_DIR defaults to ~/.local/state/tweezr-test-quality
 
 Reads findings/*.md (front matter: finding, kind, status) and runs/*.md, looks
-up every PR the findings' Decisions name with read-only `gh pr view`, and writes:
-  REPORTS_ROOT/test-quality/index.html          current findings + sweep history
-  REPORTS_ROOT/test-quality/runs/<date>.html    one page per sweep log
-  REPORTS_ROOT/index.html                       every desk (same rule as publish-report)
-Pages are self-contained (Google Fonts only). They are served on the tailnet at
-https://puffin.tail685506.ts.net/reports/ by the `reports-server` user unit
-that ~/dotfiles/bin/publish-report documents. Prints the desk page URL.
+up every PR the findings' Decisions name with read-only `gh pr view`, and writes
+STATE_DIR/report/index.html: one self-contained artifact page (no doctype/head;
+the Artifact tool wraps it) with current findings and the whole sweep history.
+SKILL.md says how to publish it to the desk's single long-lived artifact.
+Prints the file path.
 """
 
 import html
@@ -24,8 +21,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 REPO = "Legacy-AI-Ltd/tweezr"
-DESK = "test-quality"
-BASE_URL = "https://puffin.tail685506.ts.net/reports"
 STATUS_ORDER = ["open", "proposed", "accepted", "rejected"]
 PR_RE = re.compile(r"(?:https://github\.com/Legacy-AI-Ltd/tweezr/pull/|#)(\d{4,5})\b")
 
@@ -259,17 +254,17 @@ def render(state: Path) -> str:
     for r in runs:
         run_cards.append(
             f'<details class="card" id="run-{r["date"]}"><summary><div class="claim">{inline(r["title"])}</div>'
-            f'<div class="meta"><a href="runs/{r["date"]}.html">Open as a page</a></div>'
             f'<div class="meta">{markdown(r["headline"]) if r["headline"] else ""}</div></summary>'
             f'<div class="card-body">{markdown(r["body"].split(chr(10), 1)[1] if chr(10) in r["body"] else "")}</div></details>'
         )
     index = " · ".join(f'<a href="#run-{r["date"]}">{r["date"]}</a>' for r in runs)
 
-    return document("Test-Quality Desk", f"""<div class="wrap">
+    return artifact_page("Test-Quality Desk", f"""<div class="wrap">
 <header style="display:grid;gap:6px">
   <h1>Test-Quality Desk</h1>
   <div class="meta">Tweezr CI and test-suite findings · last sweep {last_run} · page built {now}</div>
   <div class="meta">Better tests, less CI and machine load. Changes ship only as draft PRs Tsah approved; nothing merges without him.</div>
+  <div class="meta">Comment on any finding or sweep. The desk reads and answers comments at the start of each weekly run (Saturday 20:00 Amsterdam).</div>
 </header>
 <section aria-labelledby="h-findings">
   <h2 id="h-findings">Findings</h2>
@@ -285,48 +280,21 @@ def render(state: Path) -> str:
 <script>{SCRIPT}</script>""")
 
 
-def document(title: str, body: str) -> str:
-    return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>{html.escape(title)}</title>
+def artifact_page(title: str, body: str) -> str:
+    return f"""<title>{html.escape(title)}</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
-<style>*{{box-sizing:border-box}} body{{margin:0}} [hidden]{{display:none!important}} {CSS}</style>
-</head><body>{body}</body></html>
+<style>*{{box-sizing:border-box}} {CSS}</style>
+{body}
 """
-
-
-def run_page(run: dict[str, str]) -> str:
-    rest = run["body"].split("\n", 1)[1] if "\n" in run["body"] else ""
-    return document(
-        f"Test-quality sweep {run['date']}",
-        f'''<div class="wrap"><header style="display:grid;gap:6px">
-<div class="meta"><a href="../../">All reports</a> · <a href="../">Test-Quality Desk</a></div>
-<h1>{inline(run["title"])}</h1></header><section class="card-body" style="padding:0">{markdown(rest)}</section></div>''',
-    )
-
-
-def rebuild_root_index(root: Path) -> None:
-    """Same listing rule as ~/dotfiles/bin/publish-report: every desk directory with an index.html."""
-    desks = sorted(d for d in root.iterdir() if (d / "index.html").exists())
-    items = "".join(f'<li><a href="{d.name}/">{html.escape(d.name)}</a></li>' for d in desks)
-    (root / "index.html").write_text(document(
-        "Reports",
-        f'''<div class="wrap"><header style="display:grid;gap:6px"><div class="meta">puffin</div><h1>Reports</h1>
-<div class="meta">{len(desks)} desks</div></header><ul>{items}</ul></div>''',
-    ))
 
 
 def main() -> None:
     state = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else Path.home() / ".local/state/tweezr-test-quality"
-    root = Path(sys.argv[2]).expanduser() if len(sys.argv) > 2 else Path.home() / "reports"
-    desk_dir = root / DESK
-    (desk_dir / "runs").mkdir(parents=True, exist_ok=True)
-    for path in (state / "runs").glob("*.md"):
-        (desk_dir / "runs" / f"{path.stem}.html").write_text(run_page(run_summary(path)))
-    (desk_dir / "index.html").write_text(render(state))
-    rebuild_root_index(root)
-    print(f"{BASE_URL}/{DESK}/")
+    out = state / "report" / "index.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render(state))
+    print(out)
 
 
 if __name__ == "__main__":
