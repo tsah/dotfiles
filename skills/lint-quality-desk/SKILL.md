@@ -20,7 +20,7 @@ him.
     Slop Master; it lists every folder that has an `index.html`.
   - Never run `publish-report lint-quality …`: it rebuilds the desk index from
     `runs.json` and would overwrite this desk's findings index. This desk renders
-    with its own `render.py`.
+    with its own `render.py`, then runs `publish-report --root`.
 - **Routine:** `lint-quality-desk-weekly`, Saturday 20:00 Europe/Amsterdam.
   Manage it with `clankers routine` (see the `clanker-coordination` skill).
 
@@ -158,6 +158,8 @@ Run it when the routine message arrives or when you are asked.
    - It builds `index.html` (findings by status with live PR state from `gh`, a
      PR list and a run index) and `runs/<date>.html`.
    - Re-render after every state change, not only after sweeps.
+   - Then run `publish-report --root` (in `~/dotfiles/bin`). It refreshes only the
+     shared `/home/tsah/reports/index.html` and leaves this desk's index alone.
 2. If this run filed at least one new finding, or moved a finding to a new
    status, post once:
    `python3 ~/.claude/skills/lint-quality-desk/post.py "Lint-quality desk: <one-line headline>" "https://puffin.tail685506.ts.net/reports/lint-quality/runs/<date>.html"`.
