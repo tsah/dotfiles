@@ -105,7 +105,12 @@ for c in clankers:
     ws = c.get("workshop") or {}
     text = " ".join(str(x) for x in (c.get("name"), c.get("session"), c.get("worktreePath"), ws.get("branch"), ws.get("path")) if x)
     live = bool(c.get("alive")) and c.get("state") != "done"
-    add(set(TWE.findall(text)), {"kind": "clanker", "label": c.get("session") or c.get("name"), "live": live})
+    ids = set(TWE.findall(text))
+    worktree = c.get("worktreePath") or ws.get("path")
+    if not ids and worktree:
+        # Workshops named without the ticket id: build and factory runs keep temp/build/TWE-<n>/.
+        ids = {m.group(1) for p in Path(worktree, "temp/build").glob("TWE-*") if (m := re.match(r"TWE-(\d+)$", p.name, re.I))}
+    add(ids, {"kind": "clanker", "label": c.get("session") or c.get("name"), "live": live})
 
 open_prs = run_json(["gh", "pr", "list", "-R", REPO, "--state", "open", "--author", "tsah", "--limit", "300", "--json", "title,url,headRefName"])
 for p in open_prs:
