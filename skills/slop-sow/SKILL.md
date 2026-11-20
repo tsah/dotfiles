@@ -29,6 +29,14 @@ An item is waiting to be created when a worker's last reply asks for:
 - **A spawn:** a proposed follow-up workshop, ticket or investigation that
   nobody has started ("worth a separate ticket", "I'd open a follow-up").
 - **Park or drop** on a finished exploration that recommends future work.
+- **A finished investigation whose recommendation nobody acted on**, even
+  when it never asked Tsah anything (often a child that reported to an
+  orchestrator that then went idle).
+
+Work under a live orchestrator goes through it: one item per workstream,
+built from the orchestrator's state and checked against its workers, and
+Tsah's answers go to the orchestrator, which passes them down. Go to a
+worker directly only when its orchestrator is dead or stalled.
 
 Also, **Linear tickets on Tsah with no workshop yet**: his open TWE issues
 (assigned to him, not completed or canceled) that no clanker works on.

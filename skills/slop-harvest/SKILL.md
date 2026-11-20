@@ -17,6 +17,32 @@ First read the unblock-sweep logs since Tsah's last harvest
 on what the overnight sweeps did, then put their "Waiting on Tsah" and
 "Ready for review" entries into the queue.
 
+**The objective is all running work merged.** Don't collect only the asks:
+start from every live workshop and sort each one:
+- **merged or done:** close it out (mark the workshop done if it isn't).
+- **moving:** working, or waiting on CI. Leave it.
+- **stalled:** idle with no merged PR and no ask, or an investigation whose
+  recommendation nobody acted on. Find out why. Nudge it (through its
+  orchestrator) when the next step is obvious, or bring it to Tsah as
+  "stalled on X".
+- **waiting on Tsah:** the asks below.
+
+Open the walk with the counts: `N live · M moving · K stalled · J need you`.
+
+**Work with an orchestrator goes through the orchestrator.** A workshop
+whose `parentWorkshopId` points to a live orchestrator is part of that
+workstream:
+- Present one item per workstream, built from the orchestrator's state.
+  Ask the orchestrator for its status (`clankers send`) rather than walking
+  each worker, but still read worker and PR state yourself to check its
+  claims.
+- Send Tsah's answers, nudges and merge orders to the orchestrator, which
+  passes them down (automerge case 3 covers an orchestrator's relay).
+- Go to a worker directly only when its orchestrator is dead, out of quota
+  or stalled (revive the orchestrator first), for box-level fixes (a hung
+  process, quota, a startup dialog; then tell the orchestrator), or for a
+  step only Tsah may type in that worker's own session.
+
 Build the item list from live state, never from memory or earlier messages:
 
 ```bash
