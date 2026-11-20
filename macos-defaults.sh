@@ -13,13 +13,6 @@ defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 \
 # source" (symbolic hotkey 60), Ctrl = 262144, Space = 49.
 defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 60 \
   '<dict><key>enabled</key><true/><key>value</key><dict><key>parameters</key><array><integer>32</integer><integer>49</integer><integer>262144</integer></array><key>type</key><string>standard</string></dict></dict>'
-# Ctrl+1..6 switches to Desktop 1..6 (symbolic hotkeys 118..123; ANSI key codes).
-hotkey=118
-for code in 18 19 20 21 23 22; do
-  defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add "$hotkey" \
-    "<dict><key>enabled</key><true/><key>value</key><dict><key>parameters</key><array><integer>65535</integer><integer>$code</integer><integer>262144</integer></array><key>type</key><string>standard</string></dict></dict>"
-  hotkey=$((hotkey + 1))
-done
 /System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u
 
 # ---- input sources ----
@@ -37,11 +30,6 @@ for id in ["com.apple.keylayout.ABC", "com.apple.keylayout.Hebrew"] {
     for source in sources(id) { TISDisableInputSource(source) }
 }
 SWIFT
-
-# ---- spaces ----
-# Keep desktops in a fixed order, so Ctrl+N always means the same desktop.
-defaults write com.apple.dock mru-spaces -bool false
-killall Dock
 
 # ---- scrolling ----
 # Natural scrolling, which macOS applies to trackpad and mouse alike.

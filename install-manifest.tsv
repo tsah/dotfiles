@@ -116,7 +116,6 @@ a	bin/linear-ticket	~/.local/bin/linear-ticket
 a	claude/skills/customize-opencode	~/.claude/skills/customize-opencode
 a	claude/skills/tmux-interactive-control	~/.claude/skills/tmux-interactive-control
 m	hammerspoon/init.lua	~/.hammerspoon/init.lua
-m	yabai/yabairc	~/.config/yabai/yabairc
 m	linearmouse/linearmouse.json	~/.config/linearmouse/linearmouse.json
 m	ghostty-config	~/.config/ghostty/config
 m	ghostty-macos-config	~/Library/Application Support/com.mitchellh.ghostty/config
