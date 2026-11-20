@@ -1,6 +1,6 @@
 ---
 name: slop-sow
-description: Walk Tsah through all work on the dev box that is waiting to be created - shapes waiting for Shape Go, shaping questions, explainers written before a shape, framing tickets, and proposed follow-up workshops nobody has spawned yet - one item at a time, from his phone. The counterpart of slop-harvest, which handles finished work. Use when Tsah says "sow", "what's waiting to be created", "shapes", or runs /slop-sow.
+description: Walk Tsah through all work on the dev box that is waiting to be created - shapes waiting for Shape Go, shaping questions, explainers written before a shape, framing tickets, and proposed follow-up workshops nobody has spawned yet, and Linear tickets assigned to him with no workshop - one item at a time, from his phone. The counterpart of slop-harvest, which handles finished work. Use when Tsah says "sow", "what's waiting to be created", "shapes", or runs /slop-sow.
 ---
 
 # slop-sow
@@ -30,6 +30,16 @@ An item is waiting to be created when a worker's last reply asks for:
   nobody has started ("worth a separate ticket", "I'd open a follow-up").
 - **Park or drop** on a finished exploration that recommends future work.
 
+Also, **Linear tickets on Tsah with no workshop yet**: his open TWE issues
+(assigned to him, not completed or canceled) that no clanker works on.
+- List them read-only through `./task/agent/linear api` with
+  `viewer { assignedIssues(filter: {team: {key: {eq: "TWE"}}, state: {type: {nin: ["completed","canceled"]}}}) }`.
+- An issue has a workshop when its TWE id appears in a live clanker's
+  session, name, worktree path or branch, or in a `temp/build/TWE-<n>/`
+  folder in its worktree (the same match as `linear-sweep`'s `collect.py`),
+  or in an open PR's title or branch.
+- Don't change Linear while sweeping.
+
 Also read the orchestrators' ledgers and last replies: they often hold a
 queue of shapes for their workstream. For each shape, read the ticket
 description (`./task/agent/linear`) or the draft file, so you can explain it.
@@ -44,6 +54,8 @@ reply. Write the list to the scratchpad.
    they would build.
 3. **Standalone shapes and explainers**, oldest first.
 4. **Spawn, park or drop** proposals.
+5. **Linear tickets with no workshop:** In Progress first, then Todo/Next,
+   then Backlog and Triage; by priority, then oldest.
 
 ## 3. Present one item per message
 
@@ -79,6 +91,10 @@ under the delivery rules in `slop-harvest` §4. The subagent never runs
 - **drop:** the same, and the ticket is cancelled.
 - **spawn:** start the workshop with the `handoff` skill, under the parent
   orchestrator when there is one.
+- **For a Linear ticket with no workshop,** the replies are `shape` (a
+  workshop that shapes it), `build` (factory mode, when the ticket is
+  already clear), `unassign`, `cancel` or `skip`. Spawn with `handoff`.
+  Tsah's reply is the order for any Linear change it names.
 
 ## 5. End
 
