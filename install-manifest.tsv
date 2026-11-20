@@ -57,11 +57,6 @@ a	skills/grill-with-docs	~/.claude/skills/grill-with-docs
 a	skills/grill-with-docs	~/.pi/agent/skills/grill-with-docs
 a	skills/grill-with-docs	~/.config/opencode/skills/grill-with-docs
 a	skills/grill-with-docs	~/.codex/skills/grill-with-docs
-a	skills/handoff	~/.agents/skills/handoff
-a	skills/handoff	~/.claude/skills/handoff
-a	skills/handoff	~/.pi/agent/skills/handoff
-a	skills/handoff	~/.config/opencode/skills/handoff
-a	skills/handoff	~/.codex/skills/handoff
 a	skills/improve-codebase-architecture	~/.agents/skills/improve-codebase-architecture
 a	skills/improve-codebase-architecture	~/.claude/skills/improve-codebase-architecture
 a	skills/improve-codebase-architecture	~/.pi/agent/skills/improve-codebase-architecture
