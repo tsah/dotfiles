@@ -36,8 +36,10 @@ Don't bring Tsah a build's engineering calls. When a `/build` or factory
 worker's report or risk section asks him to "decide" something inside the
 build (a limit, a wording, a placement, a type rule, proving later vs now),
 send it back to the worker to decide, record in its risk report, and rerun
-its merge-decision step. Tsah gets only Shape Go, intent breaks, cost and
-access calls, and the final merge of a PR still rated MEDIUM or HIGH after
+its merge-decision step. Shapes waiting for Shape Go, shaping questions and
+explainers before a shape are not harvest items either: they belong to a
+separate shaping flow, so leave them out of the queue. Tsah gets only
+intent breaks, cost and access calls, and the final merge of a PR still rated MEDIUM or HIGH after
 the worker has made its calls.
 
 Drop items that are already resolved: the PR merged, a later reply supersedes
