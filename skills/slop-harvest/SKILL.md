@@ -32,6 +32,14 @@ For each candidate, read enough to explain it:
   The body's change-risk section is the merge context. Check whether it already merged.
 - For a stuck clanker: `clankers status ID`. Read `state`, `blockedMessage` and `health`.
 
+Don't bring Tsah a build's engineering calls. When a `/build` or factory
+worker's report or risk section asks him to "decide" something inside the
+build (a limit, a wording, a placement, a type rule, proving later vs now),
+send it back to the worker to decide, record in its risk report, and rerun
+its merge-decision step. Tsah gets only Shape Go, intent breaks, cost and
+access calls, and the final merge of a PR still rated MEDIUM or HIGH after
+the worker has made its calls.
+
 Drop items that are already resolved: the PR merged, a later reply supersedes
 the ask, or the worker is mid-turn on it. Write the list to the scratchpad so
 it survives a long session.
