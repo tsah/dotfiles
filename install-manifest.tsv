@@ -130,3 +130,8 @@ a	skills/prompts-instructions-desk	~/.claude/skills/prompts-instructions-desk
 a	skills/prompts-instructions-desk	~/.pi/agent/skills/prompts-instructions-desk
 a	skills/prompts-instructions-desk	~/.config/opencode/skills/prompts-instructions-desk
 a	skills/prompts-instructions-desk	~/.codex/skills/prompts-instructions-desk
+a	skills/morning-box-report	~/.agents/skills/morning-box-report
+a	skills/morning-box-report	~/.claude/skills/morning-box-report
+a	skills/morning-box-report	~/.pi/agent/skills/morning-box-report
+a	skills/morning-box-report	~/.config/opencode/skills/morning-box-report
+a	skills/morning-box-report	~/.codex/skills/morning-box-report
