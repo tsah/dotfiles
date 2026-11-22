@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Clankerhouse exec sink (hooks.toml, sink "phone"): pushes a Status Event to Tsah's phone through
 # the same ntfy topic as the AWS login notices (bin/xdg-open-via-laptop). Routed events today are
-# routine.broken and routine.ended; `clankers hooks test --sink phone` sends a sample.
+# routine.broken, routine.ended and message.undelivered; `clankers hooks test --sink phone` sends a sample.
 # Event JSON arrives on stdin. Exit 0 = pushed (or deliberately dropped); nonzero = retry.
 # The topic is a secret: it is read from env or an owner-only file and never printed or logged.
 set -uo pipefail
@@ -39,6 +39,7 @@ host=$(jq -r '.host // empty' <<<"$event")
 case "$type" in
     routine.broken) title="Routine broken: ${name}"; tags="warning"; priority="high" ;;
     routine.ended) title="Routine ended: ${name}"; tags="stop_sign"; priority="high" ;;
+    message.undelivered) title="Message not delivered: ${name}"; tags="envelope,warning"; priority="high" ;;
     hooks.test) title="Clankerhouse test push"; tags="test_tube"; priority="default" ;;
     *) title="Clankerhouse ${type}: ${name}"; tags="robot"; priority="default" ;;
 esac
