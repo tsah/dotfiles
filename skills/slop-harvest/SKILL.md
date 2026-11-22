@@ -135,22 +135,18 @@ refuses to type a merge order on his behalf. It takes seconds; then show the
 next item, and have a background subagent only watch for the merge.
 
 Delivery rules:
-- **Busy worker** (`working`): `printf '%s' "$msg" | clankers send ID --request-id KEY`.
-  The message gets queued.
-- **Idle or settled worker:** `clankers send` is currently dropped by a
-  Clankerhouse hook ("this message was already delivered"). Type the message
-  as one line into the pane instead. Tsah authorized this as the workaround
-  until that bug is fixed:
-  ```bash
-  rex capture -s SESSION -b PANE6 --trim | tail -3      # prompt must be empty
-  rex send-key -s SESSION -b PANE6 ctrl+u               # clear any suggestion text
-  rex send -s SESSION -b PANE6 "$msg"; rex send-key -s SESSION -b PANE6 enter
-  ```
-  `PANE6` is the last 6 characters of the clanker's `pane` (`block:...`).
-- **Prove delivery:** the message text appears as a `type=="user"` record in
-  the worker's newest transcript under `~/.claude/projects/-<cwd with / as ->/`.
-  A `UserPromptSubmit operation blocked` record means it was dropped. Retry by
-  typing it into the pane.
+- **Any worker:** `printf '%s' "$msg" | clankers send ID --request-id KEY --wait-delivered --timeout 120`.
+  Since clankerhouse 76441b8 (2026-11-22) a send returns `delivered`,
+  `handed-over` or `queued` with `heldBecause` (mid-turn, usage limit, a draft
+  in the input box); `--wait-delivered` waits for proof in the transcript
+  (exit 3 lost, 124 timeout with the reason). A held message is reported back
+  to the sender after 10 minutes and escalated to Tsah's phone if it can't
+  clear, so don't type into panes as a workaround.
+- **Still typing into a pane** is only for steps only Tsah may type (never
+  on his behalf) or when `clankers send` itself is broken: clear with
+  `rex send-key ... ctrl+u` first, and check `clankers send-status ID`.
+- **Prove delivery:** `--wait-delivered` returning `delivered`, or the message
+  as a `type=="user"` record in the worker's transcript.
 - **Restart on another model:** kill the pane (`clankers mux kill --pane`),
   then `clankers resume ID` with no prompt. Wait for the input box, type
   `/model <name>`, press enter twice to confirm, then send the continue
