@@ -19,7 +19,7 @@ local browser_personal_profile = "Default"
 local browser_work_profile = "Profile 1"
 local terminal_app = "Herdr"
 local slack_app = "Slack"
-local whatsapp_app = "WhatsApp"
+local whatsapp_app = "net.whatsapp.WhatsApp" -- bundle ID: the app name starts with an invisible mark
 local screenshot_share_script = os.getenv("HOME") .. "/dotfiles/bin/macos-screenshot-share"
 running_tasks = running_tasks or {}
 
@@ -59,8 +59,14 @@ local function wait_for_main_window(app_name, callback)
   end)
 end
 
+-- app_name is an app name or, when it contains a dot, a bundle ID (for apps
+-- whose file name differs from their running name, like "Rex Beta.app" -> "Rex").
 local function launch_or_focus(app_name, callback)
-  hs.application.launchOrFocus(app_name)
+  if app_name:find("%.") then
+    hs.application.launchOrFocusByBundleID(app_name)
+  else
+    hs.application.launchOrFocus(app_name)
+  end
   wait_for_main_window(app_name, callback)
 end
 
@@ -101,7 +107,7 @@ end
 
 -- ANSI key codes, so the bindings work whatever input source (Hebrew too)
 -- is active when Hammerspoon loads; hs.keycodes.map follows the current layout.
-local key = { b = 11, e = 14, f = 3, n = 45, o = 31, x = 7, r = 15, v = 9, h = 4, j = 38, k = 40, l = 37, m = 46, p = 35, s = 1, t = 17, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20, ["4"] = 21 }
+local key = { b = 11, e = 14, f = 3, n = 45, o = 31, x = 7, r = 15, v = 9, h = 4, j = 38, k = 40, l = 37, m = 46, p = 35, s = 1, t = 17, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20, ["4"] = 21, ["5"] = 23 }
 
 local function focus_app(app_name)
   return function()
@@ -184,11 +190,12 @@ local key_actions = {
   [key.k] = snap(hs.layout.maximized),
   [key.f] = snap(hs.layout.maximized),
   [key.j] = snap({ x = 1 / 6, y = 1 / 8, w = 2 / 3, h = 3 / 4 }),
-  -- Numbers match the Omarchy workspaces: 1 terminal, 2 browser, 3 Slack, 4 Grok Bot.
-  [key["1"]] = focus_app(terminal_app),
+  -- 1 Rex, 2 browser, 3 Slack, 4 WhatsApp, 5 Grok Bot.
+  [key["1"]] = focus_app("com.superlogical.rex"),
   [key["2"]] = focus_app(browser_app),
   [key["3"]] = focus_app(slack_app),
-  [key["4"]] = focus_app("Grok Bot"),
+  [key["4"]] = focus_app(whatsapp_app),
+  [key["5"]] = focus_app("Grok Bot"),
   [key.p] = function()
     open_browser_profile(browser_personal_profile)
   end,

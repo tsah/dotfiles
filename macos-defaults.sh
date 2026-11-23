@@ -36,12 +36,11 @@ SWIFT
 # LinearMouse reverses the mouse wheel back (see linearmouse/linearmouse.json).
 defaults write -g com.apple.swipescrolldirection -bool true
 
-# ---- screen saver and power (pmset needs root) ----
-# The screen saver delay is one setting for battery and charger alike: 1 hour.
-# On battery the display turns off at 10 minutes, so the screen saver never shows.
-# On the charger the display stays on for 70 minutes, so the screen saver runs for 10 minutes before the display turns off.
-defaults -currentHost write com.apple.screensaver idleTime -int 3600
-sudo pmset -b displaysleep 10
-sudo pmset -c displaysleep 70
+# ---- power (pmset needs root) ----
+# The work MDM profile forces the screen saver on after 5 minutes idle.
+# On battery the display turns off at 5 minutes, before the screen saver starts.
+# On the charger it turns off at 15 minutes, after 10 minutes of screen saver.
+sudo pmset -b displaysleep 5
+sudo pmset -c displaysleep 15
 
 echo "Applied macOS defaults."
