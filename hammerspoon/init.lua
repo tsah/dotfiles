@@ -1,5 +1,3 @@
-local hyper = { "ctrl", "alt" }
-
 hs.ipc.cliInstall()
 hs.autoLaunch(true)
 
@@ -17,7 +15,6 @@ end
 local browser_app = "Google Chrome"
 local browser_personal_profile = "Default"
 local browser_work_profile = "Profile 1"
-local terminal_app = "Herdr"
 local slack_app = "Slack"
 local whatsapp_app = "net.whatsapp.WhatsApp" -- bundle ID: the app name starts with an invisible mark
 local screenshot_share_script = os.getenv("HOME") .. "/dotfiles/bin/macos-screenshot-share"
@@ -70,19 +67,12 @@ local function launch_or_focus(app_name, callback)
   wait_for_main_window(app_name, callback)
 end
 
-local function has_only_hyper(flags)
-  return flags.ctrl
-    and flags.alt
+-- Option alone is the global modifier (Ctrl+Option before 2026-11-23).
+local function has_only_opt(flags)
+  return flags.alt
+    and not flags.ctrl
     and not flags.cmd
     and not flags.shift
-    and not flags.fn
-end
-
-local function has_hyper_shift(flags)
-  return flags.ctrl
-    and flags.alt
-    and flags.shift
-    and not flags.cmd
     and not flags.fn
 end
 
@@ -107,7 +97,7 @@ end
 
 -- ANSI key codes, so the bindings work whatever input source (Hebrew too)
 -- is active when Hammerspoon loads; hs.keycodes.map follows the current layout.
-local key = { b = 11, e = 14, f = 3, n = 45, o = 31, x = 7, r = 15, v = 9, h = 4, j = 38, k = 40, l = 37, m = 46, p = 35, s = 1, t = 17, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20, ["4"] = 21, ["5"] = 23 }
+local key = { space = 49, o = 31, x = 7, h = 4, j = 38, k = 40, l = 37, p = 35, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20, ["4"] = 21, ["5"] = 23 }
 
 local function focus_app(app_name)
   return function()
@@ -116,6 +106,18 @@ local function focus_app(app_name)
     end)
   end
 end
+
+-- Focus the frontmost window in a direction, like yabai's "focus west".
+local function focus_dir(method)
+  return function()
+    local window = hs.window.focusedWindow()
+    if window then
+      window[method](window, nil, true)
+    end
+  end
+end
+
+hs.hints.showTitleThresh = 6
 
 local function move_focused(unit)
   local window = hs.window.focusedWindow()
@@ -128,17 +130,6 @@ local function snap(unit)
   return function()
     move_focused(unit)
   end
-end
-
-local function add_desktop()
-  local screen = hs.screen.mainScreen()
-  local ok, err = hs.spaces.addSpaceToScreen(screen, false)
-  if not ok then
-    hs.alert.show("Could not add a desktop: " .. tostring(err))
-    return
-  end
-  local count = #hs.spaces.spacesForScreen(screen)
-  hs.alert.show("Desktop " .. count .. " added")
 end
 
 -- Notifications have no macOS shortcut; press the top one's own buttons over
@@ -179,69 +170,81 @@ local function notification_action(pattern)
   end
 end
 
+-- Bound on purpose to few keys: each Opt+key stops typing its character, and
+-- Rex sends Option as Alt, so B/F/D/. stay free for readline word movement.
+-- The keyboard firmware allow-lists these keys for same-hand Opt
+-- (qmk_firmware: opt-keybinds.txt); keep the two in sync.
 local key_actions = {
-  [key.n] = add_desktop,
   -- Notifications: X dismisses the top one, O opens it.
   [key.x] = notification_action("Close"),
   [key.o] = notification_action("AXPress"),
-  -- Snapping: H left half, L right half, K (or F) maximize, J centered.
-  [key.h] = snap(hs.layout.left50),
-  [key.l] = snap(hs.layout.right50),
-  [key.k] = snap(hs.layout.maximized),
-  [key.f] = snap(hs.layout.maximized),
-  [key.j] = snap({ x = 1 / 6, y = 1 / 8, w = 2 / 3, h = 3 / 4 }),
-  -- 1 Rex, 2 browser, 3 Slack, 4 WhatsApp, 5 Grok Bot.
+  -- Focus by direction; Space shows a letter on each window to jump to.
+  [key.h] = focus_dir("focusWindowWest"),
+  [key.j] = focus_dir("focusWindowSouth"),
+  [key.k] = focus_dir("focusWindowNorth"),
+  [key.l] = focus_dir("focusWindowEast"),
+  [key.space] = hs.hints.windowHints,
+  -- 1 Rex, 2 browser, 3 Slack, 4 WhatsApp, 5 Grok Bot (Cmd+Opt+1-5 too).
   [key["1"]] = focus_app("com.superlogical.rex"),
   [key["2"]] = focus_app(browser_app),
   [key["3"]] = focus_app(slack_app),
   [key["4"]] = focus_app(whatsapp_app),
   [key["5"]] = focus_app("Grok Bot"),
+  -- P / W open a new Chrome window in the personal / work profile.
   [key.p] = function()
     open_browser_profile(browser_personal_profile)
   end,
   [key.w] = function()
     open_browser_profile(browser_work_profile)
   end,
-  [key.b] = function()
-    launch_or_focus(browser_app, function(window)
-      window:focus()
-    end)
-  end,
-  [key.t] = function()
-    launch_or_focus(terminal_app, function(window)
-      window:focus()
-    end)
-  end,
-  [key.s] = function()
-    launch_or_focus(slack_app, function(window)
-      window:focus()
-    end)
-  end,
-  [key.m] = function()
-    launch_or_focus(whatsapp_app, function(window)
-      window:focus()
-    end)
-  end,
-  [key.u] = function()
-    start_screenshot_share()
-  end,
+  -- U: screenshot a selection and share it.
+  [key.u] = start_screenshot_share,
 }
 
-local shift_key_actions = {
-  [key.s] = function()
-    start_screenshot_share()
-  end,
+-- Cmd+Option: snapping, on the same keys as focus.
+local cmd_key_actions = {
+  [key.h] = snap(hs.layout.left50),
+  [key.l] = snap(hs.layout.right50),
+  [key.k] = snap(hs.layout.maximized),
+  [key.j] = snap({ x = 1 / 6, y = 1 / 8, w = 2 / 3, h = 3 / 4 }),
 }
+
+for _, k in ipairs({ "1", "2", "3", "4", "5" }) do
+  cmd_key_actions[key[k]] = key_actions[key[k]]
+end
+
+-- While Spaceman (tiling window manager) runs, it owns Opt+1-9/0 (workspaces) and
+-- Opt+H/J/K/L (focus); Hammerspoon passes them through and skips its snapping.
+local spaceman_keys = {
+  [key["1"]] = true, [key["2"]] = true, [key["3"]] = true, [key["4"]] = true, [key["5"]] = true,
+  [key.h] = true, [key.j] = true, [key.k] = true, [key.l] = true,
+}
+local function spaceman_running()
+  return hs.application.get("anomaly.spaceman") ~= nil
+end
+
+local function has_opt_cmd(flags)
+  return flags.alt and flags.cmd and not flags.ctrl and not flags.shift and not flags.fn
+end
 
 app_shortcuts_tap = hs.eventtap
   .new({ hs.eventtap.event.types.keyDown }, function(event)
     local flags = event:getFlags()
     local action
 
-    if has_only_hyper(flags) then
-      action = key_actions[event:getKeyCode()]
-    elseif has_hyper_shift(flags) then
-      action = shift_key_actions[event:getKeyCode()]
+    local code = event:getKeyCode()
+    if has_only_opt(flags) then
+      if spaceman_keys[code] and spaceman_running() then
+        return false
+      end
+      action = key_actions[code]
+    elseif has_opt_cmd(flags) then
+      if code == key.h or code == key.j or code == key.k or code == key.l then
+        if spaceman_running() then
+          return false
+        end
+      end
+      action = cmd_key_actions[code]
     end
 
     if not action then
@@ -253,8 +256,40 @@ app_shortcuts_tap = hs.eventtap
   end)
 app_shortcuts_tap:start()
 
--- Snapping is on Ctrl+Option+HJKL; Herdr keeps Ctrl+Option+arrows for pane focus.
 hs.window.animationDuration = 0
+
+-- Spaceman: each app has a home workspace (rules in Spaceman's config.toml route
+-- new windows there). Connecting or disconnecting a display scrambles hidden
+-- windows, so a few seconds after a display change move each app back home.
+local spaceman_cli = "/Applications/Spaceman.app/Contents/MacOS/spaceman"
+local spaceman_homes = {
+  { "com.superlogical.rex", 1 },
+  { "com.google.Chrome", 2 },
+  { "com.tinyspeck.slackmacgap", 3 },
+  { "net.whatsapp.WhatsApp", 4 },
+  { "com.anysphere.sand", 5 }, -- Grok Bot
+}
+
+function spaceman_rehome()
+  if not spaceman_running() then return end
+  for _, home in ipairs(spaceman_homes) do
+    if hs.application.get(home[1]) then
+      local task
+      task = hs.task.new(spaceman_cli, function()
+        running_tasks[task] = nil
+      end, { "ctl", "move-app", home[1], tostring(home[2]) })
+      running_tasks[task] = true
+      task:start()
+    end
+  end
+end
+
+spaceman_rehome_timer = nil
+spaceman_screen_watcher = hs.screen.watcher.new(function()
+  if spaceman_rehome_timer then spaceman_rehome_timer:stop() end
+  spaceman_rehome_timer = hs.timer.doAfter(4, spaceman_rehome)
+end)
+spaceman_screen_watcher:start()
 
 -- Natural scrolling is on system-wide (for the trackpad); LinearMouse reverses
 -- the mouse wheel. See linearmouse/linearmouse.json.
