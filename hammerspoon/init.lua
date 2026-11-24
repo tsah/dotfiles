@@ -258,39 +258,6 @@ app_shortcuts_tap:start()
 
 hs.window.animationDuration = 0
 
--- Spaceman: each app has a home workspace (rules in Spaceman's config.toml route
--- new windows there). Connecting or disconnecting a display scrambles hidden
--- windows, so a few seconds after a display change move each app back home.
-local spaceman_cli = "/Applications/Spaceman.app/Contents/MacOS/spaceman"
-local spaceman_homes = {
-  { "com.superlogical.rex", 1 },
-  { "com.google.Chrome", 2 },
-  { "com.tinyspeck.slackmacgap", 3 },
-  { "net.whatsapp.WhatsApp", 4 },
-  { "com.anysphere.sand", 5 }, -- Grok Bot
-}
-
-function spaceman_rehome()
-  if not spaceman_running() then return end
-  for _, home in ipairs(spaceman_homes) do
-    if hs.application.get(home[1]) then
-      local task
-      task = hs.task.new(spaceman_cli, function()
-        running_tasks[task] = nil
-      end, { "ctl", "move-app", home[1], tostring(home[2]) })
-      running_tasks[task] = true
-      task:start()
-    end
-  end
-end
-
-spaceman_rehome_timer = nil
-spaceman_screen_watcher = hs.screen.watcher.new(function()
-  if spaceman_rehome_timer then spaceman_rehome_timer:stop() end
-  spaceman_rehome_timer = hs.timer.doAfter(4, spaceman_rehome)
-end)
-spaceman_screen_watcher:start()
-
 -- Natural scrolling is on system-wide (for the trackpad); LinearMouse reverses
 -- the mouse wheel. See linearmouse/linearmouse.json.
 
