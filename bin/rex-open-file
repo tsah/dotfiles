@@ -1,0 +1,64 @@
+#!/bin/sh
+# Open files in Neovim, each as a new tab in the Rex session "files", and show
+# that session in its own Rex window, so the window you were in keeps its session. Used by "Rex Nvim.app" (macos/rex-nvim.applescript)
+# for double-clicked text files: Finder gives no current Rex session to use.
+set -u
+log="$HOME/Library/Logs/rex-open-file.log"
+exec 2>>"$log"
+rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+unset REX_SESSION REX_BLOCK
+session=files
+
+for file in "$@"; do
+  dir=$(dirname "$file")
+  "$rex" run -s "$session" -c "$dir" -- /opt/homebrew/bin/nvim "$file" >/dev/null 2>&1 ||
+    "$rex" new "$session" -c "$dir" -- /opt/homebrew/bin/nvim "$file" >/dev/null || exit 1
+done
+
+hs=/opt/homebrew/bin/hs
+# Raise the Rex window showing the session (titles end in " - LABEL"); prints
+# "yes" if there is one. rex run already made the new tab active in the session.
+raised=$("$hs" -c "for _, w in ipairs(hs.application.get('com.superlogical.rex'):allWindows()) do if w:title():sub(-#' - $session') == ' - $session' then w:focus() return 'yes' end end return 'no'" 2>/dev/null | tail -1)
+echo "$(date '+%F %T') open $* raised=$raised" >>"$log"
+[ "$raised" = yes ] && exit 0
+
+# No window shows it. Rex's "Go to Session" acts on the frontmost Rex window, so
+# open a new window first, then point it at the session.
+ids=$("$rex" window ls -s "$session" --json | /usr/bin/python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(d["session_id"], d["active_window_id"])')
+clients=$("$rex" client ls --json | /usr/bin/python3 -c '
+import json, sys
+for c in json.load(sys.stdin)["clients"]:
+    if c.get("info", {}).get("kind") == "app":
+        print(c["client_id"])')
+session_ids() {
+  "$rex" ls --json | /usr/bin/python3 -c '
+import json, sys
+for s in json.load(sys.stdin)["sessions"]:
+    print(s["session_id"])'
+}
+before=$(session_ids)
+new_session() {
+  for id in $(session_ids); do
+    case "$before" in *"$id"*) ;; *) echo "$id"; return ;; esac
+  done
+}
+for client in $clients; do
+  "$rex" do -C "$client" session.refresh >/dev/null 2>&1
+  "$rex" do -C "$client" client.window.new >/dev/null 2>&1
+  # The window and its fresh shell session appear a moment later; wait for them.
+  leftover=
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    leftover=$(new_session)
+    [ -n "$leftover" ] && break
+    sleep 0.1
+  done
+  sleep 0.2
+  set -- $ids
+  "$rex" do -C "$client" session.select session_id="$1" window_id="$2" >/dev/null 2>&1
+  echo "$(date '+%F %T') new window, leftover session ${leftover:-none}" >>"$log"
+  # Once the window shows the session, its own fresh shell session is unused.
+  [ -n "$leftover" ] && "$rex" kill "$leftover" >/dev/null 2>&1
+done

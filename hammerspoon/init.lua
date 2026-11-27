@@ -97,7 +97,7 @@ end
 
 -- ANSI key codes, so the bindings work whatever input source (Hebrew too)
 -- is active when Hammerspoon loads; hs.keycodes.map follows the current layout.
-local key = { space = 49, o = 31, x = 7, h = 4, j = 38, k = 40, l = 37, p = 35, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20, ["4"] = 21, ["5"] = 23 }
+local key = { space = 49, q = 12, o = 31, x = 7, h = 4, j = 38, k = 40, l = 37, p = 35, u = 32, w = 13, ["1"] = 18, ["2"] = 19, ["3"] = 20, ["4"] = 21, ["5"] = 23 }
 
 local function focus_app(app_name)
   return function()
@@ -196,6 +196,13 @@ local key_actions = {
   end,
   [key.w] = function()
     open_browser_profile(browser_work_profile)
+  end,
+  -- Q: close the focused window (like its red button).
+  [key.q] = function()
+    local window = hs.window.focusedWindow()
+    if window then
+      window:close()
+    end
   end,
   -- U: screenshot a selection and share it.
   [key.u] = start_screenshot_share,

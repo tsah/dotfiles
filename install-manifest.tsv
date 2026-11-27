@@ -1,6 +1,6 @@
 # Tab-separated: scope<TAB>source<TAB>destination
 # Scope: profile letters d = desktop, s = server, m = macos (e.g. dsm = all); a = desktop and server
-a	nvim	~/.config/nvim
+dsm	nvim	~/.config/nvim
 dsm	zshrc	~/.zshrc
 a	bashrc	~/.bashrc
 dsm	inputrc	~/.inputrc
